@@ -1,1 +1,284 @@
-<!DOCTYPE html><html lang=""><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.ico"><title>deal-pro</title><link href="/css/app.49fa9515.css" rel="preload" as="style"><link href="/css/chunk-vendors.a16c4353.css" rel="preload" as="style"><link href="/js/app.8853b664.js" rel="preload" as="script"><link href="/js/chunk-vendors.6ff0698f.js" rel="preload" as="script"><link href="/css/chunk-vendors.a16c4353.css" rel="stylesheet"><link href="/css/app.49fa9515.css" rel="stylesheet"></head><body><noscript><strong>We're sorry but deal-pro doesn't work properly without JavaScript enabled. Please enable it to continue.</strong></noscript><div id="app"></div><script src="/js/chunk-vendors.6ff0698f.js"></script><script src="/js/app.8853b664.js"></script></body></html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>圣诞表白 - 旭宝爱镜宝</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* 星空背景 */
+        .stars {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+        }
+
+        .star {
+            position: absolute;
+            background: white;
+            border-radius: 50%;
+            animation: twinkle 2s infinite;
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        /* 雪花动画 */
+        .snowflake {
+            position: absolute;
+            color: white;
+            font-size: 1em;
+            font-family: Arial;
+            text-shadow: 0 0 5px rgba(255, 255, 255, 0.8);
+            animation: fall linear infinite;
+            top: -10px;
+        }
+
+        @keyframes fall {
+            to {
+                transform: translateY(100vh) rotate(360deg);
+            }
+        }
+
+        /* 主容器 */
+        .container {
+            position: relative;
+            z-index: 10;
+            text-align: center;
+            padding: 20px;
+            max-width: 90%;
+        }
+
+        /* 标题文字 */
+        .love-text {
+            font-size: 2.5rem;
+            color: #ff6b9d;
+            text-shadow: 
+                0 0 10px rgba(255, 107, 157, 0.8),
+                0 0 20px rgba(255, 107, 157, 0.6),
+                0 0 30px rgba(255, 107, 157, 0.4);
+            margin-bottom: 30px;
+            animation: pulse 2s ease-in-out infinite;
+            font-weight: bold;
+            line-height: 1.5;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.05);
+            }
+        }
+
+        /* 爱心装饰 */
+        .heart {
+            color: #ff6b9d;
+            font-size: 2rem;
+            animation: heartbeat 1.5s ease-in-out infinite;
+            display: inline-block;
+            margin: 0 10px;
+        }
+
+        @keyframes heartbeat {
+            0%, 100% {
+                transform: scale(1);
+            }
+            25% {
+                transform: scale(1.2);
+            }
+            50% {
+                transform: scale(1);
+            }
+            75% {
+                transform: scale(1.1);
+            }
+        }
+
+        /* 圣诞装饰 */
+        .decoration {
+            position: absolute;
+            font-size: 1.5rem;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        .decoration:nth-child(1) {
+            top: 10%;
+            left: 10%;
+            animation-delay: 0s;
+        }
+
+        .decoration:nth-child(2) {
+            top: 20%;
+            right: 15%;
+            animation-delay: 1s;
+        }
+
+        .decoration:nth-child(3) {
+            bottom: 15%;
+            left: 15%;
+            animation-delay: 2s;
+        }
+
+        .decoration:nth-child(4) {
+            bottom: 25%;
+            right: 10%;
+            animation-delay: 1.5s;
+        }
+
+        @keyframes float {
+            0%, 100% {
+                transform: translateY(0) rotate(0deg);
+            }
+            50% {
+                transform: translateY(-20px) rotate(10deg);
+            }
+        }
+
+        /* 底部文字 */
+        .subtitle {
+            color: #fff;
+            font-size: 1.2rem;
+            margin-top: 30px;
+            opacity: 0.9;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+            animation: fadeIn 2s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 0.9;
+                transform: translateY(0);
+            }
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 480px) {
+            .love-text {
+                font-size: 2rem;
+            }
+            
+            .heart {
+                font-size: 1.5rem;
+            }
+            
+            .subtitle {
+                font-size: 1rem;
+            }
+        }
+
+        @media (max-width: 360px) {
+            .love-text {
+                font-size: 1.6rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 星空背景 -->
+    <div class="stars" id="stars"></div>
+    
+    <!-- 雪花容器 -->
+    <div id="snowflakes"></div>
+    
+    <!-- 圣诞装饰 -->
+    <div class="decoration">✨</div>
+    <div class="decoration">🎄</div>
+    <div class="decoration">⭐</div>
+    <div class="decoration">🎁</div>
+    
+    <!-- 主内容 -->
+    <div class="container">
+        <div class="love-text">
+            <span class="heart">💕</span>
+            旭宝永远爱镜宝
+            <span class="heart">💕</span>
+        </div>
+        <div class="subtitle">
+            在这个浪漫的圣诞夜<br>
+            愿我们的爱情如雪花般纯洁<br>
+            如星星般永恒 ✨
+        </div>
+    </div>
+
+    <script>
+        // 创建星空
+        function createStars() {
+            const starsContainer = document.getElementById('stars');
+            const numStars = 100;
+            
+            for (let i = 0; i < numStars; i++) {
+                const star = document.createElement('div');
+                star.className = 'star';
+                star.style.left = Math.random() * 100 + '%';
+                star.style.top = Math.random() * 100 + '%';
+                star.style.width = Math.random() * 3 + 1 + 'px';
+                star.style.height = star.style.width;
+                star.style.animationDelay = Math.random() * 2 + 's';
+                star.style.animationDuration = (Math.random() * 2 + 1) + 's';
+                starsContainer.appendChild(star);
+            }
+        }
+
+        // 创建雪花
+        function createSnowflakes() {
+            const snowflakesContainer = document.getElementById('snowflakes');
+            const snowflakeSymbols = ['❄', '❅', '❆'];
+            const numSnowflakes = 50;
+            
+            for (let i = 0; i < numSnowflakes; i++) {
+                const snowflake = document.createElement('div');
+                snowflake.className = 'snowflake';
+                snowflake.textContent = snowflakeSymbols[Math.floor(Math.random() * snowflakeSymbols.length)];
+                snowflake.style.left = Math.random() * 100 + '%';
+                snowflake.style.fontSize = (Math.random() * 10 + 10) + 'px';
+                snowflake.style.opacity = Math.random() * 0.5 + 0.5;
+                snowflake.style.animationDuration = (Math.random() * 3 + 2) + 's';
+                snowflake.style.animationDelay = Math.random() * 2 + 's';
+                snowflakesContainer.appendChild(snowflake);
+            }
+        }
+
+        // 页面加载时初始化
+        window.addEventListener('load', () => {
+            createStars();
+            createSnowflakes();
+        });
+
+        // 触摸反馈
+        document.addEventListener('touchstart', function() {
+            document.body.style.transform = 'scale(0.98)';
+        });
+
+        document.addEventListener('touchend', function() {
+            document.body.style.transform = 'scale(1)';
+        });
+    </script>
+</body>
+</html>
