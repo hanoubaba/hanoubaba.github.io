@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>授权登录 - 乐享单点登录</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(180deg, #0089FF 0%, #42B6FF 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .auth-container {
+            width: 100%;
+            max-width: 500px;
+        }
+
+        .auth-content {
+            background: #ffffff;
+            border-radius: 24px;
+            padding: 60px 40px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        /* 加载中状态 */
+        .loading-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 300px;
+        }
+
+        .loading-icon {
+            width: 80px;
+            height: 80px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0089FF;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 30px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            font-size: 18px;
+            color: #333333;
+            font-weight: 500;
+        }
+
+        /* 成功状态 */
+        .success-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 300px;
+        }
+
+        .success-icon {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: #52c41a;
+            color: #ffffff;
+            font-size: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 30px;
+        }
+
+        .success-text {
+            font-size: 24px;
+            color: #333333;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+
+        .success-desc {
+            font-size: 16px;
+            color: #666666;
+        }
+
+        /* 错误状态 */
+        .error-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 300px;
+        }
+
+        .error-icon {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: #ff4d4f;
+            color: #ffffff;
+            font-size: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 30px;
+        }
+
+        .error-text {
+            font-size: 24px;
+            color: #333333;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+
+        .error-desc {
+            font-size: 16px;
+            color: #666666;
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 0 20px;
+            line-height: 1.8;
+        }
+
+        .error-desc strong {
+            color: #333333;
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .error-desc span {
+            display: block;
+            margin-top: 8px;
+        }
+
+        .retry-btn {
+            padding: 12px 40px;
+            background: linear-gradient(90deg, #0089FF 0%, #42B6FF 100%);
+            border-radius: 24px;
+            color: #ffffff;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            transition: opacity 0.3s;
+        }
+
+        .retry-btn:hover {
+            opacity: 0.8;
+        }
+
+        .retry-btn:active {
+            opacity: 0.6;
+        }
+
+        /* 授权确认界面 */
+        .auth-confirm {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .auth-title {
+            font-size: 28px;
+            color: #333333;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+
+        .auth-desc {
+            font-size: 16px;
+            color: #666666;
+            margin-bottom: 40px;
+        }
+
+        .auth-info {
+            background: #f5f5f5;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 40px;
+            text-align: left;
+        }
+
+        .info-item {
+            display: flex;
+            align-items: center;
+            padding: 15px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .info-item:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            font-size: 16px;
+            color: #999999;
+            margin-right: 15px;
+            min-width: 100px;
+        }
+
+        .info-value {
+            font-size: 16px;
+            color: #333333;
+            font-weight: 500;
+        }
+
+        .auth-buttons {
+            display: flex;
+            gap: 20px;
+        }
+
+        .cancel-btn,
+        .confirm-btn {
+            flex: 1;
+            padding: 14px 0;
+            border-radius: 24px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            transition: opacity 0.3s;
+        }
+
+        .cancel-btn {
+            background: #f5f5f5;
+            color: #666666;
+        }
+
+        .cancel-btn:hover {
+            opacity: 0.8;
+        }
+
+        .confirm-btn {
+            background: linear-gradient(90deg, #0089FF 0%, #42B6FF 100%);
+            color: #ffffff;
+        }
+
+        .confirm-btn:hover {
+            opacity: 0.8;
+        }
+
+        .confirm-btn:active,
+        .cancel-btn:active {
+            opacity: 0.6;
+        }
+
+        /* 隐藏类 */
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-content">
+            <!-- 加载中状态 -->
+            <div id="loadingWrapper" class="loading-wrapper">
+                <div class="loading-icon"></div>
+                <div class="loading-text">正在处理授权请求...</div>
+            </div>
+
+            <!-- 授权成功状态 -->
+            <div id="successWrapper" class="success-wrapper hidden">
+                <div class="success-icon">✓</div>
+                <div class="success-text">授权成功</div>
+                <div class="success-desc">正在跳转到乐享平台...</div>
+            </div>
+
+            <!-- 授权失败状态 -->
+            <div id="errorWrapper" class="error-wrapper hidden">
+                <div class="error-icon">✗</div>
+                <div class="error-text">授权失败</div>
+                <div class="error-desc" id="errorMessage">授权失败，请稍后重试</div>
+                <button class="retry-btn" onclick="handleAuth()">重试</button>
+            </div>
+
+            <!-- 授权确认界面 -->
+            <div id="authConfirm" class="auth-confirm hidden">
+                <div class="auth-title">授权确认</div>
+                <div class="auth-desc">您即将授权登录乐享平台</div>
+                <div class="auth-info">
+                    <div class="info-item">
+                        <span class="info-label">授权平台：</span>
+                        <span class="info-value">乐享</span>
+                    </div>
+                </div>
+                <div class="auth-buttons">
+                    <button class="cancel-btn" onclick="handleCancel()">取消</button>
+                    <button class="confirm-btn" onclick="handleAuth()">确认授权</button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // ========== 配置 ==========
+        // 环境配置：true-生产环境，false-测试环境
+        const IS_PRODUCTION = true;
+        const BASE_DOMAIN = IS_PRODUCTION 
+            ? 'https://externalpartners.imuyuan.com'
+            : 'https://externalpartners-test.imuyuan.com';
+        const API_BASE_URL = BASE_DOMAIN + '/api';
+        
+        // 临时写死的 token（用于调试，生产环境需要从登录态获取）
+        const DEBUG_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZW5hbnRfaWQiOiI4MDM4OTIiLCJ1c2VyX25hbWUiOiIxODEwMzg0NTE4OCIsImRlcHRfbmFtZSI6Iui_kOiQpeS_oeaBr-WMli3lpJbpg6jlkIjkvZzllYbnrqHnkIYt5bCP56iL5bqP5YWs5YWx6YOo6ZeoIiwicmVhbF9uYW1lIjoiMTgxMDM4NDUxODgiLCJhdmF0YXIiOiIiLCJhdXRob3JpdGllcyI6WyJpbmZvLW9wdC1oenMtd3hfODAzODkyX2NvbW1vblJvbGUiXSwiY2xpZW50X2lkIjoiaW5mby1vcHQtaHpzLXd4Iiwicm9sZV9uYW1lIjoiaW5mby1vcHQtaHpzLXd4XzgwMzg5Ml9jb21tb25Sb2xlIiwibGljZW5zZSI6InBvd2VyZWQgYnkgbXV5dWFudG9vbCIsInBvc3RfaWQiOiIiLCJ1c2VyX2lkIjoiMTk5ODIwOTMzNDM4NDIwMTcyOSIsInBvc3RfbmFtZSI6IiIsInJvbGVfaWQiOiIxOTk3ODczNTk2NDc3Mzk2MDY2LDE5OTc4NzM1OTY0NzczOTYwNjYiLCJzdWNjZXNzIjp0cnVlLCJzY29wZSI6WyJhbGwiXSwibmlja19uYW1lIjoiMTgxMDM4NDUxODgiLCJvYXV0aF9pZCI6IiIsImRldGFpbCI6eyJ0eXBlIjoid2ViIiwiYXBwQ29kZSI6ImluZm8tb3B0LWh6cy13eCJ9LCJleHAiOjE3NjczMTgxODIsImRlcHRfaWQiOiIxOTk3ODczNTk2NDc3MzY3MzkyIiwianRpIjoiZDBiYjVjNTAtZmQwZS00MGE2LTg0NGItOTg1ZmM2ZDcwYjVhIiwiYWNjb3VudCI6IjE4MTAzODQ1MTg4In0.5-GHsgoaRRfyh48aw2KWvUn6WABf2fLVeR_zj5QADns';
+        // ==========================
+
+        // 全局变量
+        let redirectUri = '';
+        let state = '';
+        let appid = '';
+        let currentState = 'loading'; // loading, success, error, confirm
+
+        // 页面加载时初始化
+        window.addEventListener('DOMContentLoaded', function() {
+            console.log('[授权页面] 页面初始化');
+            
+            // 从URL参数中获取 appid、redirect_uri 和 state
+            const urlParams = new URLSearchParams(window.location.search);
+            appid = urlParams.get('appid') || '';
+            
+            // 获取 redirect_uri（需要URL解码）
+            const redirectUriParam = urlParams.get('redirect_uri') || '';
+            redirectUri = redirectUriParam ? decodeURIComponent(redirectUriParam) : '';
+            
+            // 获取 state 参数
+            state = urlParams.get('state') || '';
+
+            console.log('[授权页面] 接收到的参数:', {
+                appid: appid || '(未提供)',
+                redirectUri: redirectUri ? redirectUri.substring(0, 50) + '...' : '(未提供)',
+                state: state || '(未提供)'
+            });
+
+            // 参数验证
+            if (!redirectUri) {
+                console.error('[授权页面] 参数验证失败: 缺少 redirect_uri');
+                showError('缺少必要参数', '请确保从乐享平台正确跳转到授权页面');
+                return;
+            }
+
+            if (!state) {
+                console.error('[授权页面] 参数验证失败: 缺少 state');
+                showError('缺少必要参数', '请确保从乐享平台正确跳转到授权页面');
+                return;
+            }
+
+            console.log('[授权页面] 参数验证通过，开始授权流程');
+            // 自动执行授权（单点登录流程通常自动处理）
+            handleAuth();
+        });
+
+        /**
+         * 显示加载状态
+         */
+        function showLoading() {
+            currentState = 'loading';
+            document.getElementById('loadingWrapper').classList.remove('hidden');
+            document.getElementById('successWrapper').classList.add('hidden');
+            document.getElementById('errorWrapper').classList.add('hidden');
+            document.getElementById('authConfirm').classList.add('hidden');
+        }
+
+        /**
+         * 显示成功状态
+         */
+        function showSuccess() {
+            currentState = 'success';
+            document.getElementById('loadingWrapper').classList.add('hidden');
+            document.getElementById('successWrapper').classList.remove('hidden');
+            document.getElementById('errorWrapper').classList.add('hidden');
+            document.getElementById('authConfirm').classList.add('hidden');
+        }
+
+        /**
+         * 显示错误状态
+         * @param {String} message - 错误消息
+         * @param {String} detail - 错误详情（可选）
+         */
+        function showError(message, detail = '') {
+            currentState = 'error';
+            const errorMessageEl = document.getElementById('errorMessage');
+            if (detail) {
+                errorMessageEl.innerHTML = `<strong>${message}</strong><br><span style="font-size: 14px; color: #999; margin-top: 8px; display: block;">${detail}</span>`;
+            } else {
+                errorMessageEl.textContent = message || '授权失败，请稍后重试';
+            }
+            document.getElementById('loadingWrapper').classList.add('hidden');
+            document.getElementById('successWrapper').classList.add('hidden');
+            document.getElementById('errorWrapper').classList.remove('hidden');
+            document.getElementById('authConfirm').classList.add('hidden');
+        }
+
+        /**
+         * 显示确认界面
+         */
+        function showConfirm() {
+            currentState = 'confirm';
+            document.getElementById('loadingWrapper').classList.add('hidden');
+            document.getElementById('successWrapper').classList.add('hidden');
+            document.getElementById('errorWrapper').classList.add('hidden');
+            document.getElementById('authConfirm').classList.remove('hidden');
+        }
+
+        /**
+         * 处理授权
+         */
+        async function handleAuth() {
+            console.log('[授权流程] 开始处理授权');
+            showLoading();
+
+            try {
+                console.log('[授权流程] 调用接口生成授权码');
+                // 调用接口生成授权码
+                const response = await createAuthCode('15036165970', appid);
+
+                // 检查响应
+                let code = null;
+                if (response) {
+                    // 尝试多种可能的响应格式
+                    if (typeof response === 'string') {
+                        code = response;
+                    } else if (response.code) {
+                        code = response.code;
+                    } else if (response.data) {
+                        if (typeof response.data === 'string') {
+                            code = response.data;
+                        } else if (response.data.code) {
+                            code = response.data.code;
+                        } else {
+                            code = JSON.stringify(response.data);
+                        }
+                    } else {
+                        code = JSON.stringify(response);
+                    }
+                }
+
+                if (!code) {
+                    console.error('[授权流程] 获取授权码失败: 响应数据异常', response);
+                    throw new Error('获取授权码失败：响应数据异常');
+                }
+
+                // ======== 调试：完整打印授权码（仅供排查问题使用，确认无误后建议删除） ========
+                console.log('[授权流程] 授权码生成成功，完整授权码如下：');
+                console.log(code);
+                // 如果需要在页面上看到授权码（便于截图给后端排查）
+                if (IS_PRODUCTION) {
+                    let debugEl = document.getElementById('debugCode');
+                    if (!debugEl) {
+                        debugEl = document.createElement('div');
+                        debugEl.id = 'debugCode';
+                        debugEl.style.marginTop = '20px';
+                        debugEl.style.fontSize = '12px';
+                        debugEl.style.color = '#999';
+                        debugEl.style.wordBreak = 'break-all';
+                        document.querySelector('.auth-content').appendChild(debugEl);
+                    }
+                    debugEl.innerText = '【调试信息】授权码：' + code;
+                }
+                // ======== 调试信息结束 ========
+
+                console.log('[授权流程] 授权码生成成功（已部分隐藏）');
+                console.log('[授权流程] 授权码(前20位):', code.substring(0, 20) + '...');
+
+                // 构建重定向URL
+                const redirectUrl = buildRedirectUrl(code);
+                console.log('[授权流程] 重定向URL:', redirectUrl.substring(0, 80) + '...');
+
+                // 显示成功状态
+                showSuccess();
+
+                // 延迟跳转，让用户看到成功提示
+                setTimeout(() => {
+                    console.log('[授权流程] 开始跳转到乐享平台');
+                    window.location.href = redirectUrl;
+                }, 1500);
+
+            } catch (err) {
+                console.error('[授权流程] 授权失败:', err);
+                const errorMessage = err.message || err.msg || err.error_description || '授权失败，请稍后重试';
+                console.error('[授权流程] 错误信息:', errorMessage);
+                showError(errorMessage);
+            }
+        }
+
+        /**
+         * 调用接口生成授权码
+         * @param {String} phone - 手机号
+         * @param {String} appid - 应用ID（可选）
+         */
+        async function createAuthCode(phone, appid = '') {
+            const url = API_BASE_URL + '/muyuan-gcgl-externalpartner/wechat/lx/createCode';
+            
+            console.log('[接口调用] 准备调用授权码接口');
+            console.log('[接口调用] 接口地址:', url);
+            
+            // 优先从localStorage获取token，如果没有则使用写死的调试token
+            let token = localStorage.getItem('token') || '';
+            if (!token) {
+                token = DEBUG_TOKEN;
+                console.log('[接口调用] 使用调试token');
+            } else {
+                console.log('[接口调用] 使用localStorage中的token');
+            }
+            
+            // 构建请求头
+            const headers = {
+                'Content-Type': 'application/json',
+                'Authorization': 'Basic Znpqcy1wbGF0Zm9ybS1oenMtd3g6Znpqcy1wbGF0Zm9ybS1oenMtd3hfc2VjcmV0',
+                'Muyuan-Auth': `bearer ${token}`
+            };
+
+            // 构建请求体
+            const requestBody = {
+                phone: phone
+            };
+
+            // 如果提供了 appid，添加到请求体中
+            if (appid) {
+                requestBody.appid = appid;
+            }
+
+            console.log('[接口调用] 请求参数:', {
+                phone: phone,
+                appid: appid || '(未提供)'
+            });
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(requestBody)
+            });
+
+            console.log('[接口调用] 响应状态:', response.status, response.statusText);
+
+            // 检查响应状态
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('[接口调用] 接口调用失败:', errorData);
+                throw new Error(errorData.message || errorData.msg || errorData.error_description || `HTTP错误: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('[接口调用] 接口响应成功:', {
+                hasData: !!data.data,
+                hasCode: !!(data.data && data.data.code),
+                hasError: !!(data.error || data.error_description)
+            });
+            
+            // 处理响应数据
+            if (data.error || data.error_description) {
+                console.error('[接口调用] 响应包含错误:', data.error || data.error_description);
+                throw new Error(data.error_description || data.error || '授权失败');
+            }
+
+            return data.data || data;
+        }
+
+        /**
+         * 构建重定向URL
+         * @param {String} code - 授权码
+         */
+        function buildRedirectUrl(code) {
+            // 检查 redirect_uri 是否已经包含参数
+            const separator = redirectUri.includes('?') ? '&' : '?';
+            const redirectUrl = `${redirectUri}${separator}code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+            console.log('[重定向] 构建重定向URL完成');
+            return redirectUrl;
+        }
+
+        /**
+         * 取消授权
+         */
+        function handleCancel() {
+            if (confirm('取消授权将无法登录乐享平台，确定要取消吗？')) {
+                // 返回上一页或关闭页面
+                if (window.history.length > 1) {
+                    window.history.back();
+                } else {
+                    // 尝试关闭窗口，如果无法关闭则跳转到乐享首页
+                    window.close();
+                    setTimeout(() => {
+                        window.location.href = 'https://lexiangla.com';
+                    }, 100);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
+
