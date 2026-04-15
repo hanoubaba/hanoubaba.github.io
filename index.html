@@ -181,6 +181,29 @@
             line-height: 1.8;
         }
 
+        .subsites {
+            margin-top: 24px;
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .subsites a {
+            color: #ffffff;
+            text-decoration: none;
+            padding: 8px 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            background: rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(4px);
+            transition: background-color 0.2s ease;
+        }
+
+        .subsites a:hover {
+            background: rgba(255, 255, 255, 0.24);
+        }
+
         @keyframes fadeInUp {
             from {
                 opacity: 0;
@@ -260,6 +283,10 @@
         </div>
         <div class="blessing">
             祝陈镜小朋友节日快乐，开心每一天！🎉
+        </div>
+        <div class="subsites">
+            <a href="./site-a/">进入 Site A</a>
+            <a href="./site-b/">进入 Site B</a>
         </div>
     </div>
 
