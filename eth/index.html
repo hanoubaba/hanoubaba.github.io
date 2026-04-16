@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>5分钟大线趋势跟随</title>
+  <title>15分钟大线趋势跟随</title>
   <link rel="stylesheet" href="./css/style.css" />
 </head>
 <body>
   <main class="container">
     <header class="header">
-      <h1 class="title">5分钟大线交叉趋势跟随</h1>
+      <h1 class="title">15分钟大线交叉趋势跟随</h1>
       <p class="subtitle">输入当前价格，选择做多/做空，自动计算开单、止盈、止损。</p>
     </header>
 
@@ -28,18 +28,28 @@
     </section>
 
     <section class="panel" aria-label="输出结果">
+      <p id="direction-hint" class="direction-hint" aria-live="polite"></p>
       <div class="result">
         <div class="result-row">
           <div class="result-label">开单价格</div>
-          <div id="open-price" class="result-value">—</div>
+          <div class="result-value-wrap">
+            <div id="open-price" class="result-value">—</div>
+            <button type="button" class="btn-copy" data-copy-for="open-price" aria-label="复制开单价格">复制</button>
+          </div>
         </div>
         <div class="result-row">
           <div class="result-label">止盈价格</div>
-          <div id="tp-price" class="result-value">—</div>
+          <div class="result-value-wrap">
+            <div id="tp-price" class="result-value">—</div>
+            <button type="button" class="btn-copy" data-copy-for="tp-price" aria-label="复制止盈价格">复制</button>
+          </div>
         </div>
         <div class="result-row">
           <div class="result-label">止损价格</div>
-          <div id="sl-price" class="result-value">—</div>
+          <div class="result-value-wrap">
+            <div id="sl-price" class="result-value">—</div>
+            <button type="button" class="btn-copy" data-copy-for="sl-price" aria-label="复制止损价格">复制</button>
+          </div>
         </div>
       </div>
     </section>
