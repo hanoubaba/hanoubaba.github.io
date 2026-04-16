@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>5分钟大线趋势跟随</title>
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <h1 class="title">5分钟大线交叉趋势跟随</h1>
+      <p class="subtitle">输入当前价格，选择做多/做空，自动计算开单、止盈、止损。</p>
+    </header>
+
+    <section class="panel" aria-label="输入区域">
+      <label class="field">
+        <span class="field-label">当前价格</span>
+        <input id="current-price" class="field-input" inputmode="decimal" autocomplete="off" placeholder="" />
+      </label>
+
+      <div class="actions" aria-label="操作按钮">
+        <button id="btn-long" class="btn btn-long" type="button">做多</button>
+        <button id="btn-short" class="btn btn-short" type="button">做空</button>
+      </div>
+
+      <p id="error" class="error" role="alert" aria-live="polite"></p>
+    </section>
+
+    <section class="panel" aria-label="输出结果">
+      <div class="result">
+        <div class="result-row">
+          <div class="result-label">开单价格</div>
+          <div id="open-price" class="result-value">—</div>
+        </div>
+        <div class="result-row">
+          <div class="result-label">止盈价格</div>
+          <div id="tp-price" class="result-value">—</div>
+        </div>
+        <div class="result-row">
+          <div class="result-label">止损价格</div>
+          <div id="sl-price" class="result-value">—</div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script src="./js/main.js"></script>
+</body>
+</html>
