@@ -125,11 +125,20 @@ function formatCreateTime() {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+/** 止盈价：盈利 = 5×开仓成本 → 价差移动 = 5×|价格-止损| */
+function calcTakeProfit(open, stop) {
+  const stopDiff = Math.abs(open - stop);
+  if (!(stopDiff > 0)) return null;
+  if (open > stop) return open + 5 * stopDiff;
+  return open - 5 * stopDiff;
+}
+
 function buildStrategy(open, stop, startTimeLabel, openCost) {
   const unitMin = getTimeframeMode() === '1h' ? 60 : 15;
   const spanMinutes = unitMin * 9;
   const stopDiff = Math.abs(open - stop);
   const quantity = openCost / stopDiff;
+  const tp = calcTakeProfit(open, stop);
 
   const sideLabel = open > stop ? '#开多' : '#开空';
   const endTimeLabel = addPeriodToStart(startTimeLabel, spanMinutes);
@@ -139,6 +148,7 @@ function buildStrategy(open, stop, startTimeLabel, openCost) {
     sideLabel,
     `价格：${formatPrice(open)}`,
     `数量：${formatPrice(quantity)}`,
+    `止盈：${formatPrice(tp)}`,
     `止损：${formatPrice(stop)}`,
     `时间范围：${timeRangeLabel}`,
     `创建时间：${formatCreateTime()}`,
