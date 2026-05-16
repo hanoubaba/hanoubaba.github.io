@@ -23,9 +23,18 @@
         <input id="stop-price-input" class="field-input" inputmode="decimal" autocomplete="off" />
       </label>
 
+      <div class="field field--spaced" role="group" aria-labelledby="open-cost-label">
+        <span id="open-cost-label" class="field-label">开仓成本</span>
+        <div class="tabs" role="tablist" aria-label="开仓成本">
+          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" data-value="30">30</button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="50">50</button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="100">100</button>
+        </div>
+      </div>
+
       <div class="field field--spaced" role="group" aria-labelledby="time-dim-label">
         <span id="time-dim-label" class="field-label">时间维度</span>
-        <div class="tabs" role="tablist" aria-label="时间维度">
+        <div class="tabs" role="tablist" aria-label="时间维度" data-tablist="timeframe">
           <button id="tab-15m" class="tab-btn is-active" type="button" role="tab" aria-selected="true" data-value="15m">15分钟</button>
           <button id="tab-1h" class="tab-btn" type="button" role="tab" aria-selected="false" data-value="1h">1小时</button>
         </div>

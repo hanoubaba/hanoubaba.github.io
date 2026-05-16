@@ -53,8 +53,14 @@ function closestSlotMinutes(mins, stepMinutes) {
 }
 
 function getTimeframeMode() {
-  const active = document.querySelector('.tab-btn.is-active');
+  const active = document.querySelector('[data-tablist="timeframe"] .tab-btn.is-active');
   return active?.getAttribute('data-value') === '1h' ? '1h' : '15m';
+}
+
+function getOpenCost() {
+  const active = document.querySelector('[aria-label="开仓成本"] .tab-btn.is-active');
+  const n = Number(active?.getAttribute('data-value'));
+  return Number.isFinite(n) ? n : 30;
 }
 
 function rebuildStartTimeOptions() {
@@ -114,36 +120,29 @@ function rebuildStartTimeOptions() {
   }
 }
 
-function formatLeverageInt(a, b) {
-  const d = Math.abs(a - b);
-  if (!(d > 0) || !Number.isFinite(a) || Math.abs(a) < Number.EPSILON) return null;
-  const lev = Math.abs(a) / d;
-  return String(Math.round(lev));
-}
-
-function buildStrategy(open, stop, startTimeLabel) {
+function buildStrategy(open, stop, startTimeLabel, openCost) {
   const unitMin = getTimeframeMode() === '1h' ? 60 : 15;
   const spanMinutes = unitMin * 9;
+  const stopDiff = Math.abs(open - stop);
+  const quantity = openCost / stopDiff;
 
   const sideLabel = open > stop ? '#开多' : '#开空';
-  const tp = 2 * open - stop;
-  const leverageStr = formatLeverageInt(open, stop) ?? '—';
-
   const endTimeLabel = addPeriodToStart(startTimeLabel, spanMinutes);
   const timeRangeLabel = `${startTimeLabel} — ${endTimeLabel}`;
 
   return [
     sideLabel,
-    `${leverageStr} 倍`,
+    `数量：${formatPrice(quantity)}`,
     `起始：${formatPrice(open)}`,
-    `止盈：${formatPrice(tp)}`,
     `止损：${formatPrice(stop)}`,
     `时间范围：${timeRangeLabel}`,
   ].join('\n');
 }
 
 function setTabsActive(clicked) {
-  document.querySelectorAll('.tab-btn').forEach((btn) => {
+  const tablist = clicked.closest('[role="tablist"]');
+  if (!tablist) return;
+  tablist.querySelectorAll('.tab-btn').forEach((btn) => {
     const on = btn === clicked;
     btn.classList.toggle('is-active', on);
     btn.setAttribute('aria-selected', on ? 'true' : 'false');
@@ -182,12 +181,12 @@ function generate() {
   }
 
   if (open === stop) {
-    if (errEl) errEl.textContent = '起始价格与止损价格不能相同，无法计算杠杆与方向。';
+    if (errEl) errEl.textContent = '起始价格与止损价格不能相同，无法计算数量与方向。';
     if (outEl) outEl.textContent = '';
     return;
   }
 
-  const text = buildStrategy(open, stop, startTime);
+  const text = buildStrategy(open, stop, startTime, getOpenCost());
   if (outEl) outEl.textContent = text;
 }
 
@@ -197,7 +196,7 @@ if (btnGenerate) btnGenerate.addEventListener('click', generate);
 document.querySelectorAll('.tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     setTabsActive(btn);
-    rebuildStartTimeOptions();
+    if (btn.closest('[data-tablist="timeframe"]')) rebuildStartTimeOptions();
   });
 });
 
