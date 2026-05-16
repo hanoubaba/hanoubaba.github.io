@@ -1,12 +1,15 @@
 :root {
-  --bg: #fffaf0;
+  --bg: #f0fdf4;
   --card: #ffffff;
-  --text: #1f2937;
-  --primary: #f59e0b;
-  --primary-strong: #b45309;
-  --border: #fde68a;
-  --muted: #6b7280;
+  --text: #14532d;
+  --primary: #22c55e;
+  --primary-strong: #15803d;
+  --primary-deep: #166534;
+  --border: #bbf7d0;
+  --border-soft: #dcfce7;
+  --muted: #4b7c5f;
   --danger: #dc2626;
+  --surface-tint: #ecfdf5;
 }
 
 * { box-sizing: border-box; }
@@ -15,7 +18,7 @@ body {
   margin: 0;
   font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
   color: var(--text);
-  background: radial-gradient(circle at top left, #fef3c7, #fff7ed 40%, #ffffff);
+  background: radial-gradient(circle at top left, #d1fae5, #ecfdf5 42%, #f0fdf4 70%, #ffffff);
   min-height: 100vh;
   display: grid;
   place-items: center;
@@ -27,7 +30,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 28px;
-  box-shadow: 0 10px 30px rgba(245, 158, 11, 0.16);
+  box-shadow: 0 10px 32px rgba(22, 101, 52, 0.12), 0 2px 8px rgba(34, 197, 94, 0.08);
 }
 
 .header {
@@ -40,11 +43,12 @@ body {
   letter-spacing: 0.2px;
   font-size: 22px;
   font-weight: 800;
+  color: var(--primary-deep);
 }
 
 .panel {
   border: 1px solid var(--border);
-  background: linear-gradient(180deg, #fff7ed, #ffffff);
+  background: linear-gradient(180deg, var(--surface-tint), #ffffff);
   border-radius: 14px;
   padding: 16px;
   margin-top: 14px;
@@ -75,18 +79,19 @@ body {
   font-size: 16px;
   outline: none;
   background: #fff;
+  color: var(--text);
 }
 
 .field-input:focus {
-  border-color: #fdba74;
-  box-shadow: 0 0 0 4px rgba(251, 146, 60, 0.18);
+  border-color: #4ade80;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.2);
 }
 
 .field-input--select {
   cursor: pointer;
   appearance: none;
   background-color: #fff;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%236b7280' d='M1 1.5 6 6.5 11 1.5'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%2315803d' d='M1 1.5 6 6.5 11 1.5'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
   padding-right: 36px;
@@ -101,8 +106,8 @@ body {
   gap: 4px;
   padding: 4px;
   border-radius: 10px;
-  border: 1px solid rgba(253, 230, 138, 0.85);
-  background: rgba(255, 250, 240, 0.9);
+  border: 1px solid var(--border);
+  background: rgba(236, 253, 245, 0.95);
   justify-self: stretch;
   width: 100%;
 }
@@ -121,19 +126,19 @@ body {
 }
 
 .tab-btn:hover:not(.is-active) {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.45);
+  color: var(--primary-deep);
+  background: rgba(255, 255, 255, 0.65);
 }
 
 .tab-btn:focus-visible {
-  outline: 2px solid rgba(245, 158, 11, 0.55);
+  outline: 2px solid rgba(34, 197, 94, 0.55);
   outline-offset: 2px;
 }
 
 .tab-btn.is-active {
   color: var(--primary-strong);
   background: #fff;
-  box-shadow: 0 1px 3px rgba(180, 83, 9, 0.12), 0 0 0 1px rgba(253, 230, 138, 0.9);
+  box-shadow: 0 1px 3px rgba(22, 101, 52, 0.14), 0 0 0 1px var(--border);
 }
 
 .actions {
@@ -155,16 +160,22 @@ body {
   padding: 12px 14px;
   font-size: 15px;
   cursor: pointer;
-  transition: transform 120ms ease, filter 120ms ease;
+  transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
 }
 
 .btn:active { transform: translateY(1px); }
 
 .btn-generate {
   width: 100%;
-  background: linear-gradient(180deg, #fbbf24, var(--primary));
-  color: var(--primary-strong);
+  background: linear-gradient(180deg, #4ade80, var(--primary));
+  color: #fff;
   font-weight: 800;
+  box-shadow: 0 4px 14px rgba(22, 163, 74, 0.35);
+}
+
+.btn-generate:hover {
+  filter: brightness(1.05);
+  box-shadow: 0 6px 18px rgba(22, 163, 74, 0.4);
 }
 
 .btn:hover { filter: brightness(1.02); }
@@ -206,8 +217,8 @@ body {
 }
 
 .btn-copy-strategy:hover {
-  background: #fffbeb;
-  border-color: #fcd34d;
+  background: var(--surface-tint);
+  border-color: #86efac;
 }
 
 .btn-copy-strategy:active {
@@ -219,7 +230,7 @@ body {
   padding: 14px 14px;
   min-height: 200px;
   border-radius: 12px;
-  border: 1px dashed rgba(253, 230, 138, 0.95);
+  border: 1px dashed #86efac;
   background: rgba(255, 255, 255, 0.92);
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 13px;
