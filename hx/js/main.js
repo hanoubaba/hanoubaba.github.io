@@ -95,7 +95,7 @@ function rebuildStartTimeOptions() {
   sel.append(frag);
 
   if (!prev) {
-    sel.value = '';
+    sel.value = '08:00';
     return;
   }
 
