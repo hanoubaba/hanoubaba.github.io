@@ -120,6 +120,11 @@ function rebuildStartTimeOptions() {
   }
 }
 
+function formatCreateTime() {
+  const d = new Date();
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
 function buildStrategy(open, stop, startTimeLabel, openCost) {
   const unitMin = getTimeframeMode() === '1h' ? 60 : 15;
   const spanMinutes = unitMin * 9;
@@ -136,6 +141,7 @@ function buildStrategy(open, stop, startTimeLabel, openCost) {
     `起始：${formatPrice(open)}`,
     `止损：${formatPrice(stop)}`,
     `时间范围：${timeRangeLabel}`,
+    `创建时间：${formatCreateTime()}`,
   ].join('\n');
 }
 
