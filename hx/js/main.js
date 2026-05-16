@@ -6,7 +6,11 @@ function toNumber(value) {
 }
 
 function formatPrice(n) {
-  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+  if (!Number.isFinite(n)) return '';
+  return n.toLocaleString('en-US', {
+    useGrouping: false,
+    maximumFractionDigits: 20,
+  });
 }
 
 function pad2(n) {
