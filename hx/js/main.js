@@ -125,12 +125,12 @@ function formatCreateTime() {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-/** 止盈价：盈利 = 5×开仓成本 → 价差移动 = 5×|价格-止损| */
+/** 止盈价：盈利 = 3×开仓成本 → 价差移动 = 3×|价格-止损| */
 function calcTakeProfit(open, stop) {
   const stopDiff = Math.abs(open - stop);
   if (!(stopDiff > 0)) return null;
-  if (open > stop) return open + 5 * stopDiff;
-  return open - 5 * stopDiff;
+  if (open > stop) return open + 3 * stopDiff;
+  return open - 3 * stopDiff;
 }
 
 function buildStrategy(open, stop, startTimeLabel, openCost) {
