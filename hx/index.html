@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>策略生成</title>
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <h1 class="title">策略生成</h1>
+    </header>
+
+    <section class="panel" aria-label="参数输入">
+      <label class="field">
+        <span class="field-label">起始价格</span>
+        <input id="open-price-input" class="field-input" inputmode="decimal" autocomplete="off" />
+      </label>
+
+      <label class="field field--spaced">
+        <span class="field-label">止损价格</span>
+        <input id="stop-price-input" class="field-input" inputmode="decimal" autocomplete="off" />
+      </label>
+
+      <div class="field field--spaced" role="group" aria-labelledby="time-dim-label">
+        <span id="time-dim-label" class="field-label">时间维度</span>
+        <div class="tabs" role="tablist" aria-label="时间维度">
+          <button id="tab-15m" class="tab-btn is-active" type="button" role="tab" aria-selected="true" data-value="15m">15分钟</button>
+          <button id="tab-1h" class="tab-btn" type="button" role="tab" aria-selected="false" data-value="1h">1小时</button>
+        </div>
+        <span class="field-label" id="start-time-label">开始时间</span>
+        <select id="start-time" class="field-input field-input--select" aria-labelledby="start-time-label" autocomplete="off">
+          <option value="">请选择</option>
+        </select>
+      </div>
+
+      <div class="actions actions--single">
+        <button id="btn-generate" class="btn btn-generate" type="button">生成策略</button>
+      </div>
+
+      <p id="error" class="error" role="alert" aria-live="polite"></p>
+    </section>
+
+    <section class="panel" aria-label="策略输出">
+      <div class="field">
+        <div class="field-heading">
+          <span class="field-label">策略内容</span>
+          <button id="btn-copy-strategy" type="button" class="btn-copy-strategy" aria-label="一键复制策略内容">一键复制</button>
+        </div>
+        <pre id="strategy-output" class="strategy-output" aria-live="polite"></pre>
+      </div>
+    </section>
+  </main>
+  <script src="./js/main.js"></script>
+</body>
+</html>
