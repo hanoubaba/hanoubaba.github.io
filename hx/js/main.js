@@ -137,8 +137,8 @@ function buildStrategy(open, stop, startTimeLabel, openCost) {
 
   return [
     sideLabel,
+    `价格：${formatPrice(open)}`,
     `数量：${formatPrice(quantity)}`,
-    `起始：${formatPrice(open)}`,
     `止损：${formatPrice(stop)}`,
     `时间范围：${timeRangeLabel}`,
     `创建时间：${formatCreateTime()}`,
@@ -169,13 +169,13 @@ function generate() {
   if (errEl) errEl.textContent = '';
 
   if (open === null || stop === null) {
-    if (errEl) errEl.textContent = '请输入有效的起始价格与止损价格（数字）。';
+    if (errEl) errEl.textContent = '请输入有效的价格与止损（数字）。';
     if (outEl) outEl.textContent = '';
     return;
   }
 
   if (open <= 0) {
-    if (errEl) errEl.textContent = '起始价格须为大于 0 的数字。';
+    if (errEl) errEl.textContent = '价格须为大于 0 的数字。';
     if (outEl) outEl.textContent = '';
     return;
   }
@@ -187,7 +187,7 @@ function generate() {
   }
 
   if (open === stop) {
-    if (errEl) errEl.textContent = '起始价格与止损价格不能相同，无法计算数量与方向。';
+    if (errEl) errEl.textContent = '价格与止损不能相同，无法计算数量与方向。';
     if (outEl) outEl.textContent = '';
     return;
   }
