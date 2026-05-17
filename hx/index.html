@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>策略生成</title>
   <link rel="stylesheet" href="./css/style.css" />
 </head>
@@ -38,8 +38,8 @@
           <button id="tab-15m" class="tab-btn is-active" type="button" role="tab" aria-selected="true" data-value="15m">15分钟</button>
           <button id="tab-1h" class="tab-btn" type="button" role="tab" aria-selected="false" data-value="1h">1小时</button>
         </div>
-        <span class="field-label" id="start-time-label">开始时间</span>
-        <select id="start-time" class="field-input field-input--select" aria-labelledby="start-time-label" autocomplete="off">
+        <span class="field-label" id="start-time-label" style="display: none;">开始时间</span>
+        <select id="start-time" class="field-input field-input--select" aria-labelledby="start-time-label" autocomplete="off" style="display: none;">
           <option value="">请选择</option>
         </select>
       </div>

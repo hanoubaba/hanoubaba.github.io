@@ -13,6 +13,31 @@ function formatPrice(n) {
   });
 }
 
+function formatFixedDecimals(n, decimals) {
+  if (!Number.isFinite(n)) return '';
+  const d = Math.max(0, Math.min(20, Math.floor(decimals)));
+  return n.toLocaleString('en-US', {
+    useGrouping: false,
+    minimumFractionDigits: d,
+    maximumFractionDigits: d,
+  });
+}
+
+function formatQuantity(n) {
+  return formatFixedDecimals(n, 2);
+}
+
+/** 从输入字符串读取小数位数（以价格输入为准） */
+function getDecimalPlacesFromInput(value) {
+  const normalized = String(value ?? '').trim().replace(/,/g, '');
+  if (!normalized) return 0;
+  const dot = normalized.indexOf('.');
+  if (dot === -1) return 0;
+  const frac = normalized.slice(dot + 1);
+  if (!/^\d*$/.test(frac)) return 0;
+  return frac.length;
+}
+
 function pad2(n) {
   return String(n).padStart(2, '0');
 }
@@ -50,6 +75,13 @@ function closestSlotMinutes(mins, stepMinutes) {
   if (s > max) s = max;
   if (s < 0) s = 0;
   return s;
+}
+
+/** 按当前时间取最近的时间起点（15 分钟 / 1 小时格） */
+function getCurrentTimeSlot(stepMinutes) {
+  const d = new Date();
+  const mins = d.getHours() * 60 + d.getMinutes();
+  return minutesToValue(closestSlotMinutes(mins, stepMinutes));
 }
 
 function getTimeframeMode() {
@@ -101,7 +133,7 @@ function rebuildStartTimeOptions() {
   sel.append(frag);
 
   if (!prev) {
-    sel.value = '08:00';
+    sel.value = getCurrentTimeSlot(mode === '1h' ? 60 : 15);
     return;
   }
 
@@ -125,33 +157,41 @@ function formatCreateTime() {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-/** 止盈价：盈利 = 3×开仓成本 → 价差移动 = 3×|价格-止损| */
-function calcTakeProfit(open, stop) {
+/** 止盈价：盈利 = multiplier×开仓成本 → 价差移动 = multiplier×|价格-止损| */
+function calcTakeProfit(open, stop, multiplier = 1) {
   const stopDiff = Math.abs(open - stop);
-  if (!(stopDiff > 0)) return null;
-  if (open > stop) return open + 3 * stopDiff;
-  return open - 3 * stopDiff;
+  const m = Number(multiplier);
+  if (!(stopDiff > 0) || !Number.isFinite(m) || m <= 0) return null;
+  const move = stopDiff * m;
+  if (open > stop) return open + move;
+  return open - move;
 }
 
-function buildStrategy(open, stop, startTimeLabel, openCost) {
+function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces) {
   const unitMin = getTimeframeMode() === '1h' ? 60 : 15;
   const spanMinutes = unitMin * 9;
   const stopDiff = Math.abs(open - stop);
   const quantity = openCost / stopDiff;
   const tp = calcTakeProfit(open, stop);
+  const tpDecimals = Math.max(0, priceDecimalPlaces);
 
   const sideLabel = open > stop ? '#开多' : '#开空';
   const endTimeLabel = addPeriodToStart(startTimeLabel, spanMinutes);
   const timeRangeLabel = `${startTimeLabel} — ${endTimeLabel}`;
 
+  const fmtTp = (mult) => formatFixedDecimals(calcTakeProfit(open, stop, mult), tpDecimals);
+
   return [
     sideLabel,
     `价格：${formatPrice(open)}`,
-    `数量：${formatPrice(quantity)}`,
-    `止盈：${formatPrice(tp)}`,
+    `数量：${formatQuantity(quantity)}`,
+    `止盈：${formatFixedDecimals(tp, tpDecimals)}`,
     `止损：${formatPrice(stop)}`,
     `时间范围：${timeRangeLabel}`,
     `创建时间：${formatCreateTime()}`,
+    `止盈2：${fmtTp(2)}`,
+    `止盈3：${fmtTp(3)}`,
+    `止盈5：${fmtTp(5)}`,
   ].join('\n');
 }
 
@@ -202,7 +242,9 @@ function generate() {
     return;
   }
 
-  const text = buildStrategy(open, stop, startTime, getOpenCost());
+  const openRaw = openEl && 'value' in openEl ? String(openEl.value) : '';
+  const priceDecimals = getDecimalPlacesFromInput(openRaw);
+  const text = buildStrategy(open, stop, startTime, getOpenCost(), priceDecimals);
   if (outEl) outEl.textContent = text;
 }
 
