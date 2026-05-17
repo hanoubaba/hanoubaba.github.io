@@ -229,14 +229,14 @@ body {
 
 .strategy-output {
   margin: 0;
-  padding: 10px;
+  padding: 12px;
   min-height: 0;
   border-radius: 10px;
   border: 1px dashed #86efac;
   background: rgba(255, 255, 255, 0.92);
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 16px;
+  line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--text);
@@ -406,14 +406,14 @@ body {
     flex: 1;
     min-height: 0;
     overflow: hidden;
-    padding: 6px 8px;
-    font-size: 11px;
-    line-height: 1.32;
+    padding: 8px 10px;
+    font-size: 14px;
+    line-height: 1.38;
     border-radius: 8px;
   }
 
   .strategy-qty-value {
-    font-size: 1.45em;
+    font-size: 1.5em;
   }
 
   .actions:not(.actions--single) {
@@ -449,9 +449,9 @@ body {
   }
 
   .strategy-output {
-    font-size: 10px;
-    line-height: 1.28;
-    padding: 5px 6px;
+    font-size: 13px;
+    line-height: 1.35;
+    padding: 6px 8px;
   }
 }
 
