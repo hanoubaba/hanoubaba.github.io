@@ -24,7 +24,7 @@ function formatFixedDecimals(n, decimals) {
 }
 
 function formatQuantity(n) {
-  return formatFixedDecimals(n, 2);
+  return formatFixedDecimals(n, 1);
 }
 
 /** 从输入字符串读取小数位数（以价格输入为准） */
