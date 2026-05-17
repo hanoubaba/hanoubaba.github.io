@@ -157,6 +157,26 @@ function formatCreateTime() {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function clearStrategyOutput(outEl) {
+  if (!outEl) return;
+  outEl.textContent = '';
+  delete outEl.dataset.plainText;
+}
+
+function renderStrategyOutput(outEl, { plain, html }) {
+  if (!outEl) return;
+  outEl.innerHTML = html;
+  outEl.dataset.plainText = plain;
+}
+
 /** 止盈价：盈利 = multiplier×开仓成本 → 价差移动 = multiplier×|价格-止损| */
 function calcTakeProfit(open, stop, multiplier = 1) {
   const stopDiff = Math.abs(open - stop);
@@ -180,11 +200,12 @@ function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces)
   const timeRangeLabel = `${startTimeLabel} — ${endTimeLabel}`;
 
   const fmtTp = (mult) => formatFixedDecimals(calcTakeProfit(open, stop, mult), tpDecimals);
+  const qty = formatQuantity(quantity);
 
-  return [
+  const lines = [
     sideLabel,
     `价格：${formatPrice(open)}`,
-    `数量：${formatQuantity(quantity)}`,
+    `数量：${qty}`,
     `止盈：${formatFixedDecimals(tp, tpDecimals)}`,
     `止损：${formatPrice(stop)}`,
     `时间范围：${timeRangeLabel}`,
@@ -192,7 +213,19 @@ function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces)
     `止盈2：${fmtTp(2)}`,
     `止盈3：${fmtTp(3)}`,
     `止盈5：${fmtTp(5)}`,
-  ].join('\n');
+  ];
+
+  const plain = lines.join('\n');
+  const html = lines
+    .map((line) => {
+      if (line.startsWith('数量：')) {
+        return `数量：<strong class="strategy-qty-value">${escapeHtml(qty)}</strong>`;
+      }
+      return escapeHtml(line);
+    })
+    .join('\n');
+
+  return { plain, html };
 }
 
 function setTabsActive(clicked) {
@@ -220,32 +253,31 @@ function generate() {
 
   if (open === null || stop === null) {
     if (errEl) errEl.textContent = '请输入有效的价格与止损（数字）。';
-    if (outEl) outEl.textContent = '';
+    clearStrategyOutput(outEl);
     return;
   }
 
   if (open <= 0) {
     if (errEl) errEl.textContent = '价格须为大于 0 的数字。';
-    if (outEl) outEl.textContent = '';
+    clearStrategyOutput(outEl);
     return;
   }
 
   if (!startTime) {
     if (errEl) errEl.textContent = '请选择开始时间。';
-    if (outEl) outEl.textContent = '';
+    clearStrategyOutput(outEl);
     return;
   }
 
   if (open === stop) {
     if (errEl) errEl.textContent = '价格与止损不能相同，无法计算数量与方向。';
-    if (outEl) outEl.textContent = '';
+    clearStrategyOutput(outEl);
     return;
   }
 
   const openRaw = openEl && 'value' in openEl ? String(openEl.value) : '';
   const priceDecimals = getDecimalPlacesFromInput(openRaw);
-  const text = buildStrategy(open, stop, startTime, getOpenCost(), priceDecimals);
-  if (outEl) outEl.textContent = text;
+  renderStrategyOutput(outEl, buildStrategy(open, stop, startTime, getOpenCost(), priceDecimals));
 }
 
 const btnGenerate = document.getElementById('btn-generate');
@@ -299,7 +331,7 @@ function flashCopyStrategyBtn(btn, label, duration = 1200) {
 async function copyStrategyOutput() {
   const btn = document.getElementById('btn-copy-strategy');
   const out = document.getElementById('strategy-output');
-  const text = (out?.textContent ?? '').trim();
+  const text = (out?.dataset.plainText ?? out?.textContent ?? '').trim();
   if (!text) {
     flashCopyStrategyBtn(btn, '无内容');
     return;

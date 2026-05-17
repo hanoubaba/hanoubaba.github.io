@@ -245,6 +245,14 @@ body {
   box-sizing: border-box;
 }
 
+.strategy-qty-value {
+  font-weight: 800;
+  font-size: 1.5em;
+  line-height: 1.2;
+  color: var(--primary-deep);
+  letter-spacing: 0.02em;
+}
+
 /* 手机端：一屏内完整展示，避免滚动 */
 @media (max-width: 480px) {
   html,
@@ -402,6 +410,10 @@ body {
     font-size: 11px;
     line-height: 1.32;
     border-radius: 8px;
+  }
+
+  .strategy-qty-value {
+    font-size: 1.45em;
   }
 
   .actions:not(.actions--single) {
