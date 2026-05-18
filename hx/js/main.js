@@ -189,7 +189,7 @@ function calcTakeProfit(open, stop, multiplier = 1) {
 
 function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces) {
   const unitMin = getTimeframeMode() === '1h' ? 60 : 15;
-  const spanMinutes = unitMin * 9;
+  const spanMinutes = unitMin * 6;
   const stopDiff = Math.abs(open - stop);
   const quantity = openCost / stopDiff;
   const tp = calcTakeProfit(open, stop);
