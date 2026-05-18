@@ -192,7 +192,7 @@ function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces)
   const spanMinutes = unitMin * 6;
   const stopDiff = Math.abs(open - stop);
   const quantity = openCost / stopDiff;
-  const tp = calcTakeProfit(open, stop);
+  const tp = calcTakeProfit(open, stop, 3);
   const tpDecimals = Math.max(0, priceDecimalPlaces);
 
   const sideLabel = open > stop ? '#开多' : '#开空';
