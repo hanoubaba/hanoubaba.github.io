@@ -325,7 +325,10 @@ const startTimeSelect = document.getElementById('start-time');
 function onEnter(e) {
   if (e.key === 'Enter') generate();
 }
-if (openInput) openInput.addEventListener('keydown', onEnter);
+if (openInput) {
+  openInput.addEventListener('keydown', onEnter);
+  openInput.focus();
+}
 if (startTimeSelect) startTimeSelect.addEventListener('keydown', onEnter);
 
 function copyFallback(text) {
