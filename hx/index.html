@@ -19,10 +19,22 @@
         <input id="open-price-input" class="field-input" inputmode="decimal" autocomplete="off" />
       </label>
 
-      <label class="field field--spaced">
-        <span class="field-label">止损</span>
-        <input id="stop-price-input" class="field-input" inputmode="decimal" autocomplete="off" />
-      </label>
+      <div class="field field--spaced" role="group" aria-labelledby="direction-label">
+        <span id="direction-label" class="field-label">方向</span>
+        <div class="tabs" role="tablist" aria-label="方向" data-tablist="direction">
+          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" data-value="long">开多</button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="short">开空</button>
+        </div>
+      </div>
+
+      <div class="field field--spaced" role="group" aria-labelledby="multiplier-label">
+        <span id="multiplier-label" class="field-label">倍数</span>
+        <div class="tabs" role="tablist" aria-label="倍数" data-tablist="multiplier">
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="20">20</button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="50">50</button>
+          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" data-value="100">100</button>
+        </div>
+      </div>
 
       <div class="field field--spaced" role="group" aria-labelledby="open-cost-label">
         <span id="open-cost-label" class="field-label">开仓成本</span>

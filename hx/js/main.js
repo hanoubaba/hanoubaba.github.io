@@ -95,6 +95,36 @@ function getOpenCost() {
   return Number.isFinite(n) ? n : 30;
 }
 
+function getDirection() {
+  const active = document.querySelector('[data-tablist="direction"] .tab-btn.is-active');
+  return active?.getAttribute('data-value') === 'short' ? 'short' : 'long';
+}
+
+function getMultiplier() {
+  const active = document.querySelector('[data-tablist="multiplier"] .tab-btn.is-active');
+  const n = Number(active?.getAttribute('data-value'));
+  return Number.isFinite(n) && n > 0 ? n : 100;
+}
+
+/** 总空间 = 开仓成本 × 倍数；1 倍成本止损价差 = 价格 / 倍数 */
+function calcStopDiff(open, multiplier) {
+  if (!(open > 0) || !(multiplier > 0)) return null;
+  return open / multiplier;
+}
+
+function calcStopPrice(open, direction, multiplier) {
+  const stopDiff = calcStopDiff(open, multiplier);
+  if (stopDiff == null) return null;
+  return direction === 'long' ? open - stopDiff : open + stopDiff;
+}
+
+/** 1 倍成本止损数量 = 总空间 / 价格 */
+function calcQuantity1x(open, openCost, multiplier) {
+  if (!(open > 0)) return null;
+  const totalSpace = openCost * multiplier;
+  return totalSpace / open;
+}
+
 function rebuildStartTimeOptions() {
   const sel = document.getElementById('start-time');
   if (!sel) return;
@@ -187,37 +217,40 @@ function calcTakeProfit(open, stop, multiplier = 1) {
   return open - move;
 }
 
-function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces) {
+function buildStrategy(open, direction, startTimeLabel, openCost, multiplier, priceDecimalPlaces) {
   const unitMin = getTimeframeMode() === '1h' ? 60 : 15;
   const spanMinutes = unitMin * 6;
-  const stopDiff = Math.abs(open - stop);
-  const quantity = openCost / stopDiff;
-  const tp = calcTakeProfit(open, stop, 3);
+  const stop = calcStopPrice(open, direction, multiplier);
+  const quantity = calcQuantity1x(open, openCost, multiplier);
   const tpDecimals = Math.max(0, priceDecimalPlaces);
 
-  const sideLabel = open > stop ? '#开多' : '#开空';
+  const sideLabel = direction === 'long' ? '#开多' : '#开空';
   const endTimeLabel = addPeriodToStart(startTimeLabel, spanMinutes);
   const timeRangeLabel = `${startTimeLabel} — ${endTimeLabel}`;
 
   const fmtTp = (mult) => formatFixedDecimals(calcTakeProfit(open, stop, mult), tpDecimals);
+  const priceStr = formatPrice(open);
   const qty = formatQuantity(quantity);
 
   const lines = [
     sideLabel,
-    `价格：${formatPrice(open)}`,
+    `价格：${priceStr}`,
     `数量：${qty}`,
-    `止盈：${formatFixedDecimals(tp, tpDecimals)}`,
+    `止盈：${fmtTp(1)}`,
     `止损：${formatPrice(stop)}`,
     `时间范围：${timeRangeLabel}`,
     `创建时间：${formatCreateTime()}`,
-    `止盈2：${fmtTp(2)}`,
-    `止盈3：${fmtTp(3)}`,
-    `止盈5：${fmtTp(5)}`,
+    `平仓1：${fmtTp(1)}`,
+    `平仓3：${fmtTp(3)}`,
+    `平仓5：${fmtTp(5)}`,
   ];
 
   const plain = lines.join('\n');
   const html = lines
     .map((line) => {
+      if (line.startsWith('价格：')) {
+        return `价格：<strong class="strategy-qty-value">${escapeHtml(priceStr)}</strong>`;
+      }
       if (line.startsWith('数量：')) {
         return `数量：<strong class="strategy-qty-value">${escapeHtml(qty)}</strong>`;
       }
@@ -240,19 +273,17 @@ function setTabsActive(clicked) {
 
 function generate() {
   const openEl = document.getElementById('open-price-input');
-  const stopEl = document.getElementById('stop-price-input');
   const timeEl = document.getElementById('start-time');
   const errEl = document.getElementById('error');
   const outEl = document.getElementById('strategy-output');
 
   const open = toNumber(openEl && 'value' in openEl ? openEl.value : '');
-  const stop = toNumber(stopEl && 'value' in stopEl ? stopEl.value : '');
   const startTime = timeEl && 'value' in timeEl ? String(timeEl.value).trim() : '';
 
   if (errEl) errEl.textContent = '';
 
-  if (open === null || stop === null) {
-    if (errEl) errEl.textContent = '请输入有效的价格与止损（数字）。';
+  if (open === null) {
+    if (errEl) errEl.textContent = '请输入有效的价格（数字）。';
     clearStrategyOutput(outEl);
     return;
   }
@@ -269,15 +300,12 @@ function generate() {
     return;
   }
 
-  if (open === stop) {
-    if (errEl) errEl.textContent = '价格与止损不能相同，无法计算数量与方向。';
-    clearStrategyOutput(outEl);
-    return;
-  }
-
   const openRaw = openEl && 'value' in openEl ? String(openEl.value) : '';
   const priceDecimals = getDecimalPlacesFromInput(openRaw);
-  renderStrategyOutput(outEl, buildStrategy(open, stop, startTime, getOpenCost(), priceDecimals));
+  renderStrategyOutput(
+    outEl,
+    buildStrategy(open, getDirection(), startTime, getOpenCost(), getMultiplier(), priceDecimals),
+  );
 }
 
 const btnGenerate = document.getElementById('btn-generate');
@@ -293,13 +321,11 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 rebuildStartTimeOptions();
 
 const openInput = document.getElementById('open-price-input');
-const stopInput = document.getElementById('stop-price-input');
 const startTimeSelect = document.getElementById('start-time');
 function onEnter(e) {
   if (e.key === 'Enter') generate();
 }
 if (openInput) openInput.addEventListener('keydown', onEnter);
-if (stopInput) stopInput.addEventListener('keydown', onEnter);
 if (startTimeSelect) startTimeSelect.addEventListener('keydown', onEnter);
 
 function copyFallback(text) {
