@@ -238,11 +238,11 @@ function buildStrategy(open, direction, startTimeLabel, openCost, multiplier, pr
     `数量：${qty}`,
     `止盈：${fmtTp(1)}`,
     `止损：${formatFixedDecimals(stop, tpDecimals)}`,
-    `时间范围：${timeRangeLabel}`,
-    `创建时间：${formatCreateTime()}`,
     `平仓1：${fmtTp(1)}`,
     `平仓3：${fmtTp(3)}`,
     `平仓5：${fmtTp(5)}`,
+    `时间范围：${timeRangeLabel}`,
+    `创建时间：${formatCreateTime()}`,
   ];
 
   const plain = lines.join('\n');
@@ -392,9 +392,6 @@ function scheduleGenerateNow() {
   scheduleGenerateFromInput.cancel();
   scheduleGenerateFromControl.flush();
 }
-
-const btnGenerate = document.getElementById('btn-generate');
-if (btnGenerate) btnGenerate.addEventListener('click', scheduleGenerateNow);
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
