@@ -103,7 +103,7 @@ function getDirection() {
 function getMultiplier() {
   const active = document.querySelector('[data-tablist="multiplier"] .tab-btn.is-active');
   const n = Number(active?.getAttribute('data-value'));
-  return Number.isFinite(n) && n > 0 ? n : 100;
+  return Number.isFinite(n) && n > 0 ? n : 20;
 }
 
 /** 总空间 = 开仓成本 × 倍数；1 倍成本止损价差 = 价格 / 倍数 */
