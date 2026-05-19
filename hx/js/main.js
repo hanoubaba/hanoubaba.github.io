@@ -393,11 +393,22 @@ function scheduleGenerateNow() {
   scheduleGenerateFromControl.flush();
 }
 
+function focusPriceInput() {
+  const el = document.getElementById('open-price-input');
+  if (!el || typeof el.focus !== 'function') return;
+  try {
+    el.focus({ preventScroll: true });
+  } catch {
+    el.focus();
+  }
+}
+
 document.querySelectorAll('.tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     setTabsActive(btn);
     if (btn.closest('[data-tablist="timeframe"]')) rebuildStartTimeOptions();
     scheduleGenerateFromControl();
+    focusPriceInput();
   });
 });
 
@@ -452,21 +463,25 @@ async function copyStrategyOutput() {
   const btn = document.getElementById('btn-copy-strategy');
   const out = document.getElementById('strategy-output');
   const text = (out?.dataset.plainText ?? out?.textContent ?? '').trim();
-  if (!text) {
-    flashCopyStrategyBtn(btn, '无内容');
-    return;
-  }
-  let ok = false;
   try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      ok = true;
+    if (!text) {
+      flashCopyStrategyBtn(btn, '无内容');
+      return;
     }
-  } catch {
-    ok = false;
+    let ok = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      }
+    } catch {
+      ok = false;
+    }
+    if (!ok) ok = copyFallback(text);
+    flashCopyStrategyBtn(btn, ok ? '已复制' : '复制失败');
+  } finally {
+    focusPriceInput();
   }
-  if (!ok) ok = copyFallback(text);
-  flashCopyStrategyBtn(btn, ok ? '已复制' : '复制失败');
 }
 
 const btnCopyStrategy = document.getElementById('btn-copy-strategy');
