@@ -47,6 +47,14 @@ body {
   color: var(--primary-deep);
 }
 
+.header-tip {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.3px;
+}
+
 .panel {
   border: 1px solid var(--border);
   background: linear-gradient(180deg, var(--surface-tint), #ffffff);
