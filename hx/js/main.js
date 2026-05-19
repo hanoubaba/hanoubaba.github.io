@@ -271,36 +271,105 @@ function setTabsActive(clicked) {
   });
 }
 
-function generate() {
+function debounce(fn, wait) {
+  let timer = null;
+  const debounced = (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      fn(...args);
+    }, wait);
+  };
+  debounced.flush = (...args) => {
+    clearTimeout(timer);
+    timer = null;
+    fn(...args);
+  };
+  debounced.cancel = () => {
+    clearTimeout(timer);
+    timer = null;
+  };
+  return debounced;
+}
+
+function throttle(fn, wait) {
+  let last = 0;
+  let trailingTimer = null;
+  const throttled = (...args) => {
+    const now = Date.now();
+    const remaining = wait - (now - last);
+    if (remaining <= 0) {
+      if (trailingTimer) {
+        clearTimeout(trailingTimer);
+        trailingTimer = null;
+      }
+      last = now;
+      fn(...args);
+      return;
+    }
+    if (!trailingTimer) {
+      trailingTimer = setTimeout(() => {
+        trailingTimer = null;
+        last = Date.now();
+        fn(...args);
+      }, remaining);
+    }
+  };
+  throttled.flush = (...args) => {
+    if (trailingTimer) {
+      clearTimeout(trailingTimer);
+      trailingTimer = null;
+    }
+    last = Date.now();
+    fn(...args);
+  };
+  throttled.cancel = () => {
+    if (trailingTimer) {
+      clearTimeout(trailingTimer);
+      trailingTimer = null;
+    }
+  };
+  return throttled;
+}
+
+function hasPriceInput() {
+  const openEl = document.getElementById('open-price-input');
+  return Boolean(String(openEl?.value ?? '').trim());
+}
+
+function generate(options = {}) {
+  const { silent = false } = options;
   const openEl = document.getElementById('open-price-input');
   const timeEl = document.getElementById('start-time');
   const errEl = document.getElementById('error');
   const outEl = document.getElementById('strategy-output');
 
-  const open = toNumber(openEl && 'value' in openEl ? openEl.value : '');
+  const openRaw = openEl && 'value' in openEl ? String(openEl.value) : '';
+  const open = toNumber(openRaw);
   const startTime = timeEl && 'value' in timeEl ? String(timeEl.value).trim() : '';
 
   if (errEl) errEl.textContent = '';
 
   if (open === null) {
-    if (errEl) errEl.textContent = '请输入有效的价格（数字）。';
+    if (errEl && !(silent && !openRaw.trim())) {
+      errEl.textContent = '请输入有效的价格（数字）。';
+    }
     clearStrategyOutput(outEl);
     return;
   }
 
   if (open <= 0) {
-    if (errEl) errEl.textContent = '价格须为大于 0 的数字。';
+    if (errEl && !silent) errEl.textContent = '价格须为大于 0 的数字。';
     clearStrategyOutput(outEl);
     return;
   }
 
   if (!startTime) {
-    if (errEl) errEl.textContent = '请选择开始时间。';
+    if (errEl && !silent) errEl.textContent = '请选择开始时间。';
     clearStrategyOutput(outEl);
     return;
   }
 
-  const openRaw = openEl && 'value' in openEl ? String(openEl.value) : '';
   const priceDecimals = getDecimalPlacesFromInput(openRaw);
   renderStrategyOutput(
     outEl,
@@ -308,13 +377,30 @@ function generate() {
   );
 }
 
+const INPUT_DEBOUNCE_MS = 300;
+const CONTROL_THROTTLE_MS = 120;
+
+const scheduleGenerateFromInput = debounce(() => {
+  generate({ silent: !hasPriceInput() });
+}, INPUT_DEBOUNCE_MS);
+
+const scheduleGenerateFromControl = throttle(() => {
+  generate({ silent: !hasPriceInput() });
+}, CONTROL_THROTTLE_MS);
+
+function scheduleGenerateNow() {
+  scheduleGenerateFromInput.cancel();
+  scheduleGenerateFromControl.flush();
+}
+
 const btnGenerate = document.getElementById('btn-generate');
-if (btnGenerate) btnGenerate.addEventListener('click', generate);
+if (btnGenerate) btnGenerate.addEventListener('click', scheduleGenerateNow);
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     setTabsActive(btn);
     if (btn.closest('[data-tablist="timeframe"]')) rebuildStartTimeOptions();
+    scheduleGenerateFromControl();
   });
 });
 
@@ -322,14 +408,22 @@ rebuildStartTimeOptions();
 
 const openInput = document.getElementById('open-price-input');
 const startTimeSelect = document.getElementById('start-time');
-function onEnter(e) {
-  if (e.key === 'Enter') generate();
-}
+
 if (openInput) {
-  openInput.addEventListener('keydown', onEnter);
+  openInput.addEventListener('input', scheduleGenerateFromInput);
+  openInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') scheduleGenerateNow();
+  });
   openInput.focus();
 }
-if (startTimeSelect) startTimeSelect.addEventListener('keydown', onEnter);
+if (startTimeSelect) {
+  startTimeSelect.addEventListener('change', scheduleGenerateFromControl);
+  startTimeSelect.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') scheduleGenerateNow();
+  });
+}
+
+scheduleGenerateFromControl();
 
 function copyFallback(text) {
   const ta = document.createElement('textarea');
