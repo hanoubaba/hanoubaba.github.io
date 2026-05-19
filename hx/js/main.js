@@ -237,7 +237,7 @@ function buildStrategy(open, direction, startTimeLabel, openCost, multiplier, pr
     `价格：${priceStr}`,
     `数量：${qty}`,
     `止盈：${fmtTp(1)}`,
-    `止损：${formatPrice(stop)}`,
+    `止损：${formatFixedDecimals(stop, tpDecimals)}`,
     `时间范围：${timeRangeLabel}`,
     `创建时间：${formatCreateTime()}`,
     `平仓1：${fmtTp(1)}`,
