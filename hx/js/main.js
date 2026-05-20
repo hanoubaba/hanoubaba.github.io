@@ -231,13 +231,15 @@ function buildStrategy(open, direction, startTimeLabel, openCost, multiplier, pr
   const fmtTp = (mult) => formatFixedDecimals(calcTakeProfit(open, stop, mult), tpDecimals);
   const priceStr = formatPrice(open);
   const qty = formatQuantity(quantity);
+  const tpStr = fmtTp(1);
+  const stopStr = formatFixedDecimals(stop, tpDecimals);
 
   const lines = [
     sideLabel,
     `价格：${priceStr}`,
     `数量：${qty}`,
-    `止盈：${fmtTp(1)}`,
-    `止损：${formatFixedDecimals(stop, tpDecimals)}`,
+    `止盈：${tpStr}`,
+    `止损：${stopStr}`,
     `平仓1：${fmtTp(1)}`,
     `平仓3：${fmtTp(3)}`,
     `平仓5：${fmtTp(5)}`,
@@ -246,13 +248,18 @@ function buildStrategy(open, direction, startTimeLabel, openCost, multiplier, pr
   ];
 
   const plain = lines.join('\n');
+  const emphasisValues = {
+    '价格：': priceStr,
+    '数量：': qty,
+    '止盈：': tpStr,
+    '止损：': stopStr,
+  };
   const html = lines
     .map((line) => {
-      if (line.startsWith('价格：')) {
-        return `价格：<strong class="strategy-qty-value">${escapeHtml(priceStr)}</strong>`;
-      }
-      if (line.startsWith('数量：')) {
-        return `数量：<strong class="strategy-qty-value">${escapeHtml(qty)}</strong>`;
+      const prefix = Object.keys(emphasisValues).find((p) => line.startsWith(p));
+      if (prefix) {
+        const label = prefix.slice(0, -1);
+        return `${label}：<strong class="strategy-qty-value">${escapeHtml(emphasisValues[prefix])}</strong>`;
       }
       return escapeHtml(line);
     })
