@@ -5,14 +5,6 @@ function toNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-function formatPrice(n) {
-  if (!Number.isFinite(n)) return '';
-  return n.toLocaleString('en-US', {
-    useGrouping: false,
-    maximumFractionDigits: 20,
-  });
-}
-
 function formatFixedDecimals(n, decimals) {
   if (!Number.isFinite(n)) return '';
   const d = Math.max(0, Math.min(20, Math.floor(decimals)));
@@ -108,35 +100,18 @@ function buildStrategy(open, openCost, multiplier, priceDecimalPlaces) {
   const quantity = calcQuantity1x(open, openCost, multiplier);
   const tpDecimals = Math.max(0, priceDecimalPlaces);
 
-  const priceStr = formatPrice(open);
   const qty = formatQuantity(quantity);
   const tpStr = formatFixedDecimals(calcTakeProfit(open, stop, 1), tpDecimals);
   const stopStr = formatFixedDecimals(stop, tpDecimals);
 
   const lines = [
-    `价格：${priceStr}`,
     `数量：${qty}`,
     `止盈：${tpStr}`,
     `止损：${stopStr}`,
   ];
 
   const plain = lines.join('\n');
-  const emphasisValues = {
-    '价格：': priceStr,
-    '数量：': qty,
-    '止盈：': tpStr,
-    '止损：': stopStr,
-  };
-  const html = lines
-    .map((line) => {
-      const prefix = Object.keys(emphasisValues).find((p) => line.startsWith(p));
-      if (prefix) {
-        const label = prefix.slice(0, -1);
-        return `${label}：<strong class="strategy-qty-value">${escapeHtml(emphasisValues[prefix])}</strong>`;
-      }
-      return escapeHtml(line);
-    })
-    .join('\n');
+  const html = lines.map((line) => escapeHtml(line)).join('\n');
 
   return { plain, html, qty };
 }
