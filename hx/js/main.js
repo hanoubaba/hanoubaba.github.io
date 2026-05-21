@@ -5,6 +5,14 @@ function toNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function formatPrice(n) {
+  if (!Number.isFinite(n)) return '';
+  return n.toLocaleString('en-US', {
+    useGrouping: false,
+    maximumFractionDigits: 20,
+  });
+}
+
 function formatFixedDecimals(n, decimals) {
   if (!Number.isFinite(n)) return '';
   const d = Math.max(0, Math.min(20, Math.floor(decimals)));
@@ -19,6 +27,17 @@ function formatQuantity(n) {
   return formatFixedDecimals(n, 2);
 }
 
+/** 从价格输入读取小数位数 */
+function getDecimalPlacesFromInput(value) {
+  const normalized = String(value ?? '').trim().replace(/,/g, '');
+  if (!normalized) return 0;
+  const dot = normalized.indexOf('.');
+  if (dot === -1) return 0;
+  const frac = normalized.slice(dot + 1);
+  if (!/^\d*$/.test(frac)) return 0;
+  return frac.length;
+}
+
 function getOpenCost() {
   const active = document.querySelector('[aria-label="开仓成本"] .tab-btn.is-active');
   const n = Number(active?.getAttribute('data-value'));
@@ -31,11 +50,34 @@ function getMultiplier() {
   return Number.isFinite(n) && n > 0 ? n : 20;
 }
 
+/** 1 倍成本止损价差 = 价格 / 倍数 */
+function calcStopDiff(open, multiplier) {
+  if (!(open > 0) || !(multiplier > 0)) return null;
+  return open / multiplier;
+}
+
+/** 默认按开多：止损在价格下方 */
+function calcStopPrice(open, multiplier) {
+  const stopDiff = calcStopDiff(open, multiplier);
+  if (stopDiff == null) return null;
+  return open - stopDiff;
+}
+
 /** 数量 = 总空间 / 价格，总空间 = 开仓成本 × 倍数 */
 function calcQuantity1x(open, openCost, multiplier) {
   if (!(open > 0)) return null;
   const totalSpace = openCost * multiplier;
   return totalSpace / open;
+}
+
+/** 止盈价：n 倍成本 → 价差移动 n×|价格-止损| */
+function calcTakeProfit(open, stop, multiplier = 1) {
+  const stopDiff = Math.abs(open - stop);
+  const m = Number(multiplier);
+  if (!(stopDiff > 0) || !Number.isFinite(m) || m <= 0) return null;
+  const move = stopDiff * m;
+  if (open > stop) return open + move;
+  return open - move;
 }
 
 function escapeHtml(s) {
@@ -61,11 +103,42 @@ function renderStrategyOutput(outEl, { plain, html, qty }) {
   else delete outEl.dataset.copyQty;
 }
 
-function buildStrategy(open, openCost, multiplier) {
+function buildStrategy(open, openCost, multiplier, priceDecimalPlaces) {
+  const stop = calcStopPrice(open, multiplier);
   const quantity = calcQuantity1x(open, openCost, multiplier);
+  const tpDecimals = Math.max(0, priceDecimalPlaces);
+
+  const priceStr = formatPrice(open);
   const qty = formatQuantity(quantity);
-  const html = `<strong class="strategy-qty-value">${escapeHtml(qty)}</strong>`;
-  return { plain: qty, html, qty };
+  const tpStr = formatFixedDecimals(calcTakeProfit(open, stop, 1), tpDecimals);
+  const stopStr = formatFixedDecimals(stop, tpDecimals);
+
+  const lines = [
+    `价格：${priceStr}`,
+    `数量：${qty}`,
+    `止盈：${tpStr}`,
+    `止损：${stopStr}`,
+  ];
+
+  const plain = lines.join('\n');
+  const emphasisValues = {
+    '价格：': priceStr,
+    '数量：': qty,
+    '止盈：': tpStr,
+    '止损：': stopStr,
+  };
+  const html = lines
+    .map((line) => {
+      const prefix = Object.keys(emphasisValues).find((p) => line.startsWith(p));
+      if (prefix) {
+        const label = prefix.slice(0, -1);
+        return `${label}：<strong class="strategy-qty-value">${escapeHtml(emphasisValues[prefix])}</strong>`;
+      }
+      return escapeHtml(line);
+    })
+    .join('\n');
+
+  return { plain, html, qty };
 }
 
 function setTabsActive(clicked) {
@@ -169,7 +242,11 @@ function generate(options = {}) {
     return;
   }
 
-  renderStrategyOutput(outEl, buildStrategy(open, getOpenCost(), getMultiplier()));
+  const priceDecimals = getDecimalPlacesFromInput(openRaw);
+  renderStrategyOutput(
+    outEl,
+    buildStrategy(open, getOpenCost(), getMultiplier(), priceDecimals),
+  );
 }
 
 const INPUT_DEBOUNCE_MS = 300;
