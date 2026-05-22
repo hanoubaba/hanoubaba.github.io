@@ -237,28 +237,84 @@ body {
 
 .strategy-output {
   margin: 0;
-  padding: 12px;
+  padding: 4px 10px;
   min-height: 0;
   border-radius: 10px;
   border: 1px dashed #86efac;
   background: rgba(255, 255, 255, 0.92);
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 16px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
+  line-height: 1.35;
   color: var(--text);
   justify-self: stretch;
   width: 100%;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
-.strategy-qty-value {
+.strategy-row {
+  display: grid;
+  grid-template-columns: 4.5em 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.strategy-row:last-child {
+  border-bottom: none;
+}
+
+.strategy-row-label {
+  font-size: 0.82em;
+  color: var(--muted);
+  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+  white-space: nowrap;
+}
+
+.strategy-row-value {
+  text-align: right;
+  word-break: break-all;
+  min-width: 0;
+}
+
+.strategy-row-value.is-empty {
+  color: var(--muted);
+}
+
+.strategy-row-value--qty:not(.is-empty) {
   font-weight: 800;
   font-size: 1.5em;
-  line-height: 1.2;
+  line-height: 1.15;
   color: var(--primary-deep);
   letter-spacing: 0.02em;
+}
+
+.btn-copy-row {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--primary-strong);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+
+.btn-copy-row:hover:not(:disabled) {
+  background: var(--surface-tint);
+  border-color: #86efac;
+}
+
+.btn-copy-row:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* 手机端：一屏内完整展示，避免滚动 */
@@ -412,8 +468,19 @@ body {
     border-radius: 8px;
   }
 
-  .strategy-qty-value {
-    font-size: 1.5em;
+  .strategy-row-value--qty:not(.is-empty) {
+    font-size: 1.45em;
+  }
+
+  .strategy-row {
+    grid-template-columns: 4em 1fr auto;
+    gap: 6px;
+    padding: 6px 0;
+  }
+
+  .btn-copy-row {
+    padding: 4px 8px;
+    font-size: 11px;
   }
 
   .actions:not(.actions--single) {
