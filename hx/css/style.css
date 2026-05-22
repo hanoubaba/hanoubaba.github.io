@@ -489,11 +489,12 @@ body {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
-    padding: 4px 8px;
+    padding: 8px 10px;
     font-size: 14px;
     line-height: 1.35;
     border-radius: 8px;
     text-align: left;
+    gap: 6px;
   }
 
   .strategy-output .strategy-row {
@@ -501,8 +502,9 @@ body {
     flex-direction: row;
     flex-wrap: nowrap;
     align-items: center;
-    gap: 6px;
-    padding: 8px 0;
+    gap: 10px;
+    padding: 16px 0;
+    min-height: 52px;
   }
 
   .strategy-row-label {
@@ -532,10 +534,10 @@ body {
 
   .btn-copy-row {
     flex: 0 0 auto;
-    min-width: 42px;
-    min-height: 34px;
-    padding: 5px 8px;
-    font-size: 11px;
+    min-width: 48px;
+    min-height: 40px;
+    padding: 8px 10px;
+    font-size: 12px;
   }
 
   .actions:not(.actions--single) {
@@ -572,12 +574,14 @@ body {
 
   .strategy-output {
     font-size: 13px;
-    padding: 2px 6px;
+    padding: 6px 8px;
+    gap: 4px;
   }
 
   .strategy-output .strategy-row {
-    padding: 6px 0;
-    gap: 5px;
+    padding: 12px 0;
+    min-height: 46px;
+    gap: 8px;
   }
 
   .strategy-row-label {
@@ -594,10 +598,10 @@ body {
   }
 
   .btn-copy-row {
-    min-width: 40px;
-    min-height: 32px;
-    padding: 4px 7px;
-    font-size: 10px;
+    min-width: 44px;
+    min-height: 36px;
+    padding: 6px 8px;
+    font-size: 11px;
   }
 }
 
