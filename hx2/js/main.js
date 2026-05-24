@@ -83,7 +83,7 @@ function formatPriceOutput(n) {
 function getOpenCost() {
   const active = document.querySelector('[aria-label="开仓成本"] .tab-btn.is-active');
   const n = Number(active?.getAttribute('data-value'));
-  return Number.isFinite(n) ? n : 30;
+  return Number.isFinite(n) ? n : 10;
 }
 
 function getMultiplier() {

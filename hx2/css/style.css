@@ -25,6 +25,50 @@ body {
   place-items: center;
 }
 
+.page-switch {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--primary-strong);
+  text-decoration: none;
+  box-shadow: 0 2px 8px rgba(22, 101, 52, 0.12);
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.page-switch:hover {
+  background: var(--surface-tint);
+  border-color: #86efac;
+  box-shadow: 0 4px 12px rgba(22, 101, 52, 0.16);
+}
+
+.page-switch:focus-visible {
+  outline: 2px solid rgba(34, 197, 94, 0.55);
+  outline-offset: 2px;
+}
+
+.page-switch:active {
+  transform: translateY(1px);
+}
+
+.page-switch__icon {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .container {
   width: min(680px, 92vw);
   background: var(--card);

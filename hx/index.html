@@ -1,56 +1,164 @@
 <!doctype html>
+
 <html lang="zh-CN">
+
 <head>
+
   <meta charset="UTF-8" />
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
   <title>趋势跟随</title>
+
   <link rel="stylesheet" href="./css/style.css" />
+
 </head>
+
 <body>
+
+  <a href="../hx2/index.html" class="page-switch" data-switch-target="hx2" aria-label="切换到反趋势" title="反趋势">
+
+    <svg class="page-switch__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+
+      <path d="M8 3 4 7l4 4" />
+
+      <path d="M4 7h16" />
+
+      <path d="m16 21 4-4-4-4" />
+
+      <path d="M20 17H4" />
+
+    </svg>
+
+  </a>
+
+  <script src="../js/page-switch.js"></script>
+
   <main class="container">
-    <!-- <header class="header">
+
+    <header class="header">
+
       <h1 class="title">趋势跟随</h1>
-    </header> -->
+
+    </header>
+
+
 
     <section class="panel" aria-label="参数输入">
+
       <label class="field">
+
         <span class="field-label">价格</span>
+
         <input id="open-price-input" class="field-input" inputmode="decimal" autocomplete="off" autofocus />
+
       </label>
 
+
+
       <div class="field field--spaced" role="group" aria-labelledby="multiplier-label">
+
         <span id="multiplier-label" class="field-label">倍数</span>
+
         <div class="tabs" role="tablist" aria-label="倍数" data-tablist="multiplier">
+
           <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="10">10</button>
-          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" data-value="20">20</button>
+
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="20">20</button>
+
           <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="30">30</button>
+
           <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="50">50</button>
-          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="100">100</button>
+
+          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" data-value="100">100</button>
+
         </div>
+
       </div>
+
+
 
       <div class="field field--spaced" role="group" aria-labelledby="open-cost-label">
+
         <span id="open-cost-label" class="field-label">开仓成本</span>
+
         <div class="tabs" role="tablist" aria-label="开仓成本">
-          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" data-value="30">30</button>
+
+          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" data-value="10">10</button>
+
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="30">30</button>
+
           <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="50">50</button>
+
           <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="100">100</button>
+
         </div>
+
       </div>
+
+
 
       <p id="error" class="error" role="alert" aria-live="polite"></p>
+
     </section>
 
+
+
     <section class="panel" aria-label="策略输出">
+
       <div class="field">
+
         <div class="field-heading">
+
           <span class="field-label">策略输出</span>
-          <button id="btn-copy-strategy" type="button" class="btn-copy-strategy" aria-label="复制数量">一键复制</button>
+
+          <button id="btn-copy-strategy" type="button" class="btn-copy-strategy" aria-label="复制全部策略输出">一键复制</button>
+
         </div>
-        <pre id="strategy-output" class="strategy-output" aria-live="polite"></pre>
+
+        <div id="strategy-output" class="strategy-output" aria-live="polite">
+
+          <div class="strategy-row strategy-row--qty">
+
+            <span class="strategy-row-label">数量</span>
+
+            <span id="strategy-value-qty" class="strategy-row-value strategy-row-value--qty">—</span>
+
+            <button type="button" class="btn-copy-row" data-field="qty" disabled aria-label="复制数量">复制</button>
+
+          </div>
+
+          <div class="strategy-row strategy-row--price">
+
+            <span class="strategy-row-label">止盈</span>
+
+            <span id="strategy-value-tp" class="strategy-row-value">—</span>
+
+            <button type="button" class="btn-copy-row" data-field="tp" disabled aria-label="复制止盈">复制</button>
+
+          </div>
+
+          <div class="strategy-row strategy-row--price">
+
+            <span class="strategy-row-label">止损</span>
+
+            <span id="strategy-value-stop" class="strategy-row-value">—</span>
+
+            <button type="button" class="btn-copy-row" data-field="stop" disabled aria-label="复制止损">复制</button>
+
+          </div>
+
+        </div>
+
       </div>
+
     </section>
+
   </main>
+
   <script src="./js/main.js"></script>
+
 </body>
+
 </html>
+
