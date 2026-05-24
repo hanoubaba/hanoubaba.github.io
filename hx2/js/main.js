@@ -89,7 +89,7 @@ function getOpenCost() {
 function getMultiplier() {
   const active = document.querySelector('[data-tablist="multiplier"] .tab-btn.is-active');
   const n = Number(active?.getAttribute('data-value'));
-  return Number.isFinite(n) && n > 0 ? n : 20;
+  return Number.isFinite(n) && n > 0 ? n : 100;
 }
 
 /** 1 倍成本止损价差 = 价格 / 倍数 */
@@ -98,71 +98,76 @@ function calcStopDiff(open, multiplier) {
   return open / multiplier;
 }
 
-/** 默认按开多：止损在价格下方 */
-function calcStopPrice(open, multiplier) {
-  const stopDiff = calcStopDiff(open, multiplier);
-  if (stopDiff == null) return null;
-  return open - stopDiff;
-}
-
-/** 数量 = 总空间 / 价格，总空间 = 开仓成本 × 倍数 */
-function calcQuantity1x(open, openCost, multiplier) {
+/** 数量：按 1 倍成本。总空间 = 开仓成本 × 倍数，数量 = 总空间 / 价格 */
+function calcQuantity(open, openCost, multiplier) {
   if (!(open > 0)) return null;
   const totalSpace = openCost * multiplier;
   return totalSpace / open;
 }
 
-/** 止盈价：n 倍成本 → 价差移动 n×|价格-止损| */
-function calcTakeProfit(open, stop, multiplier = 1) {
-  const stopDiff = Math.abs(open - stop);
-  const m = Number(multiplier);
-  if (!(stopDiff > 0) || !Number.isFinite(m) || m <= 0) return null;
-  const move = stopDiff * m;
-  if (open > stop) return open + move;
-  return open - move;
+/** 上方/下方价格：按 0.618 倍成本价差（与数量计算的 1 倍成本无关） */
+function calcUpperLowerByOpenCost(open, multiplier, costRatio = 0.618) {
+  const stopDiff = calcStopDiff(open, multiplier);
+  const r = Number(costRatio);
+  if (stopDiff == null || !(r > 0)) return null;
+  const move = stopDiff * r;
+  return { upper: open + move, lower: open - move };
 }
 
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
+const STRATEGY_VALUE_IDS = {
+  qty: 'strategy-value-qty',
+  upper: 'strategy-value-upper',
+  lower: 'strategy-value-lower',
+};
 
 function clearStrategyOutput(outEl) {
-  if (!outEl) return;
-  outEl.textContent = '';
-  delete outEl.dataset.plainText;
-  delete outEl.dataset.copyQty;
+  renderStrategyOutput(outEl, {
+    plain: '',
+    values: { qty: '', upper: '', lower: '' },
+  });
 }
 
-function renderStrategyOutput(outEl, { plain, html, qty }) {
+function renderStrategyOutput(outEl, { plain, values }) {
   if (!outEl) return;
-  outEl.innerHTML = html;
-  outEl.dataset.plainText = plain;
-  if (qty) outEl.dataset.copyQty = qty;
-  else delete outEl.dataset.copyQty;
+
+  const hasValues = Boolean(values?.qty || values?.upper || values?.lower);
+  outEl.dataset.plainText = plain || '';
+
+  Object.entries(STRATEGY_VALUE_IDS).forEach(([field, id]) => {
+    const valueEl = document.getElementById(id);
+    const btn = outEl.querySelector(`.btn-copy-row[data-field="${field}"]`);
+    const raw = String(values?.[field] ?? '').trim();
+    const display = raw || '—';
+
+    if (valueEl) {
+      valueEl.textContent = display;
+      valueEl.classList.toggle('is-empty', !raw);
+    }
+    if (btn) {
+      btn.dataset.copy = raw;
+      btn.disabled = !raw;
+    }
+  });
+
+  outEl.classList.toggle('is-empty', !hasValues);
 }
 
 function buildStrategy(open, openCost, multiplier) {
-  const stop = calcStopPrice(open, multiplier);
-  const quantity = calcQuantity1x(open, openCost, multiplier);
+  const quantity = calcQuantity(open, openCost, multiplier); // 1 倍成本
+  const band = calcUpperLowerByOpenCost(open, multiplier); // 0.618 倍成本价差
 
   const qty = formatQuantity(quantity);
-  const tpStr = formatPriceOutput(calcTakeProfit(open, stop, 1));
-  const stopStr = formatPriceOutput(stop);
+  const upperPrice = formatPriceOutput(band?.upper);
+  const lowerPrice = formatPriceOutput(band?.lower);
 
-  const lines = [
+  const values = { qty, upper: upperPrice, lower: lowerPrice };
+  const plain = [
     `数量：${qty}`,
-    `止盈：${tpStr}`,
-    `止损：${stopStr}`,
-  ];
+    `上方价格：${upperPrice}`,
+    `下方价格：${lowerPrice}`,
+  ].join('\n');
 
-  const plain = lines.join('\n');
-  const html = lines.map((line) => escapeHtml(line)).join('\n');
-
-  return { plain, html, qty };
+  return { plain, values };
 }
 
 function setTabsActive(clicked) {
@@ -360,30 +365,61 @@ function flashCopyStrategyBtn(btn, label, duration = 1200) {
   }, duration);
 }
 
+async function copyText(text) {
+  const t = String(text ?? '').trim();
+  if (!t) return false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(t);
+      return true;
+    }
+  } catch {
+    /* fallback below */
+  }
+  return copyFallback(t);
+}
+
+function flashCopyRowBtn(btn, label, duration = 1000) {
+  if (!btn) return;
+  if (!btn.dataset.defaultLabel) btn.dataset.defaultLabel = btn.textContent;
+  if (btn._flashTimer) clearTimeout(btn._flashTimer);
+  btn.textContent = label;
+  btn._flashTimer = setTimeout(() => {
+    btn.textContent = btn.dataset.defaultLabel || '复制';
+    btn._flashTimer = null;
+  }, duration);
+}
+
 async function copyStrategyOutput() {
   const btn = document.getElementById('btn-copy-strategy');
   const out = document.getElementById('strategy-output');
-  const text = (out?.dataset.copyQty ?? '').trim();
+  const text = (out?.dataset.plainText ?? '').trim();
   try {
     if (!text) {
       flashCopyStrategyBtn(btn, '无内容');
       return;
     }
-    let ok = false;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        ok = true;
-      }
-    } catch {
-      ok = false;
-    }
-    if (!ok) ok = copyFallback(text);
+    const ok = await copyText(text);
     flashCopyStrategyBtn(btn, ok ? '已复制' : '复制失败');
   } finally {
     focusPriceInput();
   }
 }
 
+function bindStrategyRowCopy() {
+  document.querySelectorAll('.btn-copy-row').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const text = btn.dataset.copy ?? '';
+      if (!String(text).trim()) {
+        flashCopyRowBtn(btn, '无内容');
+        return;
+      }
+      const ok = await copyText(text);
+      flashCopyRowBtn(btn, ok ? '已复制' : '失败');
+    });
+  });
+}
+
 const btnCopyStrategy = document.getElementById('btn-copy-strategy');
 if (btnCopyStrategy) btnCopyStrategy.addEventListener('click', copyStrategyOutput);
+bindStrategyRowCopy();

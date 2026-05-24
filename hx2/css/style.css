@@ -237,28 +237,97 @@ body {
 
 .strategy-output {
   margin: 0;
-  padding: 12px;
+  padding: 4px 10px;
   min-height: 0;
   border-radius: 10px;
   border: 1px dashed #86efac;
   background: rgba(255, 255, 255, 0.92);
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 16px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
+  line-height: 1.35;
   color: var(--text);
   justify-self: stretch;
   width: 100%;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
-.strategy-qty-value {
+.strategy-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+  text-align: left;
+}
+
+.strategy-row:last-child {
+  border-bottom: none;
+}
+
+.strategy-row-label {
+  flex: 0 0 auto;
+  width: 4.6em;
+  font-size: 13px;
+  color: var(--muted);
+  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+  white-space: nowrap;
+  line-height: 1.25;
+}
+
+.strategy-row-value {
+  flex: 1 1 0%;
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.strategy-row-value.is-empty {
+  color: var(--muted);
+}
+
+.strategy-row-value--qty:not(.is-empty) {
   font-weight: 800;
   font-size: 1.5em;
-  line-height: 1.2;
+  line-height: 1.15;
   color: var(--primary-deep);
   letter-spacing: 0.02em;
+}
+
+.btn-copy-row {
+  flex: 0 0 auto;
+  width: auto;
+  align-self: center;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--primary-strong);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  touch-action: manipulation;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+
+.btn-copy-row:hover:not(:disabled) {
+  background: var(--surface-tint);
+  border-color: #86efac;
+}
+
+.btn-copy-row:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* 手机端：一屏内完整展示，避免滚动 */
@@ -399,21 +468,76 @@ body {
   }
 
   .field-heading {
-    gap: 8px;
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
+
+  .field-heading .field-label {
+    font-size: 12px;
+  }
+
+  .btn-copy-strategy {
+    min-height: 36px;
+    padding: 6px 12px;
+    font-size: 12px;
   }
 
   .strategy-output {
     flex: 1;
     min-height: 0;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     padding: 8px 10px;
     font-size: 14px;
-    line-height: 1.38;
+    line-height: 1.35;
     border-radius: 8px;
+    text-align: left;
+    gap: 6px;
   }
 
-  .strategy-qty-value {
-    font-size: 1.5em;
+  .strategy-output .strategy-row {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 0;
+    min-height: 52px;
+  }
+
+  .strategy-row-label {
+    width: 4.2em;
+    font-size: 12px;
+  }
+
+  .strategy-row-value {
+    flex: 1 1 0%;
+    min-width: 0;
+    font-size: 14px;
+    line-height: 1.3;
+  }
+
+  .strategy-row--price .strategy-row-value {
+    font-size: 13px;
+  }
+
+  .strategy-row--price .strategy-row-label {
+    width: 4.4em;
+  }
+
+  .strategy-row-value--qty:not(.is-empty) {
+    font-size: clamp(18px, 5vw, 22px);
+    line-height: 1.1;
+  }
+
+  .btn-copy-row {
+    flex: 0 0 auto;
+    min-width: 48px;
+    min-height: 40px;
+    padding: 8px 10px;
+    font-size: 12px;
   }
 
   .actions:not(.actions--single) {
@@ -450,8 +574,34 @@ body {
 
   .strategy-output {
     font-size: 13px;
-    line-height: 1.35;
     padding: 6px 8px;
+    gap: 4px;
+  }
+
+  .strategy-output .strategy-row {
+    padding: 12px 0;
+    min-height: 46px;
+    gap: 8px;
+  }
+
+  .strategy-row-label {
+    width: 3.8em;
+    font-size: 11px;
+  }
+
+  .strategy-row-value {
+    font-size: 13px;
+  }
+
+  .strategy-row-value--qty:not(.is-empty) {
+    font-size: clamp(17px, 4.8vw, 20px);
+  }
+
+  .btn-copy-row {
+    min-width: 44px;
+    min-height: 36px;
+    padding: 6px 8px;
+    font-size: 11px;
   }
 }
 
