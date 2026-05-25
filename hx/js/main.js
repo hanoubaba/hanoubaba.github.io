@@ -51,6 +51,46 @@ const OUTPUT_DECIMALS = {
   price: { max: 4, min: 2 },
 };
 
+const DEFAULTS = {
+  openCost: 10,
+  multiplier: 100,
+  direction: 'long',
+  riskMultiple: 1,
+};
+
+const DIRECTION_SIGN = {
+  long: 1,
+  short: -1,
+};
+
+const STRATEGY_VALUE_IDS = {
+  qty: 'strategy-value-qty',
+  tp: 'strategy-value-tp',
+  stop: 'strategy-value-stop',
+};
+
+const COPY_LABELS = {
+  strategy: '一键复制',
+  row: '复制',
+};
+
+const INPUT_DEBOUNCE_MS = 300;
+const CONTROL_THROTTLE_MS = 120;
+
+const els = {
+  openInput: document.getElementById('open-price-input'),
+  error: document.getElementById('error'),
+  strategyOutput: document.getElementById('strategy-output'),
+  copyStrategyBtn: document.getElementById('btn-copy-strategy'),
+};
+
+Object.entries(STRATEGY_VALUE_IDS).forEach(([field, id]) => {
+  STRATEGY_VALUE_IDS[field] = {
+    value: document.getElementById(id),
+    button: els.strategyOutput?.querySelector(`.btn-copy-row[data-field="${field}"]`) ?? null,
+  };
+});
+
 function formatDecimalOutput(n, { max, min = 0 }) {
   if (!Number.isFinite(n)) return '';
   const maxD = Math.max(0, Math.min(20, Math.floor(max)));
@@ -80,28 +120,24 @@ function formatPriceOutput(n) {
   return formatDecimalOutput(n, OUTPUT_DECIMALS.price);
 }
 
-function getOpenCost() {
-  const active = document.querySelector('[aria-label="开仓成本"] .tab-btn.is-active');
-  const n = Number(active?.getAttribute('data-value'));
-  return Number.isFinite(n) ? n : 10;
+function getActiveTabValue(tablistName) {
+  const active = document.querySelector(`[data-tablist="${tablistName}"] .tab-btn.is-active`);
+  return active?.getAttribute('data-value') ?? null;
 }
 
-function getMultiplier() {
-  const active = document.querySelector('[data-tablist="multiplier"] .tab-btn.is-active');
-  const n = Number(active?.getAttribute('data-value'));
-  return Number.isFinite(n) && n > 0 ? n : 100;
+function getPositiveNumberTabValue(tablistName, fallback) {
+  const n = Number(getActiveTabValue(tablistName));
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-function getDirection() {
-  const active = document.querySelector('[data-tablist="direction"] .tab-btn.is-active');
-  const direction = active?.getAttribute('data-value');
-  return direction === 'short' ? 'short' : 'long';
-}
-
-function getRiskMultiple() {
-  const active = document.querySelector('[data-tablist="risk-multiple"] .tab-btn.is-active');
-  const n = Number(active?.getAttribute('data-value'));
-  return Number.isFinite(n) && n > 0 ? n : 1;
+function getStrategyConfig() {
+  const direction = getActiveTabValue('direction');
+  return {
+    openCost: getPositiveNumberTabValue('open-cost', DEFAULTS.openCost),
+    multiplier: getPositiveNumberTabValue('multiplier', DEFAULTS.multiplier),
+    direction: direction === 'short' ? 'short' : DEFAULTS.direction,
+    riskMultiple: getPositiveNumberTabValue('risk-multiple', DEFAULTS.riskMultiple),
+  };
 }
 
 /** 1 倍成本止损价差 = 价格 / 倍数 */
@@ -110,14 +146,16 @@ function calcStopDiff(open, multiplier) {
   return open / multiplier;
 }
 
+function getDirectionSign(direction) {
+  return DIRECTION_SIGN[direction] ?? DIRECTION_SIGN[DEFAULTS.direction];
+}
+
 /** 根据方向和倍数计算止损价 */
-function calcStopPrice(open, multiplier, direction = 'long', riskMultiple = 1) {
+function calcStopPrice(open, multiplier, direction = DEFAULTS.direction, riskMultiple = DEFAULTS.riskMultiple) {
   const baseDiff = calcStopDiff(open, multiplier);
   const risk = Number(riskMultiple);
   if (baseDiff == null || !Number.isFinite(risk) || risk <= 0) return null;
-  const stopDiff = baseDiff * risk;
-  if (stopDiff == null) return null;
-  return direction === 'short' ? open + stopDiff : open - stopDiff;
+  return open - (baseDiff * risk * getDirectionSign(direction));
 }
 
 /** 数量 = 总空间 / 价格，总空间 = 开仓成本 × 倍数 */
@@ -128,66 +166,62 @@ function calcQuantity1x(open, openCost, multiplier) {
 }
 
 /** 止盈价：与止损关于开仓价对称 */
-function calcTakeProfit(open, stop, direction = 'long') {
+function calcTakeProfit(open, stop, direction = DEFAULTS.direction) {
   const stopDiff = Math.abs(open - stop);
   if (!(stopDiff > 0)) return null;
-  return direction === 'short' ? open - stopDiff : open + stopDiff;
+  return open + (stopDiff * getDirectionSign(direction));
 }
 
-const STRATEGY_VALUE_IDS = {
-  qty: 'strategy-value-qty',
-  tp: 'strategy-value-tp',
-  stop: 'strategy-value-stop',
-};
-
-function clearStrategyOutput(outEl) {
-  renderStrategyOutput(outEl, {
+function clearStrategyOutput() {
+  renderStrategyOutput({
     plain: '',
     values: { qty: '', tp: '', stop: '' },
   });
 }
 
-function renderStrategyOutput(outEl, { plain, values }) {
-  if (!outEl) return;
+function renderStrategyOutput({ plain, values }) {
+  if (!els.strategyOutput) return;
 
-  const hasValues = Boolean(values?.qty || values?.tp || values?.stop);
-  outEl.dataset.plainText = plain || '';
+  const hasValues = Object.values(values ?? {}).some(Boolean);
+  els.strategyOutput.dataset.plainText = plain || '';
 
-  Object.entries(STRATEGY_VALUE_IDS).forEach(([field, id]) => {
-    const valueEl = document.getElementById(id);
-    const btn = outEl.querySelector(`.btn-copy-row[data-field="${field}"]`);
+  Object.entries(STRATEGY_VALUE_IDS).forEach(([field, refs]) => {
     const raw = String(values?.[field] ?? '').trim();
     const display = raw || '—';
 
-    if (valueEl) {
-      valueEl.textContent = display;
-      valueEl.classList.toggle('is-empty', !raw);
+    if (refs.value) {
+      refs.value.textContent = display;
+      refs.value.classList.toggle('is-empty', !raw);
     }
-    if (btn) {
-      btn.dataset.copy = raw;
-      btn.disabled = !raw;
+    if (refs.button) {
+      refs.button.dataset.copy = raw;
+      refs.button.disabled = !raw;
     }
   });
 
-  outEl.classList.toggle('is-empty', !hasValues);
+  els.strategyOutput.classList.toggle('is-empty', !hasValues);
 }
 
-function buildStrategy(open, openCost, multiplier, direction, riskMultiple) {
+function buildStrategy(open, config) {
+  const { openCost, multiplier, direction, riskMultiple } = config;
   const stop = calcStopPrice(open, multiplier, direction, riskMultiple);
   const quantity = calcQuantity1x(open, openCost, multiplier);
+  const takeProfit = calcTakeProfit(open, stop, direction);
 
-  const qty = formatQuantity(quantity);
-  const tpStr = formatPriceOutput(calcTakeProfit(open, stop, direction));
-  const stopStr = formatPriceOutput(stop);
+  const values = {
+    qty: formatQuantity(quantity),
+    tp: formatPriceOutput(takeProfit),
+    stop: formatPriceOutput(stop),
+  };
 
-  const values = { qty, tp: tpStr, stop: stopStr };
-  const plain = [
-    `数量：${qty}`,
-    `止盈：${tpStr}`,
-    `止损：${stopStr}`,
-  ].join('\n');
-
-  return { plain, values };
+  return {
+    plain: [
+      `数量：${values.qty}`,
+      `止盈：${values.tp}`,
+      `止损：${values.stop}`,
+    ].join('\n'),
+    values,
+  };
 }
 
 function setTabsActive(clicked) {
@@ -262,43 +296,36 @@ function throttle(fn, wait) {
 }
 
 function hasPriceInput() {
-  const openEl = document.getElementById('open-price-input');
-  return Boolean(String(openEl?.value ?? '').trim());
+  return Boolean(String(els.openInput?.value ?? '').trim());
+}
+
+function setError(message) {
+  if (els.error) els.error.textContent = message;
 }
 
 function generate(options = {}) {
   const { silent = false } = options;
-  const openEl = document.getElementById('open-price-input');
-  const errEl = document.getElementById('error');
-  const outEl = document.getElementById('strategy-output');
-
-  const openRaw = openEl && 'value' in openEl ? String(openEl.value) : '';
+  const openRaw = els.openInput && 'value' in els.openInput ? String(els.openInput.value) : '';
   const open = toNumber(openRaw);
 
-  if (errEl) errEl.textContent = '';
+  setError('');
 
   if (open === null) {
-    if (errEl && !(silent && !openRaw.trim())) {
-      errEl.textContent = '请输入有效的价格（数字）。';
+    if (!(silent && !openRaw.trim())) {
+      setError('请输入有效的价格（数字）。');
     }
-    clearStrategyOutput(outEl);
+    clearStrategyOutput();
     return;
   }
 
   if (open <= 0) {
-    if (errEl && !silent) errEl.textContent = '价格须为大于 0 的数字。';
-    clearStrategyOutput(outEl);
+    if (!silent) setError('价格须为大于 0 的数字。');
+    clearStrategyOutput();
     return;
   }
 
-  renderStrategyOutput(
-    outEl,
-    buildStrategy(open, getOpenCost(), getMultiplier(), getDirection(), getRiskMultiple()),
-  );
+  renderStrategyOutput(buildStrategy(open, getStrategyConfig()));
 }
-
-const INPUT_DEBOUNCE_MS = 300;
-const CONTROL_THROTTLE_MS = 120;
 
 const scheduleGenerateFromInput = debounce(() => {
   generate({ silent: !hasPriceInput() });
@@ -314,7 +341,7 @@ function scheduleGenerateNow() {
 }
 
 function focusPriceInput() {
-  const el = document.getElementById('open-price-input');
+  const el = els.openInput;
   if (!el || typeof el.focus !== 'function') return;
   try {
     el.focus({ preventScroll: true });
@@ -338,26 +365,15 @@ function bindPageEnterFocus() {
   window.addEventListener('focus', focusPriceInputOnPageEnter);
 }
 
-document.querySelectorAll('.tab-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    setTabsActive(btn);
-    scheduleGenerateFromControl();
-    focusPriceInput();
-  });
-});
-
-const openInput = document.getElementById('open-price-input');
-
-if (openInput) {
-  openInput.addEventListener('input', scheduleGenerateFromInput);
-  openInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') scheduleGenerateNow();
+function bindTabs() {
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setTabsActive(btn);
+      scheduleGenerateFromControl();
+      focusPriceInput();
+    });
   });
 }
-bindPageEnterFocus();
-focusPriceInputOnPageEnter();
-
-scheduleGenerateFromControl();
 
 function copyFallback(text) {
   const ta = document.createElement('textarea');
@@ -374,17 +390,6 @@ function copyFallback(text) {
   }
 }
 
-function flashCopyStrategyBtn(btn, label, duration = 1200) {
-  if (!btn) return;
-  if (!btn.dataset.defaultLabel) btn.dataset.defaultLabel = btn.textContent;
-  if (btn._flashTimer) clearTimeout(btn._flashTimer);
-  btn.textContent = label;
-  btn._flashTimer = setTimeout(() => {
-    btn.textContent = btn.dataset.defaultLabel || '一键复制';
-    btn._flashTimer = null;
-  }, duration);
-}
-
 async function copyText(text) {
   const t = String(text ?? '').trim();
   if (!t) return false;
@@ -399,47 +404,65 @@ async function copyText(text) {
   return copyFallback(t);
 }
 
-function flashCopyRowBtn(btn, label, duration = 1000) {
+function flashButtonLabel(btn, label, fallbackLabel, duration) {
   if (!btn) return;
-  if (!btn.dataset.defaultLabel) btn.dataset.defaultLabel = btn.textContent;
+  if (!btn.dataset.defaultLabel) btn.dataset.defaultLabel = fallbackLabel || btn.textContent;
   if (btn._flashTimer) clearTimeout(btn._flashTimer);
   btn.textContent = label;
   btn._flashTimer = setTimeout(() => {
-    btn.textContent = btn.dataset.defaultLabel || '复制';
+    btn.textContent = btn.dataset.defaultLabel || fallbackLabel;
     btn._flashTimer = null;
   }, duration);
 }
 
 async function copyStrategyOutput() {
-  const btn = document.getElementById('btn-copy-strategy');
-  const out = document.getElementById('strategy-output');
-  const text = (out?.dataset.plainText ?? '').trim();
+  const text = String(els.strategyOutput?.dataset.plainText ?? '').trim();
   try {
     if (!text) {
-      flashCopyStrategyBtn(btn, '无内容');
+      flashButtonLabel(els.copyStrategyBtn, '无内容', COPY_LABELS.strategy, 1200);
       return;
     }
     const ok = await copyText(text);
-    flashCopyStrategyBtn(btn, ok ? '已复制' : '复制失败');
+    flashButtonLabel(els.copyStrategyBtn, ok ? '已复制' : '复制失败', COPY_LABELS.strategy, 1200);
   } finally {
     focusPriceInput();
   }
 }
 
 function bindStrategyRowCopy() {
-  document.querySelectorAll('.btn-copy-row').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const text = btn.dataset.copy ?? '';
-      if (!String(text).trim()) {
-        flashCopyRowBtn(btn, '无内容');
-        return;
+  Object.values(STRATEGY_VALUE_IDS).forEach(({ button }) => {
+    if (!button) return;
+    button.addEventListener('click', async () => {
+      try {
+        const text = button.dataset.copy ?? '';
+        if (!String(text).trim()) {
+          flashButtonLabel(button, '无内容', COPY_LABELS.row, 1000);
+          return;
+        }
+        const ok = await copyText(text);
+        flashButtonLabel(button, ok ? '已复制' : '失败', COPY_LABELS.row, 1000);
+      } finally {
+        focusPriceInput();
       }
-      const ok = await copyText(text);
-      flashCopyRowBtn(btn, ok ? '已复制' : '失败');
     });
   });
 }
 
-const btnCopyStrategy = document.getElementById('btn-copy-strategy');
-if (btnCopyStrategy) btnCopyStrategy.addEventListener('click', copyStrategyOutput);
+function bindPriceInput() {
+  if (!els.openInput) return;
+  els.openInput.addEventListener('input', scheduleGenerateFromInput);
+  els.openInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') scheduleGenerateNow();
+  });
+}
+
+if (els.copyStrategyBtn) {
+  els.copyStrategyBtn.addEventListener('click', copyStrategyOutput);
+}
+
+bindTabs();
+bindPriceInput();
+bindPageEnterFocus();
 bindStrategyRowCopy();
+focusPriceInputOnPageEnter();
+scheduleGenerateFromControl();
