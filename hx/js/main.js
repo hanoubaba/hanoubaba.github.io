@@ -92,17 +92,32 @@ function getMultiplier() {
   return Number.isFinite(n) && n > 0 ? n : 100;
 }
 
+function getDirection() {
+  const active = document.querySelector('[data-tablist="direction"] .tab-btn.is-active');
+  const direction = active?.getAttribute('data-value');
+  return direction === 'short' ? 'short' : 'long';
+}
+
+function getRiskMultiple() {
+  const active = document.querySelector('[data-tablist="risk-multiple"] .tab-btn.is-active');
+  const n = Number(active?.getAttribute('data-value'));
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
 /** 1 倍成本止损价差 = 价格 / 倍数 */
 function calcStopDiff(open, multiplier) {
   if (!(open > 0) || !(multiplier > 0)) return null;
   return open / multiplier;
 }
 
-/** 默认按开多：止损在价格下方 */
-function calcStopPrice(open, multiplier) {
-  const stopDiff = calcStopDiff(open, multiplier);
+/** 根据方向和倍数计算止损价 */
+function calcStopPrice(open, multiplier, direction = 'long', riskMultiple = 1) {
+  const baseDiff = calcStopDiff(open, multiplier);
+  const risk = Number(riskMultiple);
+  if (baseDiff == null || !Number.isFinite(risk) || risk <= 0) return null;
+  const stopDiff = baseDiff * risk;
   if (stopDiff == null) return null;
-  return open - stopDiff;
+  return direction === 'short' ? open + stopDiff : open - stopDiff;
 }
 
 /** 数量 = 总空间 / 价格，总空间 = 开仓成本 × 倍数 */
@@ -112,14 +127,11 @@ function calcQuantity1x(open, openCost, multiplier) {
   return totalSpace / open;
 }
 
-/** 止盈价：n 倍成本 → 价差移动 n×|价格-止损| */
-function calcTakeProfit(open, stop, multiplier = 1) {
+/** 止盈价：与止损关于开仓价对称 */
+function calcTakeProfit(open, stop, direction = 'long') {
   const stopDiff = Math.abs(open - stop);
-  const m = Number(multiplier);
-  if (!(stopDiff > 0) || !Number.isFinite(m) || m <= 0) return null;
-  const move = stopDiff * m;
-  if (open > stop) return open + move;
-  return open - move;
+  if (!(stopDiff > 0)) return null;
+  return direction === 'short' ? open - stopDiff : open + stopDiff;
 }
 
 const STRATEGY_VALUE_IDS = {
@@ -160,12 +172,12 @@ function renderStrategyOutput(outEl, { plain, values }) {
   outEl.classList.toggle('is-empty', !hasValues);
 }
 
-function buildStrategy(open, openCost, multiplier) {
-  const stop = calcStopPrice(open, multiplier);
+function buildStrategy(open, openCost, multiplier, direction, riskMultiple) {
+  const stop = calcStopPrice(open, multiplier, direction, riskMultiple);
   const quantity = calcQuantity1x(open, openCost, multiplier);
 
   const qty = formatQuantity(quantity);
-  const tpStr = formatPriceOutput(calcTakeProfit(open, stop, 1));
+  const tpStr = formatPriceOutput(calcTakeProfit(open, stop, direction));
   const stopStr = formatPriceOutput(stop);
 
   const values = { qty, tp: tpStr, stop: stopStr };
@@ -281,7 +293,7 @@ function generate(options = {}) {
 
   renderStrategyOutput(
     outEl,
-    buildStrategy(open, getOpenCost(), getMultiplier()),
+    buildStrategy(open, getOpenCost(), getMultiplier(), getDirection(), getRiskMultiple()),
   );
 }
 

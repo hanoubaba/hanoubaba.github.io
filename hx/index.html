@@ -15,25 +15,6 @@
 </head>
 
 <body>
-
-  <a href="../hx2/index.html" class="page-switch" data-switch-target="hx2" aria-label="切换到反趋势" title="反趋势">
-
-    <svg class="page-switch__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
-
-      <path d="M8 3 4 7l4 4" />
-
-      <path d="M4 7h16" />
-
-      <path d="m16 21 4-4-4-4" />
-
-      <path d="M20 17H4" />
-
-    </svg>
-
-  </a>
-
-  <script src="../js/page-switch.js"></script>
-
   <main class="container">
 
     <header class="header">
@@ -53,6 +34,20 @@
         <input id="open-price-input" class="field-input" inputmode="decimal" autocomplete="off" autofocus />
 
       </label>
+
+      <div class="field field--spaced" role="group" aria-labelledby="direction-label">
+
+        <span id="direction-label" class="field-label">方向</span>
+
+        <div class="tabs" role="tablist" aria-label="方向" data-tablist="direction">
+
+          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" data-value="long">做多</button>
+
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="short">做空</button>
+
+        </div>
+
+      </div>
 
 
 
@@ -91,6 +86,24 @@
           <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="50">50</button>
 
           <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="100">100</button>
+
+        </div>
+
+      </div>
+
+      <div class="field field--spaced" role="group" aria-labelledby="risk-multiple-label">
+
+        <span id="risk-multiple-label" class="field-label">止盈止损倍数</span>
+
+        <div class="tabs" role="tablist" aria-label="止盈止损倍数" data-tablist="risk-multiple">
+
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="0.5">0.5</button>
+
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="0.618">0.618</button>
+
+          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" data-value="1">1</button>
+
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="2">2</button>
 
         </div>
 
@@ -161,4 +174,3 @@
 </body>
 
 </html>
-
