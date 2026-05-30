@@ -9,7 +9,7 @@
 <body>
   <main class="container">
     <header class="header">
-      <h1 class="title">插针止损策略</h1>
+      <h1 class="title" id="title-clear" role="button" tabindex="0" aria-label="插针止损策略，点击清空输入">插针止损策略</h1>
     </header>
 
     <section class="panel" aria-label="参数输入">
@@ -38,8 +38,8 @@
           <button id="tab-15m" class="tab-btn" type="button" role="tab" aria-selected="false" data-value="15m">15分钟</button>
           <button id="tab-1h" class="tab-btn is-active" type="button" role="tab" aria-selected="true" data-value="1h">1小时</button>
         </div>
-        <span class="field-label" id="start-time-label" style="display: none;">开始时间</span>
-        <select id="start-time" class="field-input field-input--select" aria-labelledby="start-time-label" autocomplete="off" style="display: none;">
+        <span class="field-label" id="start-time-label">开始时间</span>
+        <select id="start-time" class="field-input field-input--select" aria-labelledby="start-time-label" autocomplete="off">
           <option value="">请选择</option>
         </select>
       </div>

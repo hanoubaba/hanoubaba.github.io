@@ -13,20 +13,100 @@ function formatHHMM(h, m) {
   return `${pad2(h)}:${pad2(m)}`;
 }
 
-function minutesToHHMM(total) {
-  const all = 24 * 60;
-  const t = ((total % all) + all) % all;
+function minutesFromValue(val) {
+  if (!val || !/^\d{1,2}:\d{2}$/.test(val)) return null;
+  const [h, m] = val.split(':').map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return h * 60 + m;
+}
+
+function minutesToValue(total) {
+  const t = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
   return formatHHMM(Math.floor(t / 60), t % 60);
 }
 
-function getTimeRangeLabel(spanMinutes = 360) {
+function addPeriodToStart(startHHMM, periodMinutes) {
+  const sm = minutesFromValue(startHHMM);
+  if (sm == null) return '—';
+  const total = sm + periodMinutes;
+  const nextDay = total >= 24 * 60;
+  const timeStr = minutesToValue(total);
+  return nextDay ? `${timeStr}（次日）` : timeStr;
+}
+
+function closestSlotMinutes(mins, stepMinutes) {
+  let s = Math.round(mins / stepMinutes) * stepMinutes;
+  const max = 24 * 60 - stepMinutes;
+  if (s > max) s = max;
+  if (s < 0) s = 0;
+  return s;
+}
+
+function getCurrentTimeSlot(stepMinutes) {
   const d = new Date();
-  const start = d.getHours() * 60 + d.getMinutes();
-  const end = start + spanMinutes;
-  const endLabel = minutesToHHMM(end);
-  const nextDay = end >= 24 * 60;
-  const startLabel = formatHHMM(d.getHours(), d.getMinutes());
-  return `${startLabel} — ${endLabel}${nextDay ? '（次日）' : ''}`;
+  const mins = d.getHours() * 60 + d.getMinutes();
+  return minutesToValue(closestSlotMinutes(mins, stepMinutes));
+}
+
+function getTimeframeMode() {
+  const active = document.querySelector('[data-tablist="timeframe"] .tab-btn.is-active');
+  return active?.getAttribute('data-value') === '1h' ? '1h' : '15m';
+}
+
+function rebuildStartTimeOptions() {
+  const sel = document.getElementById('start-time');
+  if (!sel) return;
+
+  const mode = getTimeframeMode();
+  const prev = String(sel.value ?? '').trim();
+  const prevM = minutesFromValue(prev);
+
+  const frag = document.createDocumentFragment();
+  const optPlaceholder = document.createElement('option');
+  optPlaceholder.value = '';
+  optPlaceholder.textContent = '请选择';
+  frag.appendChild(optPlaceholder);
+
+  if (mode === '1h') {
+    for (let h = 0; h < 24; h += 1) {
+      const o = document.createElement('option');
+      const v = formatHHMM(h, 0);
+      o.value = v;
+      o.textContent = v;
+      frag.appendChild(o);
+    }
+  } else {
+    for (let h = 0; h < 24; h += 1) {
+      for (let m = 0; m < 60; m += 15) {
+        const o = document.createElement('option');
+        const v = formatHHMM(h, m);
+        o.value = v;
+        o.textContent = v;
+        frag.appendChild(o);
+      }
+    }
+  }
+
+  sel.innerHTML = '';
+  sel.append(frag);
+
+  if (!prev) {
+    sel.value = getCurrentTimeSlot(mode === '1h' ? 60 : 15);
+    return;
+  }
+
+  if (mode === '1h') {
+    sel.value = minutesToValue(closestSlotMinutes(prevM ?? 0, 60));
+    return;
+  }
+
+  if (prevM != null && prevM % 15 === 0) {
+    sel.value = minutesToValue(prevM);
+  } else if (prevM != null) {
+    sel.value = minutesToValue(closestSlotMinutes(prevM, 15));
+  } else {
+    sel.value = '';
+  }
 }
 
 function formatCreateTime() {
@@ -102,6 +182,7 @@ const CONTROL_THROTTLE_MS = 120;
 
 const els = {
   openInput: document.getElementById('open-price-input'),
+  titleClear: document.getElementById('title-clear'),
   error: document.getElementById('error'),
   strategyOutput: document.getElementById('strategy-output'),
   copyStrategyBtn: document.getElementById('btn-copy-strategy'),
@@ -216,8 +297,14 @@ function buildStrategy(open, config) {
   const stop = calcStopPrice(open, multiplier, direction, riskMultiple);
   const quantity = calcQuantity1x(open, openCost, multiplier);
   const takeProfit = calcTakeProfit(open, stop, direction);
-  const timeRange = getTimeRangeLabel(360);
   const createTime = formatCreateTime();
+
+  const unitMin = getTimeframeMode() === '1h' ? 60 : 15;
+  const spanMinutes = unitMin * 9;
+  const startTimeEl = document.getElementById('start-time');
+  const startTime = startTimeEl ? String(startTimeEl.value ?? '').trim() : '';
+  const endTime = addPeriodToStart(startTime, spanMinutes);
+  const timeRange = startTime ? `${startTime} — ${endTime}` : '—';
 
   const qty = formatQuantity(quantity);
   const tp = formatPriceOutput(takeProfit);
@@ -386,6 +473,7 @@ function bindTabs() {
       const tablist = btn.closest('[role="tablist"]');
       if (tablist?.getAttribute('data-locked') === 'true') return;
       setTabsActive(btn);
+      if (tablist?.getAttribute('data-tablist') === 'timeframe') rebuildStartTimeOptions();
       scheduleGenerateFromControl();
       focusPriceInput();
     });
@@ -468,6 +556,21 @@ function bindPriceInput() {
   });
 }
 
+function bindTitleClear() {
+  if (!els.titleClear) return;
+  const clear = () => {
+    if (!els.openInput) return;
+    els.openInput.value = '';
+    setError('');
+    clearStrategyOutput();
+    focusPriceInput();
+  };
+  els.titleClear.addEventListener('click', clear);
+  els.titleClear.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clear(); }
+  });
+}
+
 if (els.copyStrategyBtn) {
   els.copyStrategyBtn.addEventListener('click', copyStrategyOutput);
 }
@@ -477,6 +580,10 @@ if (els.copyQtyBtn) {
 
 bindTabs();
 bindPriceInput();
+bindTitleClear();
 bindPageEnterFocus();
+rebuildStartTimeOptions();
+const startTimeEl = document.getElementById('start-time');
+if (startTimeEl) startTimeEl.addEventListener('change', scheduleGenerateFromControl);
 focusPriceInputOnPageEnter();
 scheduleGenerateFromControl();

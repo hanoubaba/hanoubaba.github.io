@@ -45,6 +45,12 @@ body {
   font-size: 20px;
   font-weight: 800;
   color: var(--primary-deep);
+  cursor: pointer;
+  user-select: none;
+}
+
+.title:active {
+  opacity: 0.7;
 }
 
 .header-tip {

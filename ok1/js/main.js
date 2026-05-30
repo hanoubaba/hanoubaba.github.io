@@ -192,7 +192,7 @@ function calcTakeProfit(open, stop, multiplier = 1) {
 
 function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces) {
   const unitMin = getTimeframeMode() === '1h' ? 60 : 15;
-  const spanMinutes = unitMin * 6;
+  const spanMinutes = unitMin * 9;
   const stopDiff = Math.abs(open - stop);
   const quantity = openCost / stopDiff;
   const tp = calcTakeProfit(open, stop, 3);
@@ -383,3 +383,20 @@ const btnCopyStrategy = document.getElementById('btn-copy-strategy');
 if (btnCopyStrategy) btnCopyStrategy.addEventListener('click', copyStrategyOutput);
 const btnCopyQty = document.getElementById('btn-copy-qty');
 if (btnCopyQty) btnCopyQty.addEventListener('click', copyQtyOutput);
+
+const titleClear = document.getElementById('title-clear');
+if (titleClear) {
+  const clearAll = () => {
+    if (openInput) openInput.value = '';
+    if (stopInput) stopInput.value = '';
+    const errEl = document.getElementById('error');
+    const outEl = document.getElementById('strategy-output');
+    if (errEl) errEl.textContent = '';
+    clearStrategyOutput(outEl);
+    if (openInput) openInput.focus({ preventScroll: true });
+  };
+  titleClear.addEventListener('click', clearAll);
+  titleClear.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clearAll(); }
+  });
+}
