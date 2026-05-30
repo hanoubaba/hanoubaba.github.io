@@ -77,15 +77,15 @@
 
         <span id="open-cost-label" class="field-label">开仓成本</span>
 
-        <div class="tabs" role="tablist" aria-label="开仓成本" data-tablist="open-cost">
+        <div class="tabs" role="tablist" aria-label="开仓成本" data-tablist="open-cost" data-locked="true">
 
-          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" data-value="20">20</button>
+          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" aria-disabled="true" data-value="20">20</button>
 
-          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="30">30</button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" aria-disabled="true" data-value="30">30</button>
 
-          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="50">50</button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" aria-disabled="true" data-value="50">50</button>
 
-          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="100">100</button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" aria-disabled="true" data-value="100">100</button>
 
         </div>
 
@@ -95,13 +95,13 @@
 
         <span id="risk-multiple-label" class="field-label">止盈止损倍数</span>
 
-        <div class="tabs" role="tablist" aria-label="止盈止损倍数" data-tablist="risk-multiple">
+        <div class="tabs" role="tablist" aria-label="止盈止损倍数" data-tablist="risk-multiple" data-locked="true">
 
-          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="0.618">0.618</button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" aria-disabled="true" data-value="0.618">0.618</button>
 
-          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" data-value="1">1</button>
+          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" aria-disabled="true" data-value="1">1</button>
 
-          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="2">2</button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" aria-disabled="true" data-value="2">2</button>
 
         </div>
 
@@ -123,43 +123,14 @@
 
           <span class="field-label">策略输出</span>
 
-          <button id="btn-copy-strategy" type="button" class="btn-copy-strategy" aria-label="复制全部策略输出">一键复制</button>
-
-        </div>
-
-        <div id="strategy-output" class="strategy-output" aria-live="polite">
-
-          <div class="strategy-row strategy-row--qty">
-
-            <span class="strategy-row-label">数量</span>
-
-            <span id="strategy-value-qty" class="strategy-row-value strategy-row-value--qty">—</span>
-
-            <button type="button" class="btn-copy-row" data-field="qty" disabled aria-label="复制数量">复制</button>
-
-          </div>
-
-          <div class="strategy-row strategy-row--price">
-
-            <span class="strategy-row-label">止盈</span>
-
-            <span id="strategy-value-tp" class="strategy-row-value">—</span>
-
-            <button type="button" class="btn-copy-row" data-field="tp" disabled aria-label="复制止盈">复制</button>
-
-          </div>
-
-          <div class="strategy-row strategy-row--price">
-
-            <span class="strategy-row-label">止损</span>
-
-            <span id="strategy-value-stop" class="strategy-row-value">—</span>
-
-            <button type="button" class="btn-copy-row" data-field="stop" disabled aria-label="复制止损">复制</button>
-
+          <div class="copy-actions">
+            <button id="btn-copy-qty" type="button" class="btn-copy-strategy" aria-label="复制数量">复制数量</button>
+            <button id="btn-copy-strategy" type="button" class="btn-copy-strategy" aria-label="一键复制全部策略输出">一键复制全部</button>
           </div>
 
         </div>
+
+        <pre id="strategy-output" class="strategy-output" aria-live="polite"></pre>
 
       </div>
 

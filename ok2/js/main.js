@@ -5,6 +5,35 @@ function toNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function formatHHMM(h, m) {
+  return `${pad2(h)}:${pad2(m)}`;
+}
+
+function minutesToHHMM(total) {
+  const all = 24 * 60;
+  const t = ((total % all) + all) % all;
+  return formatHHMM(Math.floor(t / 60), t % 60);
+}
+
+function getTimeRangeLabel(spanMinutes = 360) {
+  const d = new Date();
+  const start = d.getHours() * 60 + d.getMinutes();
+  const end = start + spanMinutes;
+  const endLabel = minutesToHHMM(end);
+  const nextDay = end >= 24 * 60;
+  const startLabel = formatHHMM(d.getHours(), d.getMinutes());
+  return `${startLabel} — ${endLabel}${nextDay ? '（次日）' : ''}`;
+}
+
+function formatCreateTime() {
+  const d = new Date();
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
 /** 四舍五入到指定小数位（标准四舍五入，非银行家舍入） */
 function roundHalfUp(num, decimalPlaces) {
   const d = Math.max(0, Math.min(20, Math.floor(decimalPlaces)));
@@ -63,15 +92,9 @@ const DIRECTION_SIGN = {
   short: -1,
 };
 
-const STRATEGY_VALUE_IDS = {
-  qty: 'strategy-value-qty',
-  tp: 'strategy-value-tp',
-  stop: 'strategy-value-stop',
-};
-
 const COPY_LABELS = {
-  strategy: '一键复制',
-  row: '复制',
+  strategy: '一键复制全部',
+  qty: '复制数量',
 };
 
 const INPUT_DEBOUNCE_MS = 300;
@@ -82,14 +105,8 @@ const els = {
   error: document.getElementById('error'),
   strategyOutput: document.getElementById('strategy-output'),
   copyStrategyBtn: document.getElementById('btn-copy-strategy'),
+  copyQtyBtn: document.getElementById('btn-copy-qty'),
 };
-
-Object.entries(STRATEGY_VALUE_IDS).forEach(([field, id]) => {
-  STRATEGY_VALUE_IDS[field] = {
-    value: document.getElementById(id),
-    button: els.strategyOutput?.querySelector(`.btn-copy-row[data-field="${field}"]`) ?? null,
-  };
-});
 
 function formatDecimalOutput(n, { max, min = 0 }) {
   if (!Number.isFinite(n)) return '';
@@ -118,6 +135,14 @@ function formatQuantity(n) {
 
 function formatPriceOutput(n) {
   return formatDecimalOutput(n, OUTPUT_DECIMALS.price);
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function getActiveTabValue(tablistName) {
@@ -173,33 +198,17 @@ function calcTakeProfit(open, stop, direction = DEFAULTS.direction) {
 }
 
 function clearStrategyOutput() {
-  renderStrategyOutput({
-    plain: '',
-    values: { qty: '', tp: '', stop: '' },
-  });
+  if (!els.strategyOutput) return;
+  els.strategyOutput.textContent = '';
+  delete els.strategyOutput.dataset.plainText;
+  delete els.strategyOutput.dataset.qty;
 }
 
-function renderStrategyOutput({ plain, values }) {
+function renderStrategyOutput({ plain, html, qty }) {
   if (!els.strategyOutput) return;
-
-  const hasValues = Object.values(values ?? {}).some(Boolean);
+  els.strategyOutput.innerHTML = html;
   els.strategyOutput.dataset.plainText = plain || '';
-
-  Object.entries(STRATEGY_VALUE_IDS).forEach(([field, refs]) => {
-    const raw = String(values?.[field] ?? '').trim();
-    const display = raw || '—';
-
-    if (refs.value) {
-      refs.value.textContent = display;
-      refs.value.classList.toggle('is-empty', !raw);
-    }
-    if (refs.button) {
-      refs.button.dataset.copy = raw;
-      refs.button.disabled = !raw;
-    }
-  });
-
-  els.strategyOutput.classList.toggle('is-empty', !hasValues);
+  els.strategyOutput.dataset.qty = qty || '';
 }
 
 function buildStrategy(open, config) {
@@ -207,21 +216,27 @@ function buildStrategy(open, config) {
   const stop = calcStopPrice(open, multiplier, direction, riskMultiple);
   const quantity = calcQuantity1x(open, openCost, multiplier);
   const takeProfit = calcTakeProfit(open, stop, direction);
+  const timeRange = getTimeRangeLabel(360);
+  const createTime = formatCreateTime();
 
-  const values = {
-    qty: formatQuantity(quantity),
-    tp: formatPriceOutput(takeProfit),
-    stop: formatPriceOutput(stop),
-  };
+  const qty = formatQuantity(quantity);
+  const tp = formatPriceOutput(takeProfit);
+  const stopText = formatPriceOutput(stop);
 
-  return {
-    plain: [
-      `数量：${values.qty}`,
-      `止盈：${values.tp}`,
-      `止损：${values.stop}`,
-    ].join('\n'),
-    values,
-  };
+  const lines = [
+    direction === 'short' ? '#开空' : '#开多',
+    `价格：${formatPriceOutput(open)}`,
+    `数量：${qty}`,
+    `止盈：${tp}`,
+    `止损：${stopText}`,
+    `时间范围：${timeRange}`,
+    `创建时间：${createTime}`,
+  ];
+
+  const plain = lines.join('\n');
+  const html = lines.map((line) => escapeHtml(line)).join('\n');
+
+  return { plain, html, qty };
 }
 
 function setTabsActive(clicked) {
@@ -368,6 +383,8 @@ function bindPageEnterFocus() {
 function bindTabs() {
   document.querySelectorAll('.tab-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
+      const tablist = btn.closest('[role="tablist"]');
+      if (tablist?.getAttribute('data-locked') === 'true') return;
       setTabsActive(btn);
       scheduleGenerateFromControl();
       focusPriceInput();
@@ -429,23 +446,18 @@ async function copyStrategyOutput() {
   }
 }
 
-function bindStrategyRowCopy() {
-  Object.values(STRATEGY_VALUE_IDS).forEach(({ button }) => {
-    if (!button) return;
-    button.addEventListener('click', async () => {
-      try {
-        const text = button.dataset.copy ?? '';
-        if (!String(text).trim()) {
-          flashButtonLabel(button, '无内容', COPY_LABELS.row, 1000);
-          return;
-        }
-        const ok = await copyText(text);
-        flashButtonLabel(button, ok ? '已复制' : '失败', COPY_LABELS.row, 1000);
-      } finally {
-        focusPriceInput();
-      }
-    });
-  });
+async function copyQtyOutput() {
+  try {
+    const qtyText = String(els.strategyOutput?.dataset.qty ?? '').trim();
+    if (!qtyText) {
+      flashButtonLabel(els.copyQtyBtn, '无内容', COPY_LABELS.qty, 1000);
+      return;
+    }
+    const ok = await copyText(qtyText);
+    flashButtonLabel(els.copyQtyBtn, ok ? '已复制' : '复制失败', COPY_LABELS.qty, 1000);
+  } finally {
+    focusPriceInput();
+  }
 }
 
 function bindPriceInput() {
@@ -459,10 +471,12 @@ function bindPriceInput() {
 if (els.copyStrategyBtn) {
   els.copyStrategyBtn.addEventListener('click', copyStrategyOutput);
 }
+if (els.copyQtyBtn) {
+  els.copyQtyBtn.addEventListener('click', copyQtyOutput);
+}
 
 bindTabs();
 bindPriceInput();
 bindPageEnterFocus();
-bindStrategyRowCopy();
 focusPriceInputOnPageEnter();
 scheduleGenerateFromControl();

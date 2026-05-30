@@ -25,10 +25,10 @@
 
       <div class="field field--spaced" role="group" aria-labelledby="open-cost-label">
         <span id="open-cost-label" class="field-label">开仓成本</span>
-        <div class="tabs" role="tablist" aria-label="开仓成本">
-          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" data-value="20">20</button>
-          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="50">50</button>
-          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="100">100</button>
+        <div class="tabs" role="tablist" aria-label="开仓成本" data-tablist="open-cost" data-locked="true">
+          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" aria-disabled="true" data-value="20">20</button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" aria-disabled="true" data-value="50">50</button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" aria-disabled="true" data-value="100">100</button>
         </div>
       </div>
 
@@ -44,10 +44,6 @@
         </select>
       </div>
 
-      <div class="actions actions--single">
-        <button id="btn-generate" class="btn btn-generate" type="button">生成策略</button>
-      </div>
-
       <p id="error" class="error" role="alert" aria-live="polite"></p>
     </section>
 
@@ -55,7 +51,10 @@
       <div class="field">
         <div class="field-heading">
           <span class="field-label">策略内容</span>
-          <button id="btn-copy-strategy" type="button" class="btn-copy-strategy" aria-label="一键复制策略内容">一键复制</button>
+          <div class="copy-actions">
+            <button id="btn-copy-qty" type="button" class="btn-copy-strategy" aria-label="复制数量">复制数量</button>
+            <button id="btn-copy-strategy" type="button" class="btn-copy-strategy" aria-label="一键复制全部策略内容">一键复制全部</button>
+          </div>
         </div>
         <pre id="strategy-output" class="strategy-output" aria-live="polite"></pre>
       </div>

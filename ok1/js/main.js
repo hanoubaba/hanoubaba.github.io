@@ -90,9 +90,9 @@ function getTimeframeMode() {
 }
 
 function getOpenCost() {
-  const active = document.querySelector('[aria-label="开仓成本"] .tab-btn.is-active');
+  const active = document.querySelector('[data-tablist="open-cost"] .tab-btn.is-active');
   const n = Number(active?.getAttribute('data-value'));
-  return Number.isFinite(n) ? n : 30;
+  return Number.isFinite(n) && n > 0 ? n : 20;
 }
 
 function rebuildStartTimeOptions() {
@@ -169,12 +169,15 @@ function clearStrategyOutput(outEl) {
   if (!outEl) return;
   outEl.textContent = '';
   delete outEl.dataset.plainText;
+  delete outEl.dataset.qty;
 }
 
 function renderStrategyOutput(outEl, { plain, html }) {
   if (!outEl) return;
   outEl.innerHTML = html;
   outEl.dataset.plainText = plain;
+  const qtyLine = String(plain ?? '').split('\n').find((line) => line.startsWith('数量：')) || '';
+  outEl.dataset.qty = qtyLine.replace(/^数量：/, '').trim();
 }
 
 /** 止盈价：盈利 = multiplier×开仓成本 → 价差移动 = multiplier×|价格-止损| */
@@ -212,14 +215,7 @@ function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces)
   ];
 
   const plain = lines.join('\n');
-  const html = lines
-    .map((line) => {
-      if (line.startsWith('数量：')) {
-        return `数量：<strong class="strategy-qty-value">${escapeHtml(qty)}</strong>`;
-      }
-      return escapeHtml(line);
-    })
-    .join('\n');
+  const html = lines.map((line) => escapeHtml(line)).join('\n');
 
   return { plain, html };
 }
@@ -276,13 +272,13 @@ function generate() {
   renderStrategyOutput(outEl, buildStrategy(open, stop, startTime, getOpenCost(), priceDecimals));
 }
 
-const btnGenerate = document.getElementById('btn-generate');
-if (btnGenerate) btnGenerate.addEventListener('click', generate);
-
 document.querySelectorAll('.tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
+    const tablist = btn.closest('[role="tablist"]');
+    if (tablist?.getAttribute('data-locked') === 'true') return;
     setTabsActive(btn);
     if (btn.closest('[data-tablist="timeframe"]')) rebuildStartTimeOptions();
+    autoGenerateIfReady();
   });
 });
 
@@ -297,6 +293,23 @@ function onEnter(e) {
 if (openInput) openInput.addEventListener('keydown', onEnter);
 if (stopInput) stopInput.addEventListener('keydown', onEnter);
 if (startTimeSelect) startTimeSelect.addEventListener('keydown', onEnter);
+
+function autoGenerateIfReady() {
+  const openVal = String(openInput?.value ?? '').trim();
+  const stopVal = String(stopInput?.value ?? '').trim();
+  if (openVal && stopVal) {
+    generate();
+    return;
+  }
+  const errEl = document.getElementById('error');
+  const outEl = document.getElementById('strategy-output');
+  if (errEl) errEl.textContent = '';
+  clearStrategyOutput(outEl);
+}
+
+if (openInput) openInput.addEventListener('input', autoGenerateIfReady);
+if (stopInput) stopInput.addEventListener('input', autoGenerateIfReady);
+if (startTimeSelect) startTimeSelect.addEventListener('change', autoGenerateIfReady);
 
 function copyFallback(text) {
   const ta = document.createElement('textarea');
@@ -345,5 +358,28 @@ async function copyStrategyOutput() {
   flashCopyStrategyBtn(btn, ok ? '已复制' : '复制失败');
 }
 
+async function copyQtyOutput() {
+  const btn = document.getElementById('btn-copy-qty');
+  const out = document.getElementById('strategy-output');
+  const qty = String(out?.dataset.qty ?? '').trim();
+  if (!qty) {
+    flashCopyStrategyBtn(btn, '无内容');
+    return;
+  }
+  let ok = false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(qty);
+      ok = true;
+    }
+  } catch {
+    ok = false;
+  }
+  if (!ok) ok = copyFallback(qty);
+  flashCopyStrategyBtn(btn, ok ? '已复制' : '复制失败');
+}
+
 const btnCopyStrategy = document.getElementById('btn-copy-strategy');
 if (btnCopyStrategy) btnCopyStrategy.addEventListener('click', copyStrategyOutput);
+const btnCopyQty = document.getElementById('btn-copy-qty');
+if (btnCopyQty) btnCopyQty.addEventListener('click', copyQtyOutput);
