@@ -198,7 +198,10 @@ function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces)
   const tp = calcTakeProfit(open, stop, 3);
   const tpDecimals = Math.max(0, priceDecimalPlaces);
 
-  const sideLabel = open > stop ? '#开多' : '#开空';
+  const nameEl = document.getElementById('name-input');
+  const name = String(nameEl?.value ?? '').trim();
+  const sideBase = open > stop ? '#开多' : '#开空';
+  const sideLabel = name ? `${sideBase}${name}` : sideBase;
   const endTimeLabel = addPeriodToStart(startTimeLabel, spanMinutes);
   const timeRangeLabel = `${startTimeLabel} — ${endTimeLabel}`;
 
@@ -310,6 +313,8 @@ function autoGenerateIfReady() {
 if (openInput) openInput.addEventListener('input', autoGenerateIfReady);
 if (stopInput) stopInput.addEventListener('input', autoGenerateIfReady);
 if (startTimeSelect) startTimeSelect.addEventListener('change', autoGenerateIfReady);
+const nameInput = document.getElementById('name-input');
+if (nameInput) nameInput.addEventListener('input', autoGenerateIfReady);
 
 function copyFallback(text) {
   const ta = document.createElement('textarea');
@@ -389,6 +394,7 @@ if (titleClear) {
   const clearAll = () => {
     if (openInput) openInput.value = '';
     if (stopInput) stopInput.value = '';
+    if (nameInput) nameInput.value = '';
     const errEl = document.getElementById('error');
     const outEl = document.getElementById('strategy-output');
     if (errEl) errEl.textContent = '';

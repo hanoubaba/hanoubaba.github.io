@@ -306,12 +306,17 @@ function buildStrategy(open, config) {
   const endTime = addPeriodToStart(startTime, spanMinutes);
   const timeRange = startTime ? `${startTime} — ${endTime}` : '—';
 
+  const nameEl = document.getElementById('name-input');
+  const name = String(nameEl?.value ?? '').trim();
+  const sideBase = direction === 'short' ? '#开空' : '#开多';
+  const sideLabel = name ? `${sideBase}${name}` : sideBase;
+
   const qty = formatQuantity(quantity);
   const tp = formatPriceOutput(takeProfit);
   const stopText = formatPriceOutput(stop);
 
   const lines = [
-    direction === 'short' ? '#开空' : '#开多',
+    sideLabel,
     `价格：${formatPriceOutput(open)}`,
     `数量：${qty}`,
     `止盈：${tp}`,
@@ -561,6 +566,8 @@ function bindTitleClear() {
   const clear = () => {
     if (!els.openInput) return;
     els.openInput.value = '';
+    const nameEl = document.getElementById('name-input');
+    if (nameEl) nameEl.value = '';
     setError('');
     clearStrategyOutput();
     focusPriceInput();
@@ -585,5 +592,7 @@ bindPageEnterFocus();
 rebuildStartTimeOptions();
 const startTimeEl = document.getElementById('start-time');
 if (startTimeEl) startTimeEl.addEventListener('change', scheduleGenerateFromControl);
+const nameInputEl = document.getElementById('name-input');
+if (nameInputEl) nameInputEl.addEventListener('input', scheduleGenerateFromInput);
 focusPriceInputOnPageEnter();
 scheduleGenerateFromControl();

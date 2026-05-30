@@ -341,27 +341,14 @@ body {
 
   .panel[aria-label="参数输入"] {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    column-gap: 8px;
+    grid-template-columns: 1fr;
     row-gap: 5px;
   }
 
-  .panel[aria-label="参数输入"] > label.field:first-of-type {
+  .panel[aria-label="参数输入"] > label.field:first-of-type,
+  .panel[aria-label="参数输入"] > label.field.field--spaced,
+  .panel[aria-label="参数输入"] > div.field.field--spaced {
     grid-column: 1;
-  }
-
-  .panel[aria-label="参数输入"] > label.field.field--spaced {
-    grid-column: 2;
-    margin-top: 0;
-  }
-
-  .panel[aria-label="参数输入"] > div.field.field--spaced:first-of-type {
-    grid-column: 1;
-    margin-top: 0;
-  }
-
-  .panel[aria-label="参数输入"] > div.field.field--spaced:last-of-type {
-    grid-column: 2;
     margin-top: 0;
   }
 
