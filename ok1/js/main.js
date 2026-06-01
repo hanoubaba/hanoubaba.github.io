@@ -338,8 +338,6 @@ function calcTakeProfit(open, stop, multiplier = 1) {
 }
 
 function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces) {
-  const unitMin = getTimeframeMode() === '1h' ? 60 : 15;
-  const spanMinutes = unitMin * 9;
   const stopDiff = Math.abs(open - stop);
   const quantity = openCost / stopDiff;
   const tp = calcTakeProfit(open, stop, 2);
@@ -347,23 +345,17 @@ function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces)
 
   const nameEl = document.getElementById('name-input');
   const name = String(nameEl?.value ?? '').trim();
-  const sideBase = open > stop ? '#开多' : '#开空';
-  const sideLabel = name ? `${sideBase}${name}` : sideBase;
-  const alarmName = name || '未命名';
-  const endTimeLabel = addPeriodToStart(startTimeLabel, spanMinutes);
-  const timeRangeLabel = `${startTimeLabel} — ${endTimeLabel}`;
+  const sideText = open > stop ? '开多' : '开空';
+  const alarmName = name || 'demo';
+  const remarkLabel = `${sideText}${alarmName}`;
 
   const qty = formatQuantity(quantity);
+  const priceLabel = formatPrice(open);
+  const tpLabel = formatFixedDecimals(tp, tpDecimals);
+  const stopLabel = formatPrice(stop);
 
   const lines = [
-    sideLabel,
-    `价格：${formatPrice(open)}`,
-    `数量：${qty}`,
-    `止盈：${formatFixedDecimals(tp, tpDecimals)}`,
-    `止损：${formatPrice(stop)}`,
-    `时间范围：${timeRangeLabel}`,
-    `创建时间：${formatCreateTime()}`,
-    `帮我创建一个${endTimeLabel}的闹钟，名称为${alarmName}。`,
+    `${startTimeLabel} 新建闹钟，闹钟名称${alarmName}，备注：${remarkLabel}，价格${priceLabel}，数量${qty}，止盈${tpLabel}，止损${stopLabel}`,
   ];
 
   const plain = lines.join('\n');
