@@ -92,7 +92,7 @@ function getTimeframeMode() {
 function getOpenCost() {
   const active = document.querySelector('[data-tablist="open-cost"] .tab-btn.is-active');
   const n = Number(active?.getAttribute('data-value'));
-  return Number.isFinite(n) && n > 0 ? n : 20;
+  return Number.isFinite(n) && n > 0 ? n : 30;
 }
 
 function rebuildStartTimeOptions() {
@@ -195,13 +195,14 @@ function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces)
   const spanMinutes = unitMin * 9;
   const stopDiff = Math.abs(open - stop);
   const quantity = openCost / stopDiff;
-  const tp = calcTakeProfit(open, stop, 3);
+  const tp = calcTakeProfit(open, stop, 2);
   const tpDecimals = Math.max(0, priceDecimalPlaces);
 
   const nameEl = document.getElementById('name-input');
   const name = String(nameEl?.value ?? '').trim();
   const sideBase = open > stop ? '#开多' : '#开空';
   const sideLabel = name ? `${sideBase}${name}` : sideBase;
+  const alarmName = name || '未命名';
   const endTimeLabel = addPeriodToStart(startTimeLabel, spanMinutes);
   const timeRangeLabel = `${startTimeLabel} — ${endTimeLabel}`;
 
@@ -215,6 +216,7 @@ function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces)
     `止损：${formatPrice(stop)}`,
     `时间范围：${timeRangeLabel}`,
     `创建时间：${formatCreateTime()}`,
+    `帮我创建一个${endTimeLabel}的闹钟，名称为${alarmName}。`,
   ];
 
   const plain = lines.join('\n');
