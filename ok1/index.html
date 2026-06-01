@@ -9,9 +9,17 @@
 <body>
   <main class="container">
     <header class="header">
-      <h1 class="title" id="title-clear" role="button" tabindex="0" aria-label="插针止损策略，点击清空输入">插针止损策略</h1>
+      <div class="header-bar">
+        <button id="btn-clear" type="button" class="header-action">清空</button>
+        <h1 class="title"></h1>
+        <div class="page-switch" role="tablist" aria-label="页面切换">
+          <button id="btn-tab-front" type="button" class="page-switch__btn is-active" role="tab" aria-selected="true">前台</button>
+          <button id="btn-tab-admin" type="button" class="page-switch__btn" role="tab" aria-selected="false">后台管理</button>
+        </div>
+      </div>
     </header>
 
+    <section id="front-page">
     <section class="panel" aria-label="参数输入">
       <label class="field">
         <span class="field-label">价格</span>
@@ -59,11 +67,17 @@
           <span class="field-label">策略内容</span>
           <div class="copy-actions">
             <button id="btn-copy-qty" type="button" class="btn-copy-strategy" aria-label="复制数量">复制数量</button>
-            <button id="btn-copy-strategy" type="button" class="btn-copy-strategy" aria-label="一键复制全部策略内容">一键复制全部</button>
+            <button id="btn-copy-strategy" type="button" class="btn-copy-strategy" aria-label="一键复制全部策略内容">复制指令</button>
           </div>
         </div>
         <pre id="strategy-output" class="strategy-output" aria-live="polite"></pre>
       </div>
+    </section>
+    </section>
+
+    <section id="admin-page" class="panel admin-page" aria-label="后台管理" hidden>
+      <p id="admin-empty" class="admin-empty" hidden>暂无记录</p>
+      <div id="admin-list" class="admin-list"></div>
     </section>
   </main>
 

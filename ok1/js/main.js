@@ -317,6 +317,8 @@ function clearStrategyOutput(outEl) {
   outEl.textContent = '';
   delete outEl.dataset.plainText;
   delete outEl.dataset.qty;
+  delete outEl.dataset.copyText;
+  delete outEl.dataset.record;
 }
 
 function renderStrategyOutput(outEl, { plain, html }) {
@@ -338,6 +340,8 @@ function calcTakeProfit(open, stop, multiplier = 1) {
 }
 
 function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces) {
+  const unitMin = getTimeframeMode() === '1h' ? 60 : 15;
+  const spanMinutes = unitMin * 9;
   const stopDiff = Math.abs(open - stop);
   const quantity = openCost / stopDiff;
   const tp = calcTakeProfit(open, stop, 2);
@@ -346,22 +350,45 @@ function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces)
   const nameEl = document.getElementById('name-input');
   const name = String(nameEl?.value ?? '').trim();
   const sideText = open > stop ? '开多' : '开空';
+  const sideHash = open > stop ? '#开多' : '#开空';
   const alarmName = name || 'demo';
-  const remarkLabel = `${sideText}${alarmName}`;
+  const sideLabel = `${sideHash}${alarmName}`;
+  const endTimeLabel = addPeriodToStart(startTimeLabel, spanMinutes);
+  const endTimeHHMM = String(endTimeLabel).match(/(\d{2}:\d{2})$/)?.[1] || endTimeLabel;
+  const timeRangeLabel = `${startTimeLabel} — ${endTimeHHMM}`;
 
   const qty = formatQuantity(quantity);
   const priceLabel = formatPrice(open);
   const tpLabel = formatFixedDecimals(tp, tpDecimals);
   const stopLabel = formatPrice(stop);
+  const createTimeLabel = formatCreateTime();
 
   const lines = [
-    `${startTimeLabel} 新建闹钟，闹钟名称${alarmName}，备注：${remarkLabel}，价格${priceLabel}，数量${qty}，止盈${tpLabel}，止损${stopLabel}`,
+    sideLabel,
+    `价格：${priceLabel}`,
+    `数量：${qty}`,
+    `止盈：${tpLabel}`,
+    `止损：${stopLabel}`,
+    `时间范围：${timeRangeLabel}`,
+    `创建时间：${createTimeLabel}`,
   ];
+
+  const copyText = `帮我创建一个${endTimeHHMM}的闹钟，名称为${alarmName}。`;
+  const record = {
+    name: alarmName,
+    side: sideText,
+    price: priceLabel,
+    quantity: qty,
+    takeProfit: tpLabel,
+    stopLoss: stopLabel,
+    timeRange: timeRangeLabel,
+    createdAt: createTimeLabel,
+  };
 
   const plain = lines.join('\n');
   const html = lines.map((line) => escapeHtml(line)).join('\n');
 
-  return { plain, html };
+  return { plain, html, copyText, record };
 }
 
 function setTabsActive(clicked) {
@@ -413,7 +440,12 @@ function generate() {
 
   const openRaw = openEl && 'value' in openEl ? String(openEl.value) : '';
   const priceDecimals = getDecimalPlacesFromInput(openRaw);
-  renderStrategyOutput(outEl, buildStrategy(open, stop, startTime, getOpenCost(), priceDecimals));
+  const strategy = buildStrategy(open, stop, startTime, getOpenCost(), priceDecimals);
+  renderStrategyOutput(outEl, strategy);
+  if (outEl) {
+    outEl.dataset.copyText = strategy.copyText;
+    outEl.dataset.record = JSON.stringify(strategy.record);
+  }
 }
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -426,6 +458,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
   });
 });
 
+let startTimeUserPicked = false;
 rebuildStartTimeOptions();
 bindMobileTimePickerEvents();
 
@@ -456,6 +489,32 @@ if (openInput) openInput.addEventListener('input', autoGenerateIfReady);
 if (stopInput) stopInput.addEventListener('input', autoGenerateIfReady);
 if (startTimeSelect) startTimeSelect.addEventListener('change', autoGenerateIfReady);
 if (startTimeSelect) startTimeSelect.addEventListener('change', updateStartTimeTriggerLabel);
+if (startTimeSelect) startTimeSelect.addEventListener('change', () => { startTimeUserPicked = true; });
+
+/**
+ * 开始时间默认值是基于「当前时间」算出来的。页面长时间不刷新时，
+ * new Date() 不会重新读取，默认值就会停在过期的时间格上。
+ * 这里在用户尚未手动选择时，定时 + 切回标签页时重新对齐到当前时间格。
+ */
+function syncStartTimeToNow() {
+  const sel = document.getElementById('start-time');
+  if (!sel || startTimeUserPicked) return;
+  const picker = document.getElementById('start-time-picker');
+  if (picker && !picker.hidden) return; // 移动端选择器打开时不打扰
+  const stepMinutes = getTimeframeMode() === '1h' ? 60 : 15;
+  const nowSlot = getCurrentTimeSlot(stepMinutes);
+  if (sel.value === nowSlot) return;
+  sel.value = nowSlot;
+  updateStartTimeTriggerLabel();
+  autoGenerateIfReady();
+}
+
+setInterval(syncStartTimeToNow, 30 * 1000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) syncStartTimeToNow();
+});
+window.addEventListener('focus', syncStartTimeToNow);
+
 const nameInput = document.getElementById('name-input');
 if (nameInput) nameInput.addEventListener('input', autoGenerateIfReady);
 
@@ -474,6 +533,103 @@ function copyFallback(text) {
   }
 }
 
+function getSavedRecords() {
+  try {
+    const raw = localStorage.getItem('ok1_strategy_records');
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+function clearSavedRecords() {
+  try {
+    localStorage.removeItem('ok1_strategy_records');
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function removeRecordAt(index) {
+  const list = getSavedRecords();
+  if (index < 0 || index >= list.length) return;
+  list.splice(index, 1);
+  try {
+    localStorage.setItem('ok1_strategy_records', JSON.stringify(list));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function renderAdminList() {
+  const listEl = document.getElementById('admin-list');
+  const emptyEl = document.getElementById('admin-empty');
+  if (!listEl || !emptyEl) return;
+  const rows = getSavedRecords();
+  if (!rows.length) {
+    listEl.innerHTML = '';
+    emptyEl.hidden = false;
+    return;
+  }
+  emptyEl.hidden = true;
+  listEl.innerHTML = rows.map((row, index) => {
+    const sideRaw = String(row?.side ?? row?.方向 ?? '').trim();
+    const nameRaw = String(row?.name ?? row?.名称 ?? '').trim();
+    const isLong = sideRaw === '开多';
+    const isShort = sideRaw === '开空';
+    const sideMod = isLong ? 'long' : (isShort ? 'short' : 'flat');
+    const sideText = escapeHtml(sideRaw || '—');
+    const name = escapeHtml(nameRaw || '未命名');
+    const price = escapeHtml(String(row?.price ?? row?.价格 ?? '-'));
+    const qty = escapeHtml(String(row?.quantity ?? row?.数量 ?? '-'));
+    const tp = escapeHtml(String(row?.takeProfit ?? row?.止盈 ?? '-'));
+    const stop = escapeHtml(String(row?.stopLoss ?? row?.止损 ?? '-'));
+    const range = escapeHtml(String(row?.timeRange ?? row?.时间范围 ?? '-'));
+    const createTime = escapeHtml(String(row?.createdAt ?? row?.创建时间 ?? '-'));
+    return [
+      `<article class="admin-item admin-item--${sideMod}">`,
+      '<header class="admin-item__head">',
+      `<span class="admin-item__side">${sideText}</span>`,
+      `<span class="admin-item__title">${name}</span>`,
+      `<button type="button" class="admin-item__del" data-index="${index}" aria-label="删除该记录" title="删除">×</button>`,
+      '</header>',
+      '<div class="admin-item__metrics">',
+      `<div class="metric"><span class="metric__label">价格</span><span class="metric__value">${price}</span></div>`,
+      `<div class="metric"><span class="metric__label">数量</span><span class="metric__value">${qty}</span></div>`,
+      `<div class="metric metric--tp"><span class="metric__label">止盈</span><span class="metric__value">${tp}</span></div>`,
+      `<div class="metric metric--stop"><span class="metric__label">止损</span><span class="metric__value">${stop}</span></div>`,
+      '</div>',
+      '<footer class="admin-item__foot">',
+      `<span class="admin-item__range">${range}</span>`,
+      `<span class="admin-item__created">${createTime}</span>`,
+      '</footer>',
+      '</article>',
+    ].join('');
+  }).join('');
+}
+
+let currentPage = 'front';
+
+function setPage(mode) {
+  const front = document.getElementById('front-page');
+  const admin = document.getElementById('admin-page');
+  const btnFront = document.getElementById('btn-tab-front');
+  const btnAdmin = document.getElementById('btn-tab-admin');
+  if (!front || !admin || !btnFront || !btnAdmin) return;
+  const toAdmin = mode === 'admin';
+  currentPage = toAdmin ? 'admin' : 'front';
+  front.hidden = toAdmin;
+  admin.hidden = !toAdmin;
+  btnFront.classList.toggle('is-active', !toAdmin);
+  btnFront.setAttribute('aria-selected', toAdmin ? 'false' : 'true');
+  btnAdmin.classList.toggle('is-active', toAdmin);
+  btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
+  const btnClear = document.getElementById('btn-clear');
+  if (btnClear) btnClear.textContent = toAdmin ? '清空缓存' : '清空';
+  if (toAdmin) renderAdminList();
+}
+
 function flashCopyStrategyBtn(btn, label, duration = 1200) {
   if (!btn) return;
   if (!btn.dataset.defaultLabel) btn.dataset.defaultLabel = btn.textContent;
@@ -488,7 +644,16 @@ function flashCopyStrategyBtn(btn, label, duration = 1200) {
 async function copyStrategyOutput() {
   const btn = document.getElementById('btn-copy-strategy');
   const out = document.getElementById('strategy-output');
-  const text = (out?.dataset.plainText ?? out?.textContent ?? '').trim();
+  const errEl = document.getElementById('error');
+  const nameEl = document.getElementById('name-input');
+  const name = String(nameEl?.value ?? '').trim();
+  if (!name) {
+    if (errEl) errEl.textContent = '一键复制前请填写名称。';
+    flashCopyStrategyBtn(btn, '请填名称');
+    return;
+  }
+  if (errEl) errEl.textContent = '';
+  const text = String(out?.dataset.copyText ?? '').trim();
   if (!text) {
     flashCopyStrategyBtn(btn, '无内容');
     return;
@@ -503,6 +668,19 @@ async function copyStrategyOutput() {
     ok = false;
   }
   if (!ok) ok = copyFallback(text);
+  if (ok && out?.dataset.record) {
+    try {
+      const key = 'ok1_strategy_records';
+      const oldVal = localStorage.getItem(key);
+      const oldArr = oldVal ? JSON.parse(oldVal) : [];
+      const list = Array.isArray(oldArr) ? oldArr : [];
+      list.unshift(JSON.parse(out.dataset.record));
+      localStorage.setItem(key, JSON.stringify(list));
+    } catch {
+      // ignore storage error
+    }
+    renderAdminList();
+  }
   flashCopyStrategyBtn(btn, ok ? '已复制' : '复制失败');
 }
 
@@ -531,21 +709,42 @@ const btnCopyStrategy = document.getElementById('btn-copy-strategy');
 if (btnCopyStrategy) btnCopyStrategy.addEventListener('click', copyStrategyOutput);
 const btnCopyQty = document.getElementById('btn-copy-qty');
 if (btnCopyQty) btnCopyQty.addEventListener('click', copyQtyOutput);
+const clearFront = () => {
+  if (openInput) openInput.value = '';
+  if (stopInput) stopInput.value = '';
+  if (nameInput) nameInput.value = '';
+  const errEl = document.getElementById('error');
+  const outEl = document.getElementById('strategy-output');
+  if (errEl) errEl.textContent = '';
+  clearStrategyOutput(outEl);
+  if (openInput) openInput.focus({ preventScroll: true });
+};
+const clearAll = () => {
+  if (currentPage === 'admin') {
+    clearSavedRecords();
+    renderAdminList();
+    return;
+  }
+  clearFront();
+};
+const btnClear = document.getElementById('btn-clear');
+if (btnClear) btnClear.addEventListener('click', clearAll);
 
-const titleClear = document.getElementById('title-clear');
-if (titleClear) {
-  const clearAll = () => {
-    if (openInput) openInput.value = '';
-    if (stopInput) stopInput.value = '';
-    if (nameInput) nameInput.value = '';
-    const errEl = document.getElementById('error');
-    const outEl = document.getElementById('strategy-output');
-    if (errEl) errEl.textContent = '';
-    clearStrategyOutput(outEl);
-    if (openInput) openInput.focus({ preventScroll: true });
-  };
-  titleClear.addEventListener('click', clearAll);
-  titleClear.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clearAll(); }
+const btnTabFront = document.getElementById('btn-tab-front');
+if (btnTabFront) btnTabFront.addEventListener('click', () => setPage('front'));
+const btnTabAdmin = document.getElementById('btn-tab-admin');
+if (btnTabAdmin) btnTabAdmin.addEventListener('click', () => setPage('admin'));
+
+const adminListEl = document.getElementById('admin-list');
+if (adminListEl) {
+  adminListEl.addEventListener('click', (e) => {
+    const btn = e.target instanceof HTMLElement ? e.target.closest('.admin-item__del') : null;
+    if (!btn) return;
+    const index = Number(btn.getAttribute('data-index'));
+    if (!Number.isInteger(index)) return;
+    removeRecordAt(index);
+    renderAdminList();
   });
 }
+
+setPage('front');
