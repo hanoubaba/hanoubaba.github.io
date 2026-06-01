@@ -102,51 +102,52 @@ function rebuildStartTimeOptions() {
   const mode = getTimeframeMode();
   const prev = String(sel.value ?? '').trim();
   const prevM = minutesFromValue(prev);
+  const stepMinutes = mode === '1h' ? 60 : 15;
+  const slots = [];
+
+  for (let h = 0; h < 24; h += 1) {
+    if (mode === '1h') {
+      slots.push(formatHHMM(h, 0));
+      continue;
+    }
+    for (let m = 0; m < 60; m += 15) {
+      slots.push(formatHHMM(h, m));
+    }
+  }
+
+  let selectedValue = '';
+  if (!prev) {
+    selectedValue = getCurrentTimeSlot(stepMinutes);
+  } else if (mode === '1h') {
+    const base = prevM == null ? 0 : prevM;
+    selectedValue = minutesToValue(closestSlotMinutes(base, 60));
+  } else if (prevM != null && prevM % 15 === 0) {
+    selectedValue = minutesToValue(prevM);
+  } else if (prevM != null) {
+    selectedValue = minutesToValue(closestSlotMinutes(prevM, 15));
+  }
 
   const frag = document.createDocumentFragment();
-  const optPlaceholder = document.createElement('option');
-  optPlaceholder.value = '';
-  optPlaceholder.textContent = '请选择';
-  frag.appendChild(optPlaceholder);
+  if (!selectedValue) {
+    const optPlaceholder = document.createElement('option');
+    optPlaceholder.value = '';
+    optPlaceholder.textContent = '请选择';
+    frag.appendChild(optPlaceholder);
+  }
 
-  if (mode === '1h') {
-    for (let h = 0; h < 24; h += 1) {
-      const o = document.createElement('option');
-      const v = formatHHMM(h, 0);
-      o.value = v;
-      o.textContent = v;
-      frag.appendChild(o);
-    }
-  } else {
-    for (let h = 0; h < 24; h += 1) {
-      for (let m = 0; m < 60; m += 15) {
-        const o = document.createElement('option');
-        const v = formatHHMM(h, m);
-        o.value = v;
-        o.textContent = v;
-        frag.appendChild(o);
-      }
-    }
+  for (const v of slots) {
+    const o = document.createElement('option');
+    o.value = v;
+    o.textContent = v;
+    if (selectedValue && v === selectedValue) o.selected = true;
+    frag.appendChild(o);
   }
 
   sel.innerHTML = '';
   sel.append(frag);
 
-  if (!prev) {
-    sel.value = getCurrentTimeSlot(mode === '1h' ? 60 : 15);
-    return;
-  }
-
-  if (mode === '1h') {
-    const base = prevM == null ? 0 : prevM;
-    sel.value = minutesToValue(closestSlotMinutes(base, 60));
-    return;
-  }
-
-  if (prevM != null && prevM % 15 === 0) {
-    sel.value = minutesToValue(prevM);
-  } else if (prevM != null) {
-    sel.value = minutesToValue(closestSlotMinutes(prevM, 15));
+  if (selectedValue) {
+    sel.value = selectedValue;
   } else {
     sel.value = '';
   }
