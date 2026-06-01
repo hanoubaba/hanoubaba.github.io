@@ -42,6 +42,7 @@
         <select id="start-time" class="field-input field-input--select" aria-labelledby="start-time-label" autocomplete="off">
           <option value="">请选择</option>
         </select>
+        <button id="start-time-trigger" class="field-input field-input--select start-time-trigger" type="button" hidden aria-labelledby="start-time-label" aria-haspopup="dialog" aria-controls="start-time-picker">请选择</button>
       </div>
 
       <label class="field field--spaced">
@@ -65,6 +66,21 @@
       </div>
     </section>
   </main>
+
+  <div id="start-time-picker" class="time-picker" hidden>
+    <div class="time-picker__backdrop" data-dismiss="true"></div>
+    <div class="time-picker__sheet" role="dialog" aria-modal="true" aria-labelledby="time-picker-title">
+      <div class="time-picker__header">
+        <h2 id="time-picker-title" class="time-picker__title">选择开始时间</h2>
+      </div>
+      <div id="time-picker-list" class="time-picker__list" role="listbox" aria-label="开始时间"></div>
+      <div class="time-picker__actions">
+        <button id="time-picker-cancel" type="button" class="time-picker__btn time-picker__btn--ghost">取消</button>
+        <button id="time-picker-confirm" type="button" class="time-picker__btn time-picker__btn--primary">确定</button>
+      </div>
+    </div>
+  </div>
+
   <script src="./js/main.js"></script>
 </body>
 </html>

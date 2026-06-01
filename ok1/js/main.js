@@ -63,10 +63,11 @@ function minutesToValue(total) {
 function addPeriodToStart(startHHMM, periodMinutes) {
   const sm = minutesFromValue(startHHMM);
   if (sm == null) return '—';
-  const total = sm + periodMinutes;
-  const nextDay = total >= 24 * 60;
-  const timeStr = minutesToValue(total);
-  return nextDay ? `${timeStr}（次日）` : timeStr;
+  const now = new Date();
+  const startAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  startAt.setMinutes(sm);
+  const endAt = new Date(startAt.getTime() + periodMinutes * 60 * 1000);
+  return `${endAt.getFullYear()}年${endAt.getMonth() + 1}月${endAt.getDate()}日 ${pad2(endAt.getHours())}:${pad2(endAt.getMinutes())}`;
 }
 
 function closestSlotMinutes(mins, stepMinutes) {
@@ -95,40 +96,179 @@ function getOpenCost() {
   return Number.isFinite(n) && n > 0 ? n : 30;
 }
 
+function isMobileTimePickerEnabled() {
+  return window.matchMedia('(max-width: 820px) and (pointer: coarse)').matches;
+}
+
+function getTimeSlotsByMode(mode) {
+  const slots = [];
+  if (mode === '1h') {
+    for (let h = 0; h < 24; h += 1) slots.push(formatHHMM(h, 0));
+    return slots;
+  }
+  for (let h = 0; h < 24; h += 1) {
+    for (let m = 0; m < 60; m += 15) slots.push(formatHHMM(h, m));
+  }
+  return slots;
+}
+
+function resolveStartTimeSelection(mode, prevValue) {
+  const prev = String(prevValue ?? '').trim();
+  const prevM = minutesFromValue(prev);
+  const stepMinutes = mode === '1h' ? 60 : 15;
+  if (!prev) return getCurrentTimeSlot(stepMinutes);
+  if (mode === '1h') {
+    const base = prevM == null ? 0 : prevM;
+    return minutesToValue(closestSlotMinutes(base, 60));
+  }
+  if (prevM != null && prevM % 15 === 0) return minutesToValue(prevM);
+  if (prevM != null) return minutesToValue(closestSlotMinutes(prevM, 15));
+  return '';
+}
+
+function updateStartTimeTriggerLabel() {
+  const trigger = document.getElementById('start-time-trigger');
+  const sel = document.getElementById('start-time');
+  if (!trigger || !sel) return;
+  const v = String(sel.value ?? '').trim();
+  trigger.textContent = v || '请选择';
+}
+
+function renderMobileTimePickerOptions(selectedValue) {
+  const list = document.getElementById('time-picker-list');
+  if (!list) return;
+  const mode = getTimeframeMode();
+  const slots = getTimeSlotsByMode(mode);
+  const fallbackValue = resolveStartTimeSelection(mode, selectedValue);
+  const activeValue = slots.includes(selectedValue) ? selectedValue : fallbackValue;
+  const frag = document.createDocumentFragment();
+
+  for (const v of slots) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `time-picker__option${v === activeValue ? ' is-selected' : ''}`;
+    btn.dataset.value = v;
+    btn.textContent = v;
+    btn.setAttribute('role', 'option');
+    btn.setAttribute('aria-selected', v === activeValue ? 'true' : 'false');
+    frag.appendChild(btn);
+  }
+
+  list.innerHTML = '';
+  list.append(frag);
+}
+
+function getMobilePickerSelectedValue() {
+  const selected = document.querySelector('#time-picker-list .time-picker__option.is-selected');
+  return String(selected?.dataset.value ?? '').trim();
+}
+
+function setMobilePickerSelectedValue(value) {
+  document.querySelectorAll('#time-picker-list .time-picker__option').forEach((btn) => {
+    const on = btn.getAttribute('data-value') === value;
+    btn.classList.toggle('is-selected', on);
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+}
+
+function scrollMobilePickerToSelected() {
+  const list = document.getElementById('time-picker-list');
+  const selected = document.querySelector('#time-picker-list .time-picker__option.is-selected');
+  if (!list || !selected) return;
+  const targetTop = selected.offsetTop - (list.clientHeight - selected.offsetHeight) / 2;
+  list.scrollTop = Math.max(0, targetTop);
+}
+
+function openMobileTimePicker() {
+  const picker = document.getElementById('start-time-picker');
+  const sel = document.getElementById('start-time');
+  if (!picker || !sel) return;
+  renderMobileTimePickerOptions(String(sel.value ?? '').trim());
+  picker.hidden = false;
+  document.body.style.overflow = 'hidden';
+  window.requestAnimationFrame(scrollMobilePickerToSelected);
+}
+
+function closeMobileTimePicker() {
+  const picker = document.getElementById('start-time-picker');
+  if (!picker) return;
+  picker.hidden = true;
+  document.body.style.overflow = '';
+  updateStartTimeTriggerLabel();
+}
+
+function bindMobileTimePickerEvents() {
+  const picker = document.getElementById('start-time-picker');
+  const trigger = document.getElementById('start-time-trigger');
+  const cancelBtn = document.getElementById('time-picker-cancel');
+  const confirmBtn = document.getElementById('time-picker-confirm');
+  const list = document.getElementById('time-picker-list');
+  const sel = document.getElementById('start-time');
+  if (!picker || !trigger || !cancelBtn || !confirmBtn || !list || !sel) return;
+
+  trigger.addEventListener('click', () => {
+    if (!isMobileTimePickerEnabled()) return;
+    openMobileTimePicker();
+  });
+
+  picker.addEventListener('click', (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target.getAttribute('data-dismiss') === 'true') {
+      closeMobileTimePicker();
+      return;
+    }
+    if (target.classList.contains('time-picker__option')) {
+      const v = String(target.dataset.value ?? '').trim();
+      if (!v) return;
+      setMobilePickerSelectedValue(v);
+    }
+  });
+
+  cancelBtn.addEventListener('click', closeMobileTimePicker);
+
+  confirmBtn.addEventListener('click', () => {
+    const selected = getMobilePickerSelectedValue();
+    if (!selected) {
+      closeMobileTimePicker();
+      return;
+    }
+    if (sel.value !== selected) {
+      sel.value = selected;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      updateStartTimeTriggerLabel();
+    }
+    closeMobileTimePicker();
+  });
+
+  list.addEventListener('dblclick', (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement) || !target.classList.contains('time-picker__option')) return;
+    const v = String(target.dataset.value ?? '').trim();
+    if (!v) return;
+    if (sel.value !== v) {
+      sel.value = v;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    closeMobileTimePicker();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !picker.hidden) closeMobileTimePicker();
+  });
+}
+
 function rebuildStartTimeOptions() {
   const sel = document.getElementById('start-time');
   if (!sel) return;
 
   const mode = getTimeframeMode();
-  const prev = String(sel.value ?? '').trim();
-  const prevM = minutesFromValue(prev);
-  const stepMinutes = mode === '1h' ? 60 : 15;
-  const slots = [];
-
-  for (let h = 0; h < 24; h += 1) {
-    if (mode === '1h') {
-      slots.push(formatHHMM(h, 0));
-      continue;
-    }
-    for (let m = 0; m < 60; m += 15) {
-      slots.push(formatHHMM(h, m));
-    }
-  }
-
-  let selectedValue = '';
-  if (!prev) {
-    selectedValue = getCurrentTimeSlot(stepMinutes);
-  } else if (mode === '1h') {
-    const base = prevM == null ? 0 : prevM;
-    selectedValue = minutesToValue(closestSlotMinutes(base, 60));
-  } else if (prevM != null && prevM % 15 === 0) {
-    selectedValue = minutesToValue(prevM);
-  } else if (prevM != null) {
-    selectedValue = minutesToValue(closestSlotMinutes(prevM, 15));
-  }
+  const slots = getTimeSlotsByMode(mode);
+  const selectedValue = resolveStartTimeSelection(mode, sel.value);
 
   const frag = document.createDocumentFragment();
-  if (!selectedValue) {
+  if (!selectedValue || !slots.includes(selectedValue)) {
     const optPlaceholder = document.createElement('option');
     optPlaceholder.value = '';
     optPlaceholder.textContent = '请选择';
@@ -146,10 +286,16 @@ function rebuildStartTimeOptions() {
   sel.innerHTML = '';
   sel.append(frag);
 
-  if (selectedValue) {
+  if (selectedValue && slots.includes(selectedValue)) {
     sel.value = selectedValue;
   } else {
     sel.value = '';
+  }
+
+  updateStartTimeTriggerLabel();
+  if (!document.getElementById('start-time-picker')?.hidden) {
+    renderMobileTimePickerOptions(sel.value);
+    scrollMobilePickerToSelected();
   }
 }
 
@@ -289,6 +435,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 });
 
 rebuildStartTimeOptions();
+bindMobileTimePickerEvents();
 
 const openInput = document.getElementById('open-price-input');
 const stopInput = document.getElementById('stop-price-input');
@@ -316,6 +463,7 @@ function autoGenerateIfReady() {
 if (openInput) openInput.addEventListener('input', autoGenerateIfReady);
 if (stopInput) stopInput.addEventListener('input', autoGenerateIfReady);
 if (startTimeSelect) startTimeSelect.addEventListener('change', autoGenerateIfReady);
+if (startTimeSelect) startTimeSelect.addEventListener('change', updateStartTimeTriggerLabel);
 const nameInput = document.getElementById('name-input');
 if (nameInput) nameInput.addEventListener('input', autoGenerateIfReady);
 
