@@ -67,7 +67,7 @@
           <span class="field-label">策略内容</span>
           <div class="copy-actions">
             <button id="btn-copy-qty" type="button" class="btn-copy-strategy" aria-label="复制数量">复制数量</button>
-            <button id="btn-copy-strategy" type="button" class="btn-copy-strategy" aria-label="一键复制全部策略内容">复制指令</button>
+            <button id="btn-copy-strategy" type="button" class="btn-copy-strategy" aria-label="保存策略并复制指令">保存</button>
           </div>
         </div>
         <pre id="strategy-output" class="strategy-output" aria-live="polite"></pre>
@@ -76,6 +76,7 @@
     </section>
 
     <section id="admin-page" class="panel admin-page" aria-label="后台管理" hidden>
+      <div id="admin-stats" class="admin-stats"></div>
       <div id="admin-list" class="admin-list"></div>
     </section>
   </main>
@@ -91,6 +92,29 @@
         <button id="time-picker-cancel" type="button" class="time-picker__btn time-picker__btn--ghost">取消</button>
         <button id="time-picker-confirm" type="button" class="time-picker__btn time-picker__btn--primary">确定</button>
       </div>
+    </div>
+  </div>
+
+  <div id="status-picker" class="status-picker" hidden>
+    <div class="status-picker__backdrop" data-status-picker-dismiss="true"></div>
+    <div class="status-picker__sheet" role="dialog" aria-modal="true" aria-labelledby="status-picker-title">
+      <div class="status-picker__grabber" aria-hidden="true"></div>
+      <div class="status-picker__header">
+        <h2 id="status-picker-title" class="status-picker__title">提交状态</h2>
+        <p id="status-picker-desc" class="status-picker__desc">选择后会同步更新后台统计数据。</p>
+      </div>
+      <div class="status-picker__options">
+        <button id="status-picker-profit" type="button" class="status-picker__option status-picker__option--profit" data-status="profit">
+          <span class="status-picker__option-title">盈利</span>
+          <span class="status-picker__option-note">本单已开单并盈利</span>
+        </button>
+        <button id="status-picker-loss" type="button" class="status-picker__option status-picker__option--loss" data-status="loss">
+          <span class="status-picker__option-title">亏损</span>
+          <span class="status-picker__option-note">本单已开单并亏损</span>
+        </button>
+      </div>
+      <p id="status-picker-error" class="status-picker__error" role="alert" aria-live="polite"></p>
+      <button id="status-picker-cancel" type="button" class="status-picker__cancel">取消</button>
     </div>
   </div>
 

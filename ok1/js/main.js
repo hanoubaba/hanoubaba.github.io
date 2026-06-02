@@ -120,6 +120,7 @@ function fromDbRecord(row) {
     stopLoss: row.stop_loss,
     timeRange: row.time_range,
     createdAt: row.created_at,
+    status: row.status || 'pending',
   };
 }
 
@@ -134,6 +135,14 @@ function toDbRecord(record) {
     time_range: record.timeRange,
     created_at: record.createdAt,
   };
+}
+
+function isDevEnvironment() {
+  const host = window.location.hostname;
+  return window.location.protocol === 'file:'
+    || host === 'localhost'
+    || host === '127.0.0.1'
+    || host === '::1';
 }
 
 function isMobileTimePickerEnabled() {
@@ -600,6 +609,94 @@ async function clearStrategies() {
   if (!res.ok) throw new Error(await res.text());
 }
 
+async function updateStrategyStatus(id, status) {
+  const encodedId = encodeURIComponent(id);
+  const res = await fetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
+    method: 'PATCH',
+    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+function normalizeStrategyStatus(status) {
+  return status === 'profit' || status === 'loss' ? status : 'pending';
+}
+
+function getStrategyStatusLabel(status) {
+  if (status === 'profit') return '盈利';
+  if (status === 'loss') return '亏损';
+  return '进行中';
+}
+
+let pendingStatusRecordId = '';
+
+function setStatusPickerLoading(loading) {
+  document.querySelectorAll('#status-picker button').forEach((btn) => {
+    btn.disabled = loading;
+  });
+}
+
+function setStatusPickerError(message) {
+  const errEl = document.getElementById('status-picker-error');
+  if (errEl) errEl.textContent = message;
+}
+
+function openStatusPicker(id) {
+  const picker = document.getElementById('status-picker');
+  if (!picker || !id) return;
+  pendingStatusRecordId = id;
+  setStatusPickerLoading(false);
+  setStatusPickerError('');
+  picker.hidden = false;
+  document.body.style.overflow = 'hidden';
+  window.requestAnimationFrame(() => {
+    document.getElementById('status-picker-profit')?.focus({ preventScroll: true });
+  });
+}
+
+function closeStatusPicker() {
+  const picker = document.getElementById('status-picker');
+  if (!picker) return;
+  pendingStatusRecordId = '';
+  setStatusPickerLoading(false);
+  setStatusPickerError('');
+  picker.hidden = true;
+  document.body.style.overflow = '';
+}
+
+async function submitStatusFromPicker(status) {
+  const nextStatus = normalizeStrategyStatus(status);
+  const id = pendingStatusRecordId;
+  if (!id || nextStatus === 'pending') return;
+  setStatusPickerLoading(true);
+  setStatusPickerError('');
+  try {
+    await updateStrategyStatus(id, nextStatus);
+    closeStatusPicker();
+    await renderAdminList();
+  } catch {
+    setStatusPickerError('提交失败，请检查网络或 Supabase 权限。');
+    setStatusPickerLoading(false);
+  }
+}
+
+function renderAdminStats(rows) {
+  const statsEl = document.getElementById('admin-stats');
+  if (!statsEl) return;
+  const total = rows.length;
+  const profit = rows.filter((row) => normalizeStrategyStatus(row?.status) === 'profit').length;
+  const loss = rows.filter((row) => normalizeStrategyStatus(row?.status) === 'loss').length;
+  const opened = profit + loss;
+  const winRate = opened ? `${Math.round((profit / opened) * 100)}%` : '0%';
+  const openRate = total ? `${Math.round((opened / total) * 100)}%` : '0%';
+  statsEl.innerHTML = [
+    `<div class="admin-stat"><span class="admin-stat__label">数量</span><span class="admin-stat__value">${total}</span></div>`,
+    `<div class="admin-stat"><span class="admin-stat__label">胜率</span><span class="admin-stat__value">${winRate}</span></div>`,
+    `<div class="admin-stat"><span class="admin-stat__label">开单率</span><span class="admin-stat__value">${openRate}</span></div>`,
+  ].join('');
+}
+
 async function renderAdminList() {
   const listEl = document.getElementById('admin-list');
   if (!listEl) return;
@@ -607,9 +704,11 @@ async function renderAdminList() {
   try {
     rows = await fetchStrategies();
   } catch (err) {
+    renderAdminStats([]);
     listEl.innerHTML = `<div class="admin-sync-error">${escapeHtml(String(err?.message || '同步失败'))}</div>`;
     return;
   }
+  renderAdminStats(rows);
   if (!rows.length) {
     listEl.innerHTML = '';
     return;
@@ -630,12 +729,20 @@ async function renderAdminList() {
     const createTime = escapeHtml(String(row?.createdAt ?? '-'));
     const endTime = escapeHtml(String(row?.timeRange ?? '').split('—').pop()?.trim() || '');
     const copyText = escapeHtml(`帮我创建一个${endTime}的闹钟，名称为${nameRaw || '未命名'}。`);
+    const id = escapeHtml(String(row?.id ?? ''));
+    const status = normalizeStrategyStatus(row?.status);
+    const statusLabel = escapeHtml(getStrategyStatusLabel(status));
+    const statusAction = status === 'pending' && id
+      ? `<button type="button" class="admin-status__open" data-id="${id}" aria-haspopup="dialog" aria-controls="status-picker">提交状态</button>`
+      : '';
     return [
       `<article class="admin-item admin-item--${sideMod}">`,
       '<header class="admin-item__head">',
       `<span class="admin-item__side">${sideText}</span>`,
       `<span class="admin-item__title">${name}</span>`,
-      `<button type="button" class="admin-item__copy" data-copy="${copyText}" aria-label="复制指令">复制指令</button>`,
+      `<div class="admin-status admin-status--${status}">`,
+      `<span class="admin-status__tag">${statusLabel}</span>`,
+      '</div>',
       '</header>',
       '<div class="admin-item__metrics">',
       `<div class="metric"><span class="metric__label">价格</span><span class="metric__value">${price}</span></div>`,
@@ -647,6 +754,12 @@ async function renderAdminList() {
       `<span class="admin-item__range">${range}</span>`,
       `<span class="admin-item__created">${createTime}</span>`,
       '</footer>',
+      '<div class="admin-item__actions">',
+      '<div class="admin-item__buttons">',
+      statusAction,
+      `<button type="button" class="admin-item__copy" data-copy="${copyText}" aria-label="复制指令">复制指令</button>`,
+      '</div>',
+      '</div>',
       '</article>',
     ].join('');
   }).join('');
@@ -669,7 +782,10 @@ function setPage(mode) {
   btnAdmin.classList.toggle('is-active', toAdmin);
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   const btnClear = document.getElementById('btn-clear');
-  if (btnClear) btnClear.textContent = '清空';
+  if (btnClear) {
+    btnClear.hidden = toAdmin && !isDevEnvironment();
+    btnClear.textContent = toAdmin ? '删除' : '清空';
+  }
   if (toAdmin) renderAdminList().catch(() => {});
 }
 
@@ -679,7 +795,7 @@ function flashCopyStrategyBtn(btn, label, duration = 1200) {
   if (btn._flashTimer) clearTimeout(btn._flashTimer);
   btn.textContent = label;
   btn._flashTimer = setTimeout(() => {
-    btn.textContent = btn.dataset.defaultLabel || '一键复制';
+    btn.textContent = btn.dataset.defaultLabel || '保存';
     btn._flashTimer = null;
   }, duration);
 }
@@ -691,7 +807,7 @@ async function copyStrategyOutput() {
   const nameEl = document.getElementById('name-input');
   const name = String(nameEl?.value ?? '').trim();
   if (!name) {
-    if (errEl) errEl.textContent = '一键复制前请填写名称。';
+    if (errEl) errEl.textContent = '保存前请填写名称。';
     flashCopyStrategyBtn(btn, '请填名称');
     return;
   }
@@ -716,12 +832,12 @@ async function copyStrategyOutput() {
       await createStrategy(JSON.parse(out.dataset.record));
       if (currentPage === 'admin') await renderAdminList();
     } catch {
-      if (errEl) errEl.textContent = '复制成功，但同步保存失败。请检查 Supabase 表和权限。';
+      if (errEl) errEl.textContent = '复制成功，但保存失败。请检查 Supabase 表和权限。';
       flashCopyStrategyBtn(btn, '保存失败');
       return;
     }
   }
-  flashCopyStrategyBtn(btn, ok ? '已复制' : '复制失败');
+  flashCopyStrategyBtn(btn, ok ? '已保存' : '复制失败');
 }
 
 async function copyQtyOutput() {
@@ -761,6 +877,7 @@ const clearFront = () => {
 };
 const clearAll = () => {
   if (currentPage === 'admin') {
+    if (!isDevEnvironment()) return;
     clearStrategies()
       .then(renderAdminList)
       .catch(() => {});
@@ -779,7 +896,17 @@ if (btnTabAdmin) btnTabAdmin.addEventListener('click', () => setPage('admin'));
 const adminListEl = document.getElementById('admin-list');
 if (adminListEl) {
   adminListEl.addEventListener('click', async (e) => {
-    const btn = e.target instanceof HTMLElement ? e.target.closest('.admin-item__copy') : null;
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    if (!target) return;
+
+    const statusOpenBtn = target.closest('.admin-status__open');
+    if (statusOpenBtn) {
+      const id = String(statusOpenBtn.getAttribute('data-id') ?? '').trim();
+      openStatusPicker(id);
+      return;
+    }
+
+    const btn = target.closest('.admin-item__copy');
     if (!btn) return;
     const text = String(btn.getAttribute('data-copy') ?? '').trim();
     if (!text) return;
@@ -796,5 +923,28 @@ if (adminListEl) {
     flashCopyStrategyBtn(btn, ok ? '已复制' : '复制失败');
   });
 }
+
+const statusPicker = document.getElementById('status-picker');
+if (statusPicker) {
+  statusPicker.addEventListener('click', (e) => {
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    if (!target) return;
+    if (target.getAttribute('data-status-picker-dismiss') === 'true') {
+      closeStatusPicker();
+      return;
+    }
+    const option = target.closest('[data-status]');
+    if (!option) return;
+    submitStatusFromPicker(option.getAttribute('data-status'));
+  });
+}
+
+const statusPickerCancel = document.getElementById('status-picker-cancel');
+if (statusPickerCancel) statusPickerCancel.addEventListener('click', closeStatusPicker);
+
+document.addEventListener('keydown', (e) => {
+  const picker = document.getElementById('status-picker');
+  if (e.key === 'Escape' && picker && !picker.hidden) closeStatusPicker();
+});
 
 setPage('front');
