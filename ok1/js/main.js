@@ -96,6 +96,46 @@ function getOpenCost() {
   return Number.isFinite(n) && n > 0 ? n : 30;
 }
 
+const SUPABASE_URL = 'https://rxggjijrfafcrmtkqkuv.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_8B1PLTeHhtPou4lPt9cl6w_O2hipMVY';
+const STRATEGIES_ENDPOINT = `${SUPABASE_URL}/rest/v1/strategies`;
+
+function getSupabaseHeaders(extra = {}) {
+  return {
+    apikey: SUPABASE_KEY,
+    Authorization: `Bearer ${SUPABASE_KEY}`,
+    'Content-Type': 'application/json',
+    ...extra,
+  };
+}
+
+function fromDbRecord(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    side: row.side,
+    price: row.price,
+    quantity: row.quantity,
+    takeProfit: row.take_profit,
+    stopLoss: row.stop_loss,
+    timeRange: row.time_range,
+    createdAt: row.created_at,
+  };
+}
+
+function toDbRecord(record) {
+  return {
+    name: record.name,
+    side: record.side,
+    price: record.price,
+    quantity: record.quantity,
+    take_profit: record.takeProfit,
+    stop_loss: record.stopLoss,
+    time_range: record.timeRange,
+    created_at: record.createdAt,
+  };
+}
+
 function isMobileTimePickerEnabled() {
   return window.matchMedia('(max-width: 820px) and (pointer: coarse)').matches;
 }
@@ -349,8 +389,9 @@ function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces)
 
   const nameEl = document.getElementById('name-input');
   const name = String(nameEl?.value ?? '').trim();
-  const sideText = open > stop ? '开多' : '开空';
-  const sideHash = open > stop ? '#开多' : '#开空';
+  const side = open > stop ? 'long' : 'short';
+  const sideText = side === 'long' ? '开多' : '开空';
+  const sideHash = side === 'long' ? '#开多' : '#开空';
   const alarmName = name || 'demo';
   const sideLabel = `${sideHash}${alarmName}`;
   const endTimeLabel = addPeriodToStart(startTimeLabel, spanMinutes);
@@ -376,7 +417,7 @@ function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces)
   const copyText = `帮我创建一个${endTimeHHMM}的闹钟，名称为${alarmName}。`;
   const record = {
     name: alarmName,
-    side: sideText,
+    side,
     price: priceLabel,
     quantity: qty,
     takeProfit: tpLabel,
@@ -533,66 +574,76 @@ function copyFallback(text) {
   }
 }
 
-function getSavedRecords() {
-  try {
-    const raw = localStorage.getItem('ok1_strategy_records');
-    const arr = raw ? JSON.parse(raw) : [];
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
+async function getSavedRecords() {
+  const res = await fetch(`${STRATEGIES_ENDPOINT}?select=*&order=inserted_at.desc`, {
+    headers: getSupabaseHeaders(),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows.map(fromDbRecord) : [];
 }
 
-function clearSavedRecords() {
-  try {
-    localStorage.removeItem('ok1_strategy_records');
-  } catch {
-    // ignore storage errors
-  }
+async function createSavedRecord(record) {
+  const res = await fetch(STRATEGIES_ENDPOINT, {
+    method: 'POST',
+    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+    body: JSON.stringify(toDbRecord(record)),
+  });
+  if (!res.ok) throw new Error(await res.text());
 }
 
-function removeRecordAt(index) {
-  const list = getSavedRecords();
-  if (index < 0 || index >= list.length) return;
-  list.splice(index, 1);
-  try {
-    localStorage.setItem('ok1_strategy_records', JSON.stringify(list));
-  } catch {
-    // ignore storage errors
-  }
+async function clearSavedRecords() {
+  const res = await fetch(`${STRATEGIES_ENDPOINT}?id=not.is.null`, {
+    method: 'DELETE',
+    headers: getSupabaseHeaders(),
+  });
+  if (!res.ok) throw new Error(await res.text());
 }
 
-function renderAdminList() {
+async function removeRecordById(id) {
+  const encodedId = encodeURIComponent(id);
+  const res = await fetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
+    method: 'DELETE',
+    headers: getSupabaseHeaders(),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+async function renderAdminList() {
   const listEl = document.getElementById('admin-list');
-  const emptyEl = document.getElementById('admin-empty');
-  if (!listEl || !emptyEl) return;
-  const rows = getSavedRecords();
-  if (!rows.length) {
-    listEl.innerHTML = '';
-    emptyEl.hidden = false;
+  if (!listEl) return;
+  let rows = [];
+  try {
+    rows = await getSavedRecords();
+  } catch (err) {
+    listEl.innerHTML = `<div class="admin-sync-error">${escapeHtml(String(err?.message || '同步失败'))}</div>`;
     return;
   }
-  emptyEl.hidden = true;
-  listEl.innerHTML = rows.map((row, index) => {
-    const sideRaw = String(row?.side ?? row?.方向 ?? '').trim();
-    const nameRaw = String(row?.name ?? row?.名称 ?? '').trim();
-    const isLong = sideRaw === '开多';
-    const isShort = sideRaw === '开空';
+  if (!rows.length) {
+    listEl.innerHTML = '';
+    return;
+  }
+  listEl.innerHTML = rows.map((row) => {
+    const sideRaw = String(row?.side ?? '').trim();
+    const nameRaw = String(row?.name ?? '').trim();
+    const isLong = sideRaw === 'long';
+    const isShort = sideRaw === 'short';
     const sideMod = isLong ? 'long' : (isShort ? 'short' : 'flat');
-    const sideText = escapeHtml(sideRaw || '—');
+    const sideText = escapeHtml(isLong ? '开多' : (isShort ? '开空' : '—'));
     const name = escapeHtml(nameRaw || '未命名');
-    const price = escapeHtml(String(row?.price ?? row?.价格 ?? '-'));
-    const qty = escapeHtml(String(row?.quantity ?? row?.数量 ?? '-'));
-    const tp = escapeHtml(String(row?.takeProfit ?? row?.止盈 ?? '-'));
-    const stop = escapeHtml(String(row?.stopLoss ?? row?.止损 ?? '-'));
-    const range = escapeHtml(String(row?.timeRange ?? row?.时间范围 ?? '-'));
-    const createTime = escapeHtml(String(row?.createdAt ?? row?.创建时间 ?? '-'));
+    const price = escapeHtml(String(row?.price ?? '-'));
+    const qty = escapeHtml(String(row?.quantity ?? '-'));
+    const tp = escapeHtml(String(row?.takeProfit ?? '-'));
+    const stop = escapeHtml(String(row?.stopLoss ?? '-'));
+    const range = escapeHtml(String(row?.timeRange ?? '-'));
+    const createTime = escapeHtml(String(row?.createdAt ?? '-'));
+    const id = escapeHtml(String(row?.id ?? ''));
     return [
       `<article class="admin-item admin-item--${sideMod}">`,
       '<header class="admin-item__head">',
       `<span class="admin-item__side">${sideText}</span>`,
       `<span class="admin-item__title">${name}</span>`,
-      `<button type="button" class="admin-item__del" data-index="${index}" aria-label="删除该记录" title="删除">×</button>`,
+      `<button type="button" class="admin-item__del" data-id="${id}" aria-label="删除该记录" title="删除">×</button>`,
       '</header>',
       '<div class="admin-item__metrics">',
       `<div class="metric"><span class="metric__label">价格</span><span class="metric__value">${price}</span></div>`,
@@ -627,7 +678,7 @@ function setPage(mode) {
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   const btnClear = document.getElementById('btn-clear');
   if (btnClear) btnClear.textContent = toAdmin ? '清空缓存' : '清空';
-  if (toAdmin) renderAdminList();
+  if (toAdmin) renderAdminList().catch(() => {});
 }
 
 function flashCopyStrategyBtn(btn, label, duration = 1200) {
@@ -670,16 +721,13 @@ async function copyStrategyOutput() {
   if (!ok) ok = copyFallback(text);
   if (ok && out?.dataset.record) {
     try {
-      const key = 'ok1_strategy_records';
-      const oldVal = localStorage.getItem(key);
-      const oldArr = oldVal ? JSON.parse(oldVal) : [];
-      const list = Array.isArray(oldArr) ? oldArr : [];
-      list.unshift(JSON.parse(out.dataset.record));
-      localStorage.setItem(key, JSON.stringify(list));
+      await createSavedRecord(JSON.parse(out.dataset.record));
+      if (currentPage === 'admin') await renderAdminList();
     } catch {
-      // ignore storage error
+      if (errEl) errEl.textContent = '复制成功，但同步保存失败。请检查 Supabase 表和权限。';
+      flashCopyStrategyBtn(btn, '保存失败');
+      return;
     }
-    renderAdminList();
   }
   flashCopyStrategyBtn(btn, ok ? '已复制' : '复制失败');
 }
@@ -721,8 +769,9 @@ const clearFront = () => {
 };
 const clearAll = () => {
   if (currentPage === 'admin') {
-    clearSavedRecords();
-    renderAdminList();
+    clearSavedRecords()
+      .then(renderAdminList)
+      .catch(() => {});
     return;
   }
   clearFront();
@@ -737,13 +786,17 @@ if (btnTabAdmin) btnTabAdmin.addEventListener('click', () => setPage('admin'));
 
 const adminListEl = document.getElementById('admin-list');
 if (adminListEl) {
-  adminListEl.addEventListener('click', (e) => {
+  adminListEl.addEventListener('click', async (e) => {
     const btn = e.target instanceof HTMLElement ? e.target.closest('.admin-item__del') : null;
     if (!btn) return;
-    const index = Number(btn.getAttribute('data-index'));
-    if (!Number.isInteger(index)) return;
-    removeRecordAt(index);
-    renderAdminList();
+    const id = String(btn.getAttribute('data-id') ?? '').trim();
+    if (!id) return;
+    try {
+      await removeRecordById(id);
+      await renderAdminList();
+    } catch {
+      // ignore delete errors
+    }
   });
 }
 

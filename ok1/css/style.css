@@ -133,20 +133,18 @@ body {
   margin-bottom: 8px;
 }
 
-.admin-empty {
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  padding: 16px 12px;
-  text-align: center;
-  color: var(--muted);
-  font-size: 13px;
-  background: #fff;
-}
-
 .admin-list {
   display: grid;
   gap: 10px;
   align-content: start;
+}
+
+.admin-sync-error {
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 8px 2px;
+  word-break: break-word;
 }
 
 .admin-item {
@@ -762,12 +760,6 @@ body {
     -webkit-overflow-scrolling: touch;
     padding-right: 1px;
     align-content: start;
-  }
-
-  .admin-empty {
-    margin-top: 2px;
-    padding: 12px 10px;
-    font-size: 12px;
   }
 
   .admin-item {
