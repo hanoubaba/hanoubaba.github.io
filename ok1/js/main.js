@@ -344,7 +344,7 @@ function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces)
   const spanMinutes = unitMin * 9;
   const stopDiff = Math.abs(open - stop);
   const quantity = openCost / stopDiff;
-  const tp = calcTakeProfit(open, stop, 2);
+  const tp = calcTakeProfit(open, stop, 1);
   const tpDecimals = Math.max(0, priceDecimalPlaces);
 
   const nameEl = document.getElementById('name-input');
@@ -367,7 +367,7 @@ function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces)
     sideLabel,
     `价格：${priceLabel}`,
     `数量：${qty}`,
-    `止盈：${tpLabel}`,
+    `参考止盈：${tpLabel}`,
     `止损：${stopLabel}`,
     `时间范围：${timeRangeLabel}`,
     `创建时间：${createTimeLabel}`,
@@ -597,7 +597,7 @@ function renderAdminList() {
       '<div class="admin-item__metrics">',
       `<div class="metric"><span class="metric__label">价格</span><span class="metric__value">${price}</span></div>`,
       `<div class="metric"><span class="metric__label">数量</span><span class="metric__value">${qty}</span></div>`,
-      `<div class="metric metric--tp"><span class="metric__label">止盈</span><span class="metric__value">${tp}</span></div>`,
+      `<div class="metric metric--tp"><span class="metric__label">参考止盈</span><span class="metric__value">${tp}</span></div>`,
       `<div class="metric metric--stop"><span class="metric__label">止损</span><span class="metric__value">${stop}</span></div>`,
       '</div>',
       '<footer class="admin-item__foot">',
