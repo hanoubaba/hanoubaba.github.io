@@ -51,6 +51,7 @@ body {
 }
 
 .title {
+  grid-column: 2;
   margin: 0;
   letter-spacing: 0.2px;
   font-size: 20px;
@@ -68,6 +69,8 @@ body {
 }
 
 .header-action {
+  grid-column: 1;
+  justify-self: start;
   border: 1px solid var(--border);
   background: #fff;
   color: var(--primary-strong);
@@ -83,6 +86,8 @@ body {
 }
 
 .page-switch {
+  grid-column: 3;
+  justify-self: end;
   display: inline-flex;
   align-items: center;
   border: 1px solid var(--border);
@@ -279,6 +284,16 @@ body {
 .admin-status--loss .admin-status__tag {
   background: var(--short-soft);
   color: var(--short);
+}
+
+.admin-status--time-active .admin-status__tag {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.admin-status--time-ended .admin-status__tag {
+  background: #f3f4f6;
+  color: #6b7280;
 }
 
 .admin-status__open {

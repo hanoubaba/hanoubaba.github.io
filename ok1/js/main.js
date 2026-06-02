@@ -53,41 +53,86 @@ function minutesFromValue(val) {
   return h * 60 + m;
 }
 
-function minutesToValue(total) {
-  const t = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
-  const h = Math.floor(t / 60);
-  const m = t % 60;
-  return formatHHMM(h, m);
+function formatDateKey(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
-function addPeriodToStart(startHHMM, periodMinutes) {
-  const sm = minutesFromValue(startHHMM);
-  if (sm == null) return '—';
-  const now = new Date();
-  const startAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-  startAt.setMinutes(sm);
-  const endAt = new Date(startAt.getTime() + periodMinutes * 60 * 1000);
-  return `${endAt.getFullYear()}年${endAt.getMonth() + 1}月${endAt.getDate()}日 ${pad2(endAt.getHours())}:${pad2(endAt.getMinutes())}`;
+function formatStartSlotValue(d) {
+  return `${formatDateKey(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-function closestSlotMinutes(mins, stepMinutes) {
-  let s = Math.round(mins / stepMinutes) * stepMinutes;
-  const max = 24 * 60 - stepMinutes;
-  if (s > max) s = max;
-  if (s < 0) s = 0;
-  return s;
+function parseStartSlotValue(value) {
+  const m = String(value ?? '').trim().match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const [, y, mo, day, h, mi] = m.map(Number);
+  const d = new Date(y, mo - 1, day, h, mi, 0, 0);
+  if (
+    d.getFullYear() !== y
+    || d.getMonth() !== mo - 1
+    || d.getDate() !== day
+    || d.getHours() !== h
+    || d.getMinutes() !== mi
+  ) return null;
+  return d;
 }
 
-/** 按当前时间取最近的时间起点（15 分钟 / 1 小时格） */
-function getCurrentTimeSlot(stepMinutes) {
-  const d = new Date();
+function isSameDate(a, b) {
+  return a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate();
+}
+
+function formatSlotLabel(at, now = new Date()) {
+  const time = formatHHMM(at.getHours(), at.getMinutes());
+  if (isSameDate(at, now)) return time;
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
+  if (isSameDate(at, yesterday)) return `昨天 ${time}`;
+  return `${at.getMonth() + 1}/${at.getDate()} ${time}`;
+}
+
+function formatRangeEndLabel(endAt, startAt) {
+  const time = formatHHMM(endAt.getHours(), endAt.getMinutes());
+  if (!startAt || isSameDate(endAt, startAt)) return time;
+  const nextDay = new Date(startAt.getFullYear(), startAt.getMonth(), startAt.getDate() + 1, 0, 0, 0, 0);
+  if (isSameDate(endAt, nextDay)) return `次日 ${time}`;
+  return `${endAt.getMonth() + 1}/${endAt.getDate()} ${time}`;
+}
+
+function floorDateToStep(d, stepMinutes) {
   const mins = d.getHours() * 60 + d.getMinutes();
-  return minutesToValue(closestSlotMinutes(mins, stepMinutes));
+  const slotMins = Math.floor(mins / stepMinutes) * stepMinutes;
+  const slot = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+  slot.setMinutes(slotMins);
+  return slot;
 }
+
+function addPeriodToStart(startValue, periodMinutes) {
+  const startAt = getStartDateTime(startValue);
+  if (!startAt) return null;
+  return new Date(startAt.getTime() + periodMinutes * 60 * 1000);
+}
+
+/** 按当前时间取当前已完成的时间起点（15 分钟 / 1 小时 / 4 小时格） */
+function getCurrentTimeSlot(stepMinutes) {
+  return formatStartSlotValue(floorDateToStep(new Date(), stepMinutes));
+}
+
+const START_TIME_SLOT_COUNT = 5;
+
+const TIMEFRAME_MINUTES = {
+  '15m': 15,
+  '1h': 60,
+  '4h': 240,
+};
 
 function getTimeframeMode() {
   const active = document.querySelector('[data-tablist="timeframe"] .tab-btn.is-active');
-  return active?.getAttribute('data-value') === '1h' ? '1h' : '15m';
+  const mode = active?.getAttribute('data-value');
+  return Object.prototype.hasOwnProperty.call(TIMEFRAME_MINUTES, mode) ? mode : '15m';
+}
+
+function getTimeframeMinutes(mode = getTimeframeMode()) {
+  return TIMEFRAME_MINUTES[mode] ?? TIMEFRAME_MINUTES['15m'];
 }
 
 function getOpenCost() {
@@ -151,36 +196,50 @@ function isMobileTimePickerEnabled() {
 
 function getTimeSlotsByMode(mode) {
   const slots = [];
-  if (mode === '1h') {
-    for (let h = 0; h < 24; h += 1) slots.push(formatHHMM(h, 0));
-    return slots;
-  }
-  for (let h = 0; h < 24; h += 1) {
-    for (let m = 0; m < 60; m += 15) slots.push(formatHHMM(h, m));
+  const stepMinutes = getTimeframeMinutes(mode);
+  const now = new Date();
+  const currentSlot = floorDateToStep(now, stepMinutes);
+  for (let i = START_TIME_SLOT_COUNT - 1; i >= 0; i -= 1) {
+    const at = new Date(currentSlot.getTime() - i * stepMinutes * 60 * 1000);
+    slots.push({
+      value: formatStartSlotValue(at),
+      label: formatSlotLabel(at, now),
+      time: formatHHMM(at.getHours(), at.getMinutes()),
+      at,
+    });
   }
   return slots;
 }
 
 function resolveStartTimeSelection(mode, prevValue) {
+  const slots = getTimeSlotsByMode(mode);
+  if (!slots.length) return '';
   const prev = String(prevValue ?? '').trim();
-  const prevM = minutesFromValue(prev);
-  const stepMinutes = mode === '1h' ? 60 : 15;
-  if (!prev) return getCurrentTimeSlot(stepMinutes);
-  if (mode === '1h') {
-    const base = prevM == null ? 0 : prevM;
-    return minutesToValue(closestSlotMinutes(base, 60));
+  if (prev && slots.some((slot) => slot.value === prev)) return prev;
+
+  const stepMinutes = getTimeframeMinutes(mode);
+  const prevAt = parseStartSlotValue(prev);
+  if (prevAt) {
+    const aligned = formatStartSlotValue(floorDateToStep(prevAt, stepMinutes));
+    if (slots.some((slot) => slot.value === aligned)) return aligned;
   }
-  if (prevM != null && prevM % 15 === 0) return minutesToValue(prevM);
-  if (prevM != null) return minutesToValue(closestSlotMinutes(prevM, 15));
-  return '';
+
+  const prevM = minutesFromValue(prev);
+  if (prevM != null) {
+    const match = slots.find((slot) => minutesFromValue(slot.time) === prevM);
+    if (match) return match.value;
+  }
+
+  return slots[slots.length - 1].value;
 }
 
 function updateStartTimeTriggerLabel() {
   const trigger = document.getElementById('start-time-trigger');
   const sel = document.getElementById('start-time');
   if (!trigger || !sel) return;
+  const label = String(sel.selectedOptions?.[0]?.textContent ?? '').trim();
   const v = String(sel.value ?? '').trim();
-  trigger.textContent = v || '请选择';
+  trigger.textContent = label || v || '请选择';
 }
 
 function renderMobileTimePickerOptions(selectedValue) {
@@ -189,17 +248,17 @@ function renderMobileTimePickerOptions(selectedValue) {
   const mode = getTimeframeMode();
   const slots = getTimeSlotsByMode(mode);
   const fallbackValue = resolveStartTimeSelection(mode, selectedValue);
-  const activeValue = slots.includes(selectedValue) ? selectedValue : fallbackValue;
+  const activeValue = slots.some((slot) => slot.value === selectedValue) ? selectedValue : fallbackValue;
   const frag = document.createDocumentFragment();
 
-  for (const v of slots) {
+  for (const slot of slots) {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = `time-picker__option${v === activeValue ? ' is-selected' : ''}`;
-    btn.dataset.value = v;
-    btn.textContent = v;
+    btn.className = `time-picker__option${slot.value === activeValue ? ' is-selected' : ''}`;
+    btn.dataset.value = slot.value;
+    btn.textContent = slot.label;
     btn.setAttribute('role', 'option');
-    btn.setAttribute('aria-selected', v === activeValue ? 'true' : 'false');
+    btn.setAttribute('aria-selected', slot.value === activeValue ? 'true' : 'false');
     frag.appendChild(btn);
   }
 
@@ -308,34 +367,34 @@ function bindMobileTimePickerEvents() {
   });
 }
 
-function rebuildStartTimeOptions() {
+function rebuildStartTimeOptions(preferredValue = null) {
   const sel = document.getElementById('start-time');
   if (!sel) return;
 
   const mode = getTimeframeMode();
   const slots = getTimeSlotsByMode(mode);
-  const selectedValue = resolveStartTimeSelection(mode, sel.value);
+  const selectedValue = resolveStartTimeSelection(mode, preferredValue ?? sel.value);
 
   const frag = document.createDocumentFragment();
-  if (!selectedValue || !slots.includes(selectedValue)) {
+  if (!selectedValue || !slots.some((slot) => slot.value === selectedValue)) {
     const optPlaceholder = document.createElement('option');
     optPlaceholder.value = '';
     optPlaceholder.textContent = '请选择';
     frag.appendChild(optPlaceholder);
   }
 
-  for (const v of slots) {
+  for (const slot of slots) {
     const o = document.createElement('option');
-    o.value = v;
-    o.textContent = v;
-    if (selectedValue && v === selectedValue) o.selected = true;
+    o.value = slot.value;
+    o.textContent = slot.label;
+    if (selectedValue && slot.value === selectedValue) o.selected = true;
     frag.appendChild(o);
   }
 
   sel.innerHTML = '';
   sel.append(frag);
 
-  if (selectedValue && slots.includes(selectedValue)) {
+  if (selectedValue && slots.some((slot) => slot.value === selectedValue)) {
     sel.value = selectedValue;
   } else {
     sel.value = '';
@@ -388,8 +447,29 @@ function calcTakeProfit(open, stop, multiplier = 1) {
   return open - move;
 }
 
-function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces) {
-  const unitMin = getTimeframeMode() === '1h' ? 60 : 15;
+function getStartDateTime(startValue) {
+  const parsed = parseStartSlotValue(startValue);
+  if (parsed) return parsed;
+
+  const startMins = minutesFromValue(startValue);
+  if (startMins == null) return null;
+
+  const mode = getTimeframeMode();
+  const slots = getTimeSlotsByMode(mode);
+  const match = slots.find((slot) => minutesFromValue(slot.time) === startMins);
+  if (match) return new Date(match.at.getTime());
+
+  const now = new Date();
+  const startAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  startAt.setMinutes(startMins);
+  if (startMins > now.getHours() * 60 + now.getMinutes()) {
+    startAt.setDate(startAt.getDate() - 1);
+  }
+  return startAt;
+}
+
+function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces) {
+  const unitMin = getTimeframeMinutes();
   const spanMinutes = unitMin * 9;
   const stopDiff = Math.abs(open - stop);
   const quantity = openCost / stopDiff;
@@ -403,9 +483,12 @@ function buildStrategy(open, stop, startTimeLabel, openCost, priceDecimalPlaces)
   const sideHash = side === 'long' ? '#开多' : '#开空';
   const alarmName = name || 'demo';
   const sideLabel = `${sideHash}${alarmName}`;
-  const endTimeLabel = addPeriodToStart(startTimeLabel, spanMinutes);
-  const endTimeHHMM = String(endTimeLabel).match(/(\d{2}:\d{2})$/)?.[1] || endTimeLabel;
-  const timeRangeLabel = `${startTimeLabel} — ${endTimeHHMM}`;
+  const startAt = getStartDateTime(startTimeValue);
+  const endAt = addPeriodToStart(startTimeValue, spanMinutes);
+  const startDisplay = startTimeLabel || (startAt ? formatSlotLabel(startAt) : startTimeValue);
+  const endTimeHHMM = endAt ? formatHHMM(endAt.getHours(), endAt.getMinutes()) : '—';
+  const endDisplay = endAt ? formatRangeEndLabel(endAt, startAt) : '—';
+  const timeRangeLabel = `${startDisplay} — ${endDisplay}`;
 
   const qty = formatQuantity(quantity);
   const priceLabel = formatPrice(open);
@@ -461,6 +544,7 @@ function generate() {
   const open = toNumber(openEl && 'value' in openEl ? openEl.value : '');
   const stop = toNumber(stopEl && 'value' in stopEl ? stopEl.value : '');
   const startTime = timeEl && 'value' in timeEl ? String(timeEl.value).trim() : '';
+  const startTimeLabel = timeEl ? String(timeEl.selectedOptions?.[0]?.textContent ?? '').trim() : '';
 
   if (errEl) errEl.textContent = '';
 
@@ -490,7 +574,7 @@ function generate() {
 
   const openRaw = openEl && 'value' in openEl ? String(openEl.value) : '';
   const priceDecimals = getDecimalPlacesFromInput(openRaw);
-  const strategy = buildStrategy(open, stop, startTime, getOpenCost(), priceDecimals);
+  const strategy = buildStrategy(open, stop, startTime, startTimeLabel, getOpenCost(), priceDecimals);
   renderStrategyOutput(outEl, strategy);
   if (outEl) {
     outEl.dataset.copyText = strategy.copyText;
@@ -551,10 +635,10 @@ function syncStartTimeToNow() {
   if (!sel || startTimeUserPicked) return;
   const picker = document.getElementById('start-time-picker');
   if (picker && !picker.hidden) return; // 移动端选择器打开时不打扰
-  const stepMinutes = getTimeframeMode() === '1h' ? 60 : 15;
+  const stepMinutes = getTimeframeMinutes();
   const nowSlot = getCurrentTimeSlot(stepMinutes);
   if (sel.value === nowSlot) return;
-  sel.value = nowSlot;
+  rebuildStartTimeOptions(nowSlot);
   updateStartTimeTriggerLabel();
   autoGenerateIfReady();
 }
@@ -626,7 +710,105 @@ function normalizeStrategyStatus(status) {
 function getStrategyStatusLabel(status) {
   if (status === 'profit') return '盈利';
   if (status === 'loss') return '亏损';
-  return '进行中';
+  return '';
+}
+
+function parseCreatedAt(value) {
+  const raw = String(value ?? '').trim();
+  const m = raw.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日\s+(\d{1,2}):(\d{2})$/);
+  if (m) {
+    const [, y, mo, day, h, mi] = m.map(Number);
+    const d = new Date(y, mo - 1, day, h, mi, 0, 0);
+    if (
+      d.getFullYear() === y
+      && d.getMonth() === mo - 1
+      && d.getDate() === day
+      && d.getHours() === h
+      && d.getMinutes() === mi
+    ) return d;
+  }
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+function parseClockText(text) {
+  const m = String(text ?? '').trim().match(/(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mi = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(mi) || h < 0 || h > 23 || mi < 0 || mi > 59) return null;
+  return { h, mi, mins: h * 60 + mi };
+}
+
+function parseMonthDayText(text, reference) {
+  const m = String(text ?? '').trim().match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const [, mo, day, h, mi] = m.map(Number);
+  const d = new Date(reference.getFullYear(), mo - 1, day, h, mi, 0, 0);
+  if (
+    d.getMonth() !== mo - 1
+    || d.getDate() !== day
+    || d.getHours() !== h
+    || d.getMinutes() !== mi
+  ) return null;
+  if (d.getTime() > reference.getTime() + 24 * 60 * 60 * 1000) d.setFullYear(d.getFullYear() - 1);
+  return d;
+}
+
+function parseRangeStartLabel(label, createdAt) {
+  const raw = String(label ?? '').trim();
+  const monthDay = parseMonthDayText(raw, createdAt);
+  if (monthDay) return monthDay;
+
+  const clock = parseClockText(raw);
+  if (!clock) return null;
+
+  const startAt = new Date(createdAt.getFullYear(), createdAt.getMonth(), createdAt.getDate(), clock.h, clock.mi, 0, 0);
+  if (raw.startsWith('昨天')) {
+    startAt.setDate(startAt.getDate() - 1);
+    return startAt;
+  }
+
+  const createdMins = createdAt.getHours() * 60 + createdAt.getMinutes();
+  if (clock.mins > createdMins) startAt.setDate(startAt.getDate() - 1);
+  return startAt;
+}
+
+function parseRangeEndLabel(label, startAt, createdAt) {
+  const raw = String(label ?? '').trim();
+  const monthDay = parseMonthDayText(raw, createdAt);
+  if (monthDay) return monthDay;
+
+  const clock = parseClockText(raw);
+  if (!clock) return null;
+
+  const base = startAt || createdAt;
+  const endAt = new Date(base.getFullYear(), base.getMonth(), base.getDate(), clock.h, clock.mi, 0, 0);
+  if (raw.startsWith('次日')) {
+    endAt.setDate(endAt.getDate() + 1);
+    return endAt;
+  }
+
+  const startMins = startAt ? startAt.getHours() * 60 + startAt.getMinutes() : 0;
+  if (startAt && clock.mins < startMins) endAt.setDate(endAt.getDate() + 1);
+  return endAt;
+}
+
+function getTimeRangeEndAt(timeRange, createdAtValue) {
+  const parts = String(timeRange ?? '').split('—').map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 2) return null;
+  const createdAt = parseCreatedAt(createdAtValue);
+  const startAt = parseRangeStartLabel(parts[0], createdAt);
+  return parseRangeEndLabel(parts[1], startAt, createdAt);
+}
+
+function getTimeRangeStatusByEndAt(endAt) {
+  if (!endAt) return 'active';
+  return Date.now() >= endAt.getTime() ? 'ended' : 'active';
+}
+
+function getTimeRangeStatusLabel(status) {
+  return status === 'ended' ? '已结束' : '进行中';
 }
 
 let pendingStatusRecordId = '';
@@ -731,7 +913,14 @@ async function renderAdminList() {
     const copyText = escapeHtml(`帮我创建一个${endTime}的闹钟，名称为${nameRaw || '未命名'}。`);
     const id = escapeHtml(String(row?.id ?? ''));
     const status = normalizeStrategyStatus(row?.status);
-    const statusLabel = escapeHtml(getStrategyStatusLabel(status));
+    const statusLabel = getStrategyStatusLabel(status);
+    const resultStatusHtml = statusLabel
+      ? `<div class="admin-status admin-status--${status}"><span class="admin-status__tag">${escapeHtml(statusLabel)}</span></div>`
+      : '';
+    const timeStatusEndAt = getTimeRangeEndAt(row?.timeRange, row?.createdAt);
+    const timeStatus = getTimeRangeStatusByEndAt(timeStatusEndAt);
+    const timeStatusLabel = escapeHtml(getTimeRangeStatusLabel(timeStatus));
+    const timeStatusHtml = `<div class="admin-status admin-status--time-${timeStatus}"><span class="admin-status__tag">${timeStatusLabel}</span></div>`;
     const statusAction = status === 'pending' && id
       ? `<button type="button" class="admin-status__open" data-id="${id}" aria-haspopup="dialog" aria-controls="status-picker">提交状态</button>`
       : '';
@@ -740,9 +929,8 @@ async function renderAdminList() {
       '<header class="admin-item__head">',
       `<span class="admin-item__side">${sideText}</span>`,
       `<span class="admin-item__title">${name}</span>`,
-      `<div class="admin-status admin-status--${status}">`,
-      `<span class="admin-status__tag">${statusLabel}</span>`,
-      '</div>',
+      resultStatusHtml,
+      timeStatusHtml,
       '</header>',
       '<div class="admin-item__metrics">',
       `<div class="metric"><span class="metric__label">价格</span><span class="metric__value">${price}</span></div>`,
