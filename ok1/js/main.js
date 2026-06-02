@@ -574,7 +574,7 @@ function copyFallback(text) {
   }
 }
 
-async function getSavedRecords() {
+async function fetchStrategies() {
   const res = await fetch(`${STRATEGIES_ENDPOINT}?select=*&order=inserted_at.desc`, {
     headers: getSupabaseHeaders(),
   });
@@ -583,7 +583,7 @@ async function getSavedRecords() {
   return Array.isArray(rows) ? rows.map(fromDbRecord) : [];
 }
 
-async function createSavedRecord(record) {
+async function createStrategy(record) {
   const res = await fetch(STRATEGIES_ENDPOINT, {
     method: 'POST',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
@@ -592,17 +592,8 @@ async function createSavedRecord(record) {
   if (!res.ok) throw new Error(await res.text());
 }
 
-async function clearSavedRecords() {
+async function clearStrategies() {
   const res = await fetch(`${STRATEGIES_ENDPOINT}?id=not.is.null`, {
-    method: 'DELETE',
-    headers: getSupabaseHeaders(),
-  });
-  if (!res.ok) throw new Error(await res.text());
-}
-
-async function removeRecordById(id) {
-  const encodedId = encodeURIComponent(id);
-  const res = await fetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
     method: 'DELETE',
     headers: getSupabaseHeaders(),
   });
@@ -614,7 +605,7 @@ async function renderAdminList() {
   if (!listEl) return;
   let rows = [];
   try {
-    rows = await getSavedRecords();
+    rows = await fetchStrategies();
   } catch (err) {
     listEl.innerHTML = `<div class="admin-sync-error">${escapeHtml(String(err?.message || '同步失败'))}</div>`;
     return;
@@ -637,13 +628,14 @@ async function renderAdminList() {
     const stop = escapeHtml(String(row?.stopLoss ?? '-'));
     const range = escapeHtml(String(row?.timeRange ?? '-'));
     const createTime = escapeHtml(String(row?.createdAt ?? '-'));
-    const id = escapeHtml(String(row?.id ?? ''));
+    const endTime = escapeHtml(String(row?.timeRange ?? '').split('—').pop()?.trim() || '');
+    const copyText = escapeHtml(`帮我创建一个${endTime}的闹钟，名称为${nameRaw || '未命名'}。`);
     return [
       `<article class="admin-item admin-item--${sideMod}">`,
       '<header class="admin-item__head">',
       `<span class="admin-item__side">${sideText}</span>`,
       `<span class="admin-item__title">${name}</span>`,
-      `<button type="button" class="admin-item__del" data-id="${id}" aria-label="删除该记录" title="删除">×</button>`,
+      `<button type="button" class="admin-item__copy" data-copy="${copyText}" aria-label="复制指令">复制指令</button>`,
       '</header>',
       '<div class="admin-item__metrics">',
       `<div class="metric"><span class="metric__label">价格</span><span class="metric__value">${price}</span></div>`,
@@ -677,7 +669,7 @@ function setPage(mode) {
   btnAdmin.classList.toggle('is-active', toAdmin);
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   const btnClear = document.getElementById('btn-clear');
-  if (btnClear) btnClear.textContent = toAdmin ? '清空缓存' : '清空';
+  if (btnClear) btnClear.textContent = '清空';
   if (toAdmin) renderAdminList().catch(() => {});
 }
 
@@ -721,7 +713,7 @@ async function copyStrategyOutput() {
   if (!ok) ok = copyFallback(text);
   if (ok && out?.dataset.record) {
     try {
-      await createSavedRecord(JSON.parse(out.dataset.record));
+      await createStrategy(JSON.parse(out.dataset.record));
       if (currentPage === 'admin') await renderAdminList();
     } catch {
       if (errEl) errEl.textContent = '复制成功，但同步保存失败。请检查 Supabase 表和权限。';
@@ -769,7 +761,7 @@ const clearFront = () => {
 };
 const clearAll = () => {
   if (currentPage === 'admin') {
-    clearSavedRecords()
+    clearStrategies()
       .then(renderAdminList)
       .catch(() => {});
     return;
@@ -787,16 +779,21 @@ if (btnTabAdmin) btnTabAdmin.addEventListener('click', () => setPage('admin'));
 const adminListEl = document.getElementById('admin-list');
 if (adminListEl) {
   adminListEl.addEventListener('click', async (e) => {
-    const btn = e.target instanceof HTMLElement ? e.target.closest('.admin-item__del') : null;
+    const btn = e.target instanceof HTMLElement ? e.target.closest('.admin-item__copy') : null;
     if (!btn) return;
-    const id = String(btn.getAttribute('data-id') ?? '').trim();
-    if (!id) return;
+    const text = String(btn.getAttribute('data-copy') ?? '').trim();
+    if (!text) return;
+    let ok = false;
     try {
-      await removeRecordById(id);
-      await renderAdminList();
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      }
     } catch {
-      // ignore delete errors
+      ok = false;
     }
+    if (!ok) ok = copyFallback(text);
+    flashCopyStrategyBtn(btn, ok ? '已复制' : '复制失败');
   });
 }
 

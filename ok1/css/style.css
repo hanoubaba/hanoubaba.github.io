@@ -196,33 +196,29 @@ body {
   text-overflow: ellipsis;
 }
 
-.admin-item__del {
+.admin-item__copy {
   flex: none;
   align-self: center;
-  width: 24px;
-  height: 24px;
-  margin: -3px -4px -3px 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: none;
+  margin: -2px -2px -2px 0;
+  border: 1px solid var(--border);
   border-radius: 7px;
-  background: transparent;
-  color: #9bb6a6;
-  font-size: 18px;
-  line-height: 1;
+  background: #fff;
+  color: var(--primary-strong);
+  padding: 4px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.admin-item__del:hover {
-  background: var(--short-soft);
-  color: var(--short);
+.admin-item__copy:hover {
+  background: var(--surface-tint);
+  color: var(--primary-deep);
 }
 
-.admin-item__del:active {
-  transform: scale(0.92);
+.admin-item__copy:active {
+  transform: translateY(1px);
 }
 
 .admin-item__metrics {
