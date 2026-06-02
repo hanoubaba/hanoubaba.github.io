@@ -151,6 +151,35 @@ body {
   margin-bottom: 8px;
 }
 
+.admin-filter-tabs {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-tint);
+  margin-bottom: 8px;
+}
+
+.admin-filter-tab {
+  flex: 1;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.admin-filter-tab.is-active {
+  color: var(--primary-strong);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(22, 101, 52, 0.14), 0 0 0 1px var(--border);
+}
+
 .admin-stat {
   border: 1px solid var(--border-soft);
   border-radius: 8px;
@@ -1004,6 +1033,17 @@ body {
   .admin-stats {
     gap: 4px;
     margin-bottom: 6px;
+  }
+
+  .admin-filter-tabs {
+    gap: 2px;
+    padding: 2px;
+    margin-bottom: 6px;
+  }
+
+  .admin-filter-tab {
+    padding: 6px 7px;
+    font-size: 11px;
   }
 
   .admin-stat {

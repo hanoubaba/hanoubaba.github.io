@@ -61,6 +61,10 @@ function formatStartSlotValue(d) {
   return `${formatDateKey(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+function formatFullDateTimeLabel(d) {
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
 function parseStartSlotValue(value) {
   const m = String(value ?? '').trim().match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
   if (!m) return null;
@@ -88,14 +92,6 @@ function formatSlotLabel(at, now = new Date()) {
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
   if (isSameDate(at, yesterday)) return `昨天 ${time}`;
   return `${at.getMonth() + 1}/${at.getDate()} ${time}`;
-}
-
-function formatRangeEndLabel(endAt, startAt) {
-  const time = formatHHMM(endAt.getHours(), endAt.getMinutes());
-  if (!startAt || isSameDate(endAt, startAt)) return time;
-  const nextDay = new Date(startAt.getFullYear(), startAt.getMonth(), startAt.getDate() + 1, 0, 0, 0, 0);
-  if (isSameDate(endAt, nextDay)) return `次日 ${time}`;
-  return `${endAt.getMonth() + 1}/${endAt.getDate()} ${time}`;
 }
 
 function floorDateToStep(d, stepMinutes) {
@@ -485,9 +481,8 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
   const sideLabel = `${sideHash}${alarmName}`;
   const startAt = getStartDateTime(startTimeValue);
   const endAt = addPeriodToStart(startTimeValue, spanMinutes);
-  const startDisplay = startTimeLabel || (startAt ? formatSlotLabel(startAt) : startTimeValue);
-  const endTimeHHMM = endAt ? formatHHMM(endAt.getHours(), endAt.getMinutes()) : '—';
-  const endDisplay = endAt ? formatRangeEndLabel(endAt, startAt) : '—';
+  const startDisplay = startAt ? formatFullDateTimeLabel(startAt) : (startTimeLabel || startTimeValue);
+  const endDisplay = endAt ? formatFullDateTimeLabel(endAt) : '—';
   const timeRangeLabel = `${startDisplay} — ${endDisplay}`;
 
   const qty = formatQuantity(quantity);
@@ -506,7 +501,7 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
     `创建时间：${createTimeLabel}`,
   ];
 
-  const copyText = `帮我创建一个${endTimeHHMM}的闹钟，名称为${alarmName}。`;
+  const copyText = `帮我创建一个${endDisplay}的闹钟，名称为${alarmName}。`;
   const record = {
     name: alarmName,
     side,
@@ -715,20 +710,27 @@ function getStrategyStatusLabel(status) {
 
 function parseCreatedAt(value) {
   const raw = String(value ?? '').trim();
-  const m = raw.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日\s+(\d{1,2}):(\d{2})$/);
-  if (m) {
-    const [, y, mo, day, h, mi] = m.map(Number);
-    const d = new Date(y, mo - 1, day, h, mi, 0, 0);
-    if (
-      d.getFullYear() === y
-      && d.getMonth() === mo - 1
-      && d.getDate() === day
-      && d.getHours() === h
-      && d.getMinutes() === mi
-    ) return d;
-  }
+  const fullDateTime = parseFullDateTimeLabel(raw);
+  if (fullDateTime) return fullDateTime;
+
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+function parseFullDateTimeLabel(value) {
+  const raw = String(value ?? '').trim();
+  const m = raw.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日\s+(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const [, y, mo, day, h, mi] = m.map(Number);
+  const d = new Date(y, mo - 1, day, h, mi, 0, 0);
+  if (
+    d.getFullYear() === y
+    && d.getMonth() === mo - 1
+    && d.getDate() === day
+    && d.getHours() === h
+    && d.getMinutes() === mi
+  ) return d;
+  return null;
 }
 
 function parseClockText(text) {
@@ -751,12 +753,18 @@ function parseMonthDayText(text, reference) {
     || d.getHours() !== h
     || d.getMinutes() !== mi
   ) return null;
-  if (d.getTime() > reference.getTime() + 24 * 60 * 60 * 1000) d.setFullYear(d.getFullYear() - 1);
+  const halfYearMs = 183 * 24 * 60 * 60 * 1000;
+  const diffMs = d.getTime() - reference.getTime();
+  if (diffMs > halfYearMs) d.setFullYear(d.getFullYear() - 1);
+  if (diffMs < -halfYearMs) d.setFullYear(d.getFullYear() + 1);
   return d;
 }
 
 function parseRangeStartLabel(label, createdAt) {
   const raw = String(label ?? '').trim();
+  const fullDateTime = parseFullDateTimeLabel(raw);
+  if (fullDateTime) return fullDateTime;
+
   const monthDay = parseMonthDayText(raw, createdAt);
   if (monthDay) return monthDay;
 
@@ -776,6 +784,9 @@ function parseRangeStartLabel(label, createdAt) {
 
 function parseRangeEndLabel(label, startAt, createdAt) {
   const raw = String(label ?? '').trim();
+  const fullDateTime = parseFullDateTimeLabel(raw);
+  if (fullDateTime) return fullDateTime;
+
   const monthDay = parseMonthDayText(raw, createdAt);
   if (monthDay) return monthDay;
 
@@ -795,20 +806,67 @@ function parseRangeEndLabel(label, startAt, createdAt) {
 }
 
 function getTimeRangeEndAt(timeRange, createdAtValue) {
-  const parts = String(timeRange ?? '').split('—').map((part) => part.trim()).filter(Boolean);
+  const parts = splitTimeRangeText(timeRange);
   if (parts.length < 2) return null;
   const createdAt = parseCreatedAt(createdAtValue);
   const startAt = parseRangeStartLabel(parts[0], createdAt);
   return parseRangeEndLabel(parts[1], startAt, createdAt);
 }
 
+function formatTimeRangeForDisplay(timeRange, createdAtValue) {
+  const parts = splitTimeRangeText(timeRange);
+  if (parts.length < 2) return String(timeRange ?? '').trim();
+  const createdAt = parseCreatedAt(createdAtValue);
+  const startAt = parseRangeStartLabel(parts[0], createdAt);
+  const endAt = parseRangeEndLabel(parts[1], startAt, createdAt);
+  if (!startAt || !endAt) return String(timeRange ?? '').trim();
+  return `${formatFullDateTimeLabel(startAt)} — ${formatFullDateTimeLabel(endAt)}`;
+}
+
+function splitTimeRangeText(timeRange) {
+  return String(timeRange ?? '').split(/\s+(?:-|\u2013|\u2014)\s+/).map((part) => part.trim()).filter(Boolean);
+}
+
 function getTimeRangeStatusByEndAt(endAt) {
   if (!endAt) return 'active';
-  return Date.now() >= endAt.getTime() ? 'ended' : 'active';
+  const nowTs = Date.now();
+  const endTs = endAt.getTime();
+  return nowTs >= endTs ? 'ended' : 'active';
 }
 
 function getTimeRangeStatusLabel(status) {
   return status === 'ended' ? '已结束' : '进行中';
+}
+
+const ADMIN_TIME_FILTER_LABELS = {
+  all: '全部',
+  active: '进行中',
+  ended: '已结束',
+};
+
+let adminTimeFilter = 'all';
+
+function normalizeAdminTimeFilter(value) {
+  return Object.prototype.hasOwnProperty.call(ADMIN_TIME_FILTER_LABELS, value) ? value : 'all';
+}
+
+function getRowTimeStatus(row) {
+  return getTimeRangeStatusByEndAt(getTimeRangeEndAt(row?.timeRange, row?.createdAt));
+}
+
+function filterAdminRowsByTimeStatus(rows) {
+  const filter = normalizeAdminTimeFilter(adminTimeFilter);
+  if (filter === 'all') return rows;
+  return rows.filter((row) => getRowTimeStatus(row) === filter);
+}
+
+function renderAdminFilterTabs() {
+  const tabsEl = document.getElementById('admin-filter-tabs');
+  if (!tabsEl) return;
+  tabsEl.innerHTML = Object.entries(ADMIN_TIME_FILTER_LABELS).map(([value, label]) => {
+    const active = normalizeAdminTimeFilter(adminTimeFilter) === value;
+    return `<button type="button" class="admin-filter-tab${active ? ' is-active' : ''}" role="tab" aria-selected="${active ? 'true' : 'false'}" data-admin-time-filter="${value}">${escapeHtml(label)}</button>`;
+  }).join('');
 }
 
 let pendingStatusRecordId = '';
@@ -882,6 +940,7 @@ function renderAdminStats(rows) {
 async function renderAdminList() {
   const listEl = document.getElementById('admin-list');
   if (!listEl) return;
+  renderAdminFilterTabs();
   let rows = [];
   try {
     rows = await fetchStrategies();
@@ -890,12 +949,13 @@ async function renderAdminList() {
     listEl.innerHTML = `<div class="admin-sync-error">${escapeHtml(String(err?.message || '同步失败'))}</div>`;
     return;
   }
-  renderAdminStats(rows);
-  if (!rows.length) {
+  const visibleRows = filterAdminRowsByTimeStatus(rows);
+  renderAdminStats(visibleRows);
+  if (!visibleRows.length) {
     listEl.innerHTML = '';
     return;
   }
-  listEl.innerHTML = rows.map((row) => {
+  listEl.innerHTML = visibleRows.map((row) => {
     const sideRaw = String(row?.side ?? '').trim();
     const nameRaw = String(row?.name ?? '').trim();
     const isLong = sideRaw === 'long';
@@ -907,9 +967,13 @@ async function renderAdminList() {
     const qty = escapeHtml(String(row?.quantity ?? '-'));
     const tp = escapeHtml(String(row?.takeProfit ?? '-'));
     const stop = escapeHtml(String(row?.stopLoss ?? '-'));
-    const range = escapeHtml(String(row?.timeRange ?? '-'));
+    const range = escapeHtml(formatTimeRangeForDisplay(row?.timeRange, row?.createdAt) || '-');
     const createTime = escapeHtml(String(row?.createdAt ?? '-'));
-    const endTime = escapeHtml(String(row?.timeRange ?? '').split('—').pop()?.trim() || '');
+    const endAt = getTimeRangeEndAt(row?.timeRange, row?.createdAt);
+    const rangeParts = splitTimeRangeText(row?.timeRange);
+    const endTime = endAt
+      ? formatFullDateTimeLabel(endAt)
+      : rangeParts[rangeParts.length - 1] || '';
     const copyText = escapeHtml(`帮我创建一个${endTime}的闹钟，名称为${nameRaw || '未命名'}。`);
     const id = escapeHtml(String(row?.id ?? ''));
     const status = normalizeStrategyStatus(row?.status);
@@ -917,8 +981,7 @@ async function renderAdminList() {
     const resultStatusHtml = statusLabel
       ? `<div class="admin-status admin-status--${status}"><span class="admin-status__tag">${escapeHtml(statusLabel)}</span></div>`
       : '';
-    const timeStatusEndAt = getTimeRangeEndAt(row?.timeRange, row?.createdAt);
-    const timeStatus = getTimeRangeStatusByEndAt(timeStatusEndAt);
+    const timeStatus = getTimeRangeStatusByEndAt(endAt);
     const timeStatusLabel = escapeHtml(getTimeRangeStatusLabel(timeStatus));
     const timeStatusHtml = `<div class="admin-status admin-status--time-${timeStatus}"><span class="admin-status__tag">${timeStatusLabel}</span></div>`;
     const statusAction = status === 'pending' && id
@@ -1080,6 +1143,18 @@ const btnTabFront = document.getElementById('btn-tab-front');
 if (btnTabFront) btnTabFront.addEventListener('click', () => setPage('front'));
 const btnTabAdmin = document.getElementById('btn-tab-admin');
 if (btnTabAdmin) btnTabAdmin.addEventListener('click', () => setPage('admin'));
+
+const adminFilterTabsEl = document.getElementById('admin-filter-tabs');
+if (adminFilterTabsEl) {
+  adminFilterTabsEl.addEventListener('click', (e) => {
+    const target = e.target instanceof HTMLElement ? e.target.closest('[data-admin-time-filter]') : null;
+    if (!target) return;
+    const nextFilter = normalizeAdminTimeFilter(target.getAttribute('data-admin-time-filter'));
+    if (adminTimeFilter === nextFilter) return;
+    adminTimeFilter = nextFilter;
+    renderAdminList().catch(() => {});
+  });
+}
 
 const adminListEl = document.getElementById('admin-list');
 if (adminListEl) {
