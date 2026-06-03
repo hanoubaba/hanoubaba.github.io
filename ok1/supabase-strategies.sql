@@ -146,6 +146,13 @@ as $$
           and expires_at >= p_today_start
           and expires_at < p_today_end
         )
+        or (
+          p_time_filter = 'createdToday'
+          and p_today_start is not null
+          and p_today_end is not null
+          and created_at >= p_today_start
+          and created_at < p_today_end
+        )
       )
   ),
   counted as (

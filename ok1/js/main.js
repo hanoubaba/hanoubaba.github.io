@@ -783,6 +783,10 @@ function buildStrategiesQuery(filterValue = 'all') {
     const { start, end } = getLocalDayRange();
     params.push(`expires_at=gte.${encodeURIComponent(start.toISOString())}`);
     params.push(`expires_at=lt.${encodeURIComponent(end.toISOString())}`);
+  } else if (filter === 'createdToday') {
+    const { start, end } = getLocalDayRange();
+    params.push(`created_at=gte.${encodeURIComponent(start.toISOString())}`);
+    params.push(`created_at=lt.${encodeURIComponent(end.toISOString())}`);
   }
   return params.join('&');
 }
@@ -826,7 +830,7 @@ function buildStrategyStatsPayload(filterValue = 'all') {
     p_now: new Date().toISOString(),
   };
 
-  if (timeFilter === 'dueToday') {
+  if (timeFilter === 'dueToday' || timeFilter === 'createdToday') {
     const { start, end } = getLocalDayRange();
     payload.p_today_start = start.toISOString();
     payload.p_today_end = end.toISOString();
@@ -942,6 +946,7 @@ function getTimeRangeStatusLabel(timeStatus) {
 const ADMIN_TIME_FILTER_LABELS = {
   all: '全部',
   active: '进行中',
+  createdToday: '今日创建',
   dueToday: '今日到期',
 };
 
