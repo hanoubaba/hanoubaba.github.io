@@ -23,6 +23,11 @@ function formatFixedDecimals(n, decimals) {
   });
 }
 
+function formatTrimmedFixedDecimals(n, decimals) {
+  const fixed = formatFixedDecimals(n, decimals);
+  return fixed.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+}
+
 function formatQuantity(n) {
   return formatFixedDecimals(n, 1);
 }
@@ -121,14 +126,29 @@ const TIMEFRAME_MINUTES = {
   '4h': 240,
 };
 
+const TIMEFRAME_LABELS = {
+  '15m': '15分钟',
+  '1h': '1小时',
+  '4h': '4小时',
+};
+
+const PRICE_ADJUSTMENT_RATE = 0.2;
+const TAKE_PROFIT_R_MULTIPLE = 1;
+const STRATEGY_DURATION_PERIODS = 9;
+
 function getTimeframeMode() {
   const active = document.querySelector('[data-tablist="timeframe"] .tab-btn.is-active');
   const mode = active?.getAttribute('data-value');
-  return Object.prototype.hasOwnProperty.call(TIMEFRAME_MINUTES, mode) ? mode : '15m';
+  return Object.prototype.hasOwnProperty.call(TIMEFRAME_MINUTES, mode) ? mode : '4h';
 }
 
 function getTimeframeMinutes(mode = getTimeframeMode()) {
-  return TIMEFRAME_MINUTES[mode] ?? TIMEFRAME_MINUTES['15m'];
+  return TIMEFRAME_MINUTES[mode] ?? TIMEFRAME_MINUTES['4h'];
+}
+
+function getTimeframeLabel(mode) {
+  const value = String(mode ?? '').trim();
+  return TIMEFRAME_LABELS[value] || value;
 }
 
 function getOpenCost() {
@@ -140,6 +160,7 @@ function getOpenCost() {
 const SUPABASE_URL = 'https://rxggjijrfafcrmtkqkuv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_8B1PLTeHhtPou4lPt9cl6w_O2hipMVY';
 const STRATEGIES_ENDPOINT = `${SUPABASE_URL}/rest/v1/strategies`;
+const STRATEGY_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_strategy_stats`;
 
 function getSupabaseHeaders(extra = {}) {
   return {
@@ -150,40 +171,70 @@ function getSupabaseHeaders(extra = {}) {
   };
 }
 
-function fromDbRecord(row) {
-  return {
-    id: row.id,
-    name: row.name,
-    side: row.side,
-    price: row.price,
-    quantity: row.quantity,
-    takeProfit: row.take_profit,
-    stopLoss: row.stop_loss,
-    timeRange: row.time_range,
-    createdAt: row.created_at,
-    status: row.status || 'pending',
-  };
-}
-
-function toDbRecord(record) {
-  return {
-    name: record.name,
-    side: record.side,
-    price: record.price,
-    quantity: record.quantity,
-    take_profit: record.takeProfit,
-    stop_loss: record.stopLoss,
-    time_range: record.timeRange,
-    created_at: record.createdAt,
-  };
-}
-
 function isDevEnvironment() {
   const host = window.location.hostname;
   return window.location.protocol === 'file:'
     || host === 'localhost'
     || host === '127.0.0.1'
     || host === '::1';
+}
+
+function dbValueToString(value) {
+  return value == null ? '' : String(value);
+}
+
+function fromDbRecord(row) {
+  return {
+    id: row.id,
+    dbCreatedAt: row.created_at,
+    dbUpdatedAt: row.updated_at,
+    strategyName: row.strategy_name,
+    positionSide: row.position_side,
+    inputPrice: dbValueToString(row.input_price),
+    inputStopLoss: dbValueToString(row.input_stop_loss),
+    entryPrice: dbValueToString(row.entry_price),
+    quantity: dbValueToString(row.quantity),
+    takeProfitPrice: dbValueToString(row.take_profit_price),
+    stopLossPrice: dbValueToString(row.stop_loss_price),
+    openCost: row.open_cost,
+    priceAdjustmentRate: row.price_adjustment_rate,
+    priceAdjustment: row.price_adjustment,
+    takeProfitRMultiple: row.take_profit_r_multiple,
+    timeframe: row.timeframe,
+    timeframeMinutes: row.timeframe_minutes,
+    timeframeLabel: getTimeframeLabel(row.timeframe),
+    validPeriods: row.valid_periods,
+    durationMinutes: row.duration_minutes,
+    startAt: row.start_at,
+    expiresAt: row.expires_at,
+    outcomeStatus: row.outcome_status ?? 'pending',
+  };
+}
+
+function toDbRecord(record) {
+  const startAt = parseDateValue(record.startAt);
+  const expiresAt = parseDateValue(record.expiresAt);
+  return {
+    strategy_name: record.strategyName,
+    position_side: record.positionSide,
+    input_price: toNumber(record.inputPrice),
+    input_stop_loss: toNumber(record.inputStopLoss),
+    entry_price: toNumber(record.entryPrice),
+    quantity: toNumber(record.quantity),
+    take_profit_price: toNumber(record.takeProfitPrice),
+    stop_loss_price: toNumber(record.stopLossPrice),
+    open_cost: Number(record.openCost),
+    price_adjustment_rate: Number(record.priceAdjustmentRate),
+    price_adjustment: toNumber(record.priceAdjustment),
+    take_profit_r_multiple: Number(record.takeProfitRMultiple),
+    timeframe: record.timeframe,
+    timeframe_minutes: Number(record.timeframeMinutes),
+    valid_periods: Number(record.validPeriods),
+    duration_minutes: Number(record.durationMinutes),
+    start_at: startAt ? startAt.toISOString() : null,
+    expires_at: expiresAt ? expiresAt.toISOString() : null,
+    outcome_status: normalizeOutcomeStatus(record.outcomeStatus),
+  };
 }
 
 function isMobileTimePickerEnabled() {
@@ -262,19 +313,6 @@ function renderMobileTimePickerOptions(selectedValue) {
   list.append(frag);
 }
 
-function getMobilePickerSelectedValue() {
-  const selected = document.querySelector('#time-picker-list .time-picker__option.is-selected');
-  return String(selected?.dataset.value ?? '').trim();
-}
-
-function setMobilePickerSelectedValue(value) {
-  document.querySelectorAll('#time-picker-list .time-picker__option').forEach((btn) => {
-    const on = btn.getAttribute('data-value') === value;
-    btn.classList.toggle('is-selected', on);
-    btn.setAttribute('aria-selected', on ? 'true' : 'false');
-  });
-}
-
 function scrollMobilePickerToSelected() {
   const list = document.getElementById('time-picker-list');
   const selected = document.querySelector('#time-picker-list .time-picker__option.is-selected');
@@ -301,14 +339,28 @@ function closeMobileTimePicker() {
   updateStartTimeTriggerLabel();
 }
 
+function applyMobileTimePickerValue(value) {
+  const sel = document.getElementById('start-time');
+  const selected = String(value ?? '').trim();
+  if (!sel || !selected) {
+    closeMobileTimePicker();
+    return;
+  }
+  if (sel.value !== selected) {
+    sel.value = selected;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  } else {
+    updateStartTimeTriggerLabel();
+  }
+  closeMobileTimePicker();
+}
+
 function bindMobileTimePickerEvents() {
   const picker = document.getElementById('start-time-picker');
   const trigger = document.getElementById('start-time-trigger');
-  const cancelBtn = document.getElementById('time-picker-cancel');
-  const confirmBtn = document.getElementById('time-picker-confirm');
   const list = document.getElementById('time-picker-list');
   const sel = document.getElementById('start-time');
-  if (!picker || !trigger || !cancelBtn || !confirmBtn || !list || !sel) return;
+  if (!picker || !trigger || !list || !sel) return;
 
   trigger.addEventListener('click', () => {
     if (!isMobileTimePickerEnabled()) return;
@@ -325,37 +377,8 @@ function bindMobileTimePickerEvents() {
     if (target.classList.contains('time-picker__option')) {
       const v = String(target.dataset.value ?? '').trim();
       if (!v) return;
-      setMobilePickerSelectedValue(v);
+      applyMobileTimePickerValue(v);
     }
-  });
-
-  cancelBtn.addEventListener('click', closeMobileTimePicker);
-
-  confirmBtn.addEventListener('click', () => {
-    const selected = getMobilePickerSelectedValue();
-    if (!selected) {
-      closeMobileTimePicker();
-      return;
-    }
-    if (sel.value !== selected) {
-      sel.value = selected;
-      sel.dispatchEvent(new Event('change', { bubbles: true }));
-    } else {
-      updateStartTimeTriggerLabel();
-    }
-    closeMobileTimePicker();
-  });
-
-  list.addEventListener('dblclick', (e) => {
-    const target = e.target;
-    if (!(target instanceof HTMLElement) || !target.classList.contains('time-picker__option')) return;
-    const v = String(target.dataset.value ?? '').trim();
-    if (!v) return;
-    if (sel.value !== v) {
-      sel.value = v;
-      sel.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    closeMobileTimePicker();
   });
 
   document.addEventListener('keydown', (e) => {
@@ -403,11 +426,6 @@ function rebuildStartTimeOptions(preferredValue = null) {
   }
 }
 
-function formatCreateTime() {
-  const d = new Date();
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-}
-
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;')
@@ -433,6 +451,22 @@ function renderStrategyOutput(outEl, { plain, html }) {
   outEl.dataset.qty = qtyLine.replace(/^数量：/, '').trim();
 }
 
+function getStrategySideText(side) {
+  if (side === 'long') return '开多';
+  if (side === 'short') return '开空';
+  return '开仓';
+}
+
+function buildStrategyCopyText({ side, name, price, quantity, takeProfit, stopLoss }) {
+  return [
+    `${getStrategySideText(side)}${String(name || '未命名').trim() || '未命名'}`,
+    `价格：${String(price ?? '').trim()}`,
+    `数量：${String(quantity ?? '').trim()}`,
+    `止盈：${String(takeProfit ?? '').trim()}`,
+    `止损：${String(stopLoss ?? '').trim()}`,
+  ].join('\n');
+}
+
 /** 止盈价：盈利 = multiplier×开仓成本 → 价差移动 = multiplier×|价格-止损| */
 function calcTakeProfit(open, stop, multiplier = 1) {
   const stopDiff = Math.abs(open - stop);
@@ -441,6 +475,13 @@ function calcTakeProfit(open, stop, multiplier = 1) {
   const move = stopDiff * m;
   if (open > stop) return open + move;
   return open - move;
+}
+
+function calcAdjustedOpenPrice(open, stop, decimalPlaces) {
+  const diff = open - stop;
+  const adjustment = diff * PRICE_ADJUSTMENT_RATE;
+  const adjusted = open + adjustment;
+  return Number(formatFixedDecimals(adjusted, decimalPlaces));
 }
 
 function getStartDateTime(startValue) {
@@ -465,17 +506,19 @@ function getStartDateTime(startValue) {
 }
 
 function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces) {
-  const unitMin = getTimeframeMinutes();
-  const spanMinutes = unitMin * 9;
-  const stopDiff = Math.abs(open - stop);
+  const timeframe = getTimeframeMode();
+  const unitMin = getTimeframeMinutes(timeframe);
+  const spanMinutes = unitMin * STRATEGY_DURATION_PERIODS;
+  const adjustedOpen = calcAdjustedOpenPrice(open, stop, priceDecimalPlaces);
+  const priceAdjustment = adjustedOpen - open;
+  const stopDiff = Math.abs(adjustedOpen - stop);
   const quantity = openCost / stopDiff;
-  const tp = calcTakeProfit(open, stop, 1);
+  const tp = calcTakeProfit(adjustedOpen, stop, TAKE_PROFIT_R_MULTIPLE);
   const tpDecimals = Math.max(0, priceDecimalPlaces);
 
   const nameEl = document.getElementById('name-input');
   const name = String(nameEl?.value ?? '').trim();
-  const side = open > stop ? 'long' : 'short';
-  const sideText = side === 'long' ? '开多' : '开空';
+  const side = adjustedOpen > stop ? 'long' : 'short';
   const sideHash = side === 'long' ? '#开多' : '#开空';
   const alarmName = name || 'demo';
   const sideLabel = `${sideHash}${alarmName}`;
@@ -486,10 +529,9 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
   const timeRangeLabel = `${startDisplay} — ${endDisplay}`;
 
   const qty = formatQuantity(quantity);
-  const priceLabel = formatPrice(open);
-  const tpLabel = formatFixedDecimals(tp, tpDecimals);
+  const priceLabel = formatTrimmedFixedDecimals(adjustedOpen, priceDecimalPlaces);
+  const tpLabel = formatTrimmedFixedDecimals(tp, tpDecimals);
   const stopLabel = formatPrice(stop);
-  const createTimeLabel = formatCreateTime();
 
   const lines = [
     sideLabel,
@@ -498,19 +540,37 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
     `参考止盈：${tpLabel}`,
     `止损：${stopLabel}`,
     `时间范围：${timeRangeLabel}`,
-    `创建时间：${createTimeLabel}`,
   ];
 
-  const copyText = `帮我创建一个${endDisplay}的闹钟，名称为${alarmName}。`;
-  const record = {
-    name: alarmName,
+  const copyText = buildStrategyCopyText({
     side,
+    name: alarmName,
     price: priceLabel,
     quantity: qty,
     takeProfit: tpLabel,
     stopLoss: stopLabel,
-    timeRange: timeRangeLabel,
-    createdAt: createTimeLabel,
+  });
+  const record = {
+    strategyName: alarmName,
+    positionSide: side,
+    inputPrice: formatPrice(open),
+    inputStopLoss: formatPrice(stop),
+    entryPrice: priceLabel,
+    quantity: qty,
+    takeProfitPrice: tpLabel,
+    stopLossPrice: stopLabel,
+    openCost,
+    priceAdjustmentRate: PRICE_ADJUSTMENT_RATE,
+    priceAdjustment: formatTrimmedFixedDecimals(priceAdjustment, priceDecimalPlaces),
+    takeProfitRMultiple: TAKE_PROFIT_R_MULTIPLE,
+    timeframe,
+    timeframeMinutes: unitMin,
+    timeframeLabel: getTimeframeLabel(timeframe),
+    validPeriods: STRATEGY_DURATION_PERIODS,
+    durationMinutes: spanMinutes,
+    startAt: startAt ? startAt.toISOString() : null,
+    expiresAt: endAt ? endAt.toISOString() : null,
+    outcomeStatus: 'pending',
   };
 
   const plain = lines.join('\n');
@@ -568,7 +628,15 @@ function generate() {
   }
 
   const openRaw = openEl && 'value' in openEl ? String(openEl.value) : '';
-  const priceDecimals = getDecimalPlacesFromInput(openRaw);
+  const stopRaw = stopEl && 'value' in stopEl ? String(stopEl.value) : '';
+  const priceDecimals = Math.max(getDecimalPlacesFromInput(openRaw), getDecimalPlacesFromInput(stopRaw)) + 1;
+  const adjustedOpen = calcAdjustedOpenPrice(open, stop, priceDecimals);
+  const takeProfit = calcTakeProfit(adjustedOpen, stop, TAKE_PROFIT_R_MULTIPLE);
+  if (!Number.isFinite(adjustedOpen) || adjustedOpen <= 0 || !Number.isFinite(takeProfit) || takeProfit <= 0) {
+    if (errEl) errEl.textContent = '让利后的价格或止盈价无效，请检查价格与止损。';
+    clearStrategyOutput(outEl);
+    return;
+  }
   const strategy = buildStrategy(open, stop, startTime, startTimeLabel, getOpenCost(), priceDecimals);
   renderStrategyOutput(outEl, strategy);
   if (outEl) {
@@ -620,6 +688,31 @@ if (startTimeSelect) startTimeSelect.addEventListener('change', autoGenerateIfRe
 if (startTimeSelect) startTimeSelect.addEventListener('change', updateStartTimeTriggerLabel);
 if (startTimeSelect) startTimeSelect.addEventListener('change', () => { startTimeUserPicked = true; });
 
+function setTablistValue(tablistName, value) {
+  const tablist = document.querySelector(`[data-tablist="${tablistName}"]`);
+  if (!tablist) return;
+  tablist.querySelectorAll('.tab-btn').forEach((btn) => {
+    const on = btn.getAttribute('data-value') === value;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+}
+
+function resetFrontPage() {
+  closeMobileTimePicker();
+  setTablistValue('open-cost', '30');
+  setTablistValue('timeframe', '4h');
+  startTimeUserPicked = false;
+  rebuildStartTimeOptions();
+  if (openInput) openInput.value = '';
+  if (stopInput) stopInput.value = '';
+  if (nameInput) nameInput.value = '';
+  const errEl = document.getElementById('error');
+  const outEl = document.getElementById('strategy-output');
+  if (errEl) errEl.textContent = '';
+  clearStrategyOutput(outEl);
+}
+
 /**
  * 开始时间默认值是基于「当前时间」算出来的。页面长时间不刷新时，
  * new Date() 不会重新读取，默认值就会停在过期的时间格上。
@@ -662,13 +755,96 @@ function copyFallback(text) {
   }
 }
 
-async function fetchStrategies() {
-  const res = await fetch(`${STRATEGIES_ENDPOINT}?select=*&order=inserted_at.desc`, {
+function getLocalDayRange(date = new Date()) {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1, 0, 0, 0, 0);
+  return { start, end };
+}
+
+function buildStrategiesQuery(filterValue = 'all') {
+  const filter = normalizeAdminTimeFilter(filterValue);
+  const params = ['select=*', 'order=created_at.desc'];
+  const nameSearch = normalizeAdminNameSearch(adminNameSearch);
+  const timeframeFilter = normalizeAdminTimeframeFilter(adminTimeframeFilter);
+  const outcomeFilter = normalizeAdminOutcomeFilter(adminOutcomeFilter);
+
+  if (nameSearch) {
+    params.push(`strategy_name=ilike.${encodeURIComponent(`*${nameSearch}*`)}`);
+  }
+  if (timeframeFilter !== 'all') {
+    params.push(`timeframe=eq.${encodeURIComponent(timeframeFilter)}`);
+  }
+  if (outcomeFilter !== 'all') {
+    params.push(`outcome_status=eq.${encodeURIComponent(outcomeFilter)}`);
+  }
+  if (filter === 'active') {
+    params.push(`expires_at=gt.${encodeURIComponent(new Date().toISOString())}`);
+  } else if (filter === 'dueToday') {
+    const { start, end } = getLocalDayRange();
+    params.push(`expires_at=gte.${encodeURIComponent(start.toISOString())}`);
+    params.push(`expires_at=lt.${encodeURIComponent(end.toISOString())}`);
+  }
+  return params.join('&');
+}
+
+async function fetchStrategies(filterValue = 'all') {
+  const res = await fetch(`${STRATEGIES_ENDPOINT}?${buildStrategiesQuery(filterValue)}`, {
     headers: getSupabaseHeaders(),
   });
   if (!res.ok) throw new Error(await res.text());
   const rows = await res.json();
   return Array.isArray(rows) ? rows.map(fromDbRecord) : [];
+}
+
+function dbNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function fromStatsRecord(row) {
+  return {
+    totalCount: dbNumber(row?.total_count),
+    profitCount: dbNumber(row?.profit_count),
+    lossCount: dbNumber(row?.loss_count),
+    openedCount: dbNumber(row?.opened_count),
+    winRate: dbNumber(row?.win_rate),
+    openRate: dbNumber(row?.open_rate),
+  };
+}
+
+function buildStrategyStatsPayload(filterValue = 'all') {
+  const timeFilter = normalizeAdminTimeFilter(filterValue);
+  const timeframeFilter = normalizeAdminTimeframeFilter(adminTimeframeFilter);
+  const outcomeFilter = normalizeAdminOutcomeFilter(adminOutcomeFilter);
+  const payload = {
+    p_name_search: normalizeAdminNameSearch(adminNameSearch) || null,
+    p_timeframe: timeframeFilter === 'all' ? null : timeframeFilter,
+    p_outcome_status: outcomeFilter === 'all' ? null : outcomeFilter,
+    p_time_filter: timeFilter,
+    p_today_start: null,
+    p_today_end: null,
+    p_now: new Date().toISOString(),
+  };
+
+  if (timeFilter === 'dueToday') {
+    const { start, end } = getLocalDayRange();
+    payload.p_today_start = start.toISOString();
+    payload.p_today_end = end.toISOString();
+  }
+
+  return payload;
+}
+
+async function fetchStrategyStats(filterValue = 'all') {
+  const res = await fetch(STRATEGY_STATS_ENDPOINT, {
+    method: 'POST',
+    headers: getSupabaseHeaders(),
+    body: JSON.stringify(buildStrategyStatsPayload(filterValue)),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  const row = Array.isArray(data) ? data[0] : data;
+  return fromStatsRecord(row || {});
 }
 
 async function createStrategy(record) {
@@ -680,151 +856,76 @@ async function createStrategy(record) {
   if (!res.ok) throw new Error(await res.text());
 }
 
-async function clearStrategies() {
-  const res = await fetch(`${STRATEGIES_ENDPOINT}?id=not.is.null`, {
+function normalizeStrategyIds(ids) {
+  const list = Array.isArray(ids) ? ids : [ids];
+  return Array.from(new Set(list.map((id) => String(id ?? '').trim()).filter(Boolean)));
+}
+
+async function deleteStrategies(ids) {
+  const normalizedIds = normalizeStrategyIds(ids);
+  if (!normalizedIds.length) return;
+  const idFilter = encodeURIComponent(`(${normalizedIds.join(',')})`);
+  const res = await fetch(`${STRATEGIES_ENDPOINT}?id=in.${idFilter}`, {
     method: 'DELETE',
-    headers: getSupabaseHeaders(),
+    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
   });
   if (!res.ok) throw new Error(await res.text());
 }
 
-async function updateStrategyStatus(id, status) {
+async function updateStrategyOutcomeStatus(id, outcomeStatus) {
   const encodedId = encodeURIComponent(id);
   const res = await fetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
     method: 'PATCH',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ outcome_status: normalizeOutcomeStatus(outcomeStatus) }),
   });
   if (!res.ok) throw new Error(await res.text());
 }
 
-function normalizeStrategyStatus(status) {
-  return status === 'profit' || status === 'loss' ? status : 'pending';
+function normalizeOutcomeStatus(outcomeStatus) {
+  return outcomeStatus === 'profit' || outcomeStatus === 'loss' ? outcomeStatus : 'pending';
 }
 
-function getStrategyStatusLabel(status) {
-  if (status === 'profit') return '盈利';
-  if (status === 'loss') return '亏损';
+function getOutcomeStatusLabel(outcomeStatus) {
+  if (outcomeStatus === 'profit') return '盈利';
+  if (outcomeStatus === 'loss') return '亏损';
   return '';
 }
 
-function parseCreatedAt(value) {
+function parseDateValue(value) {
   const raw = String(value ?? '').trim();
-  const fullDateTime = parseFullDateTimeLabel(raw);
-  if (fullDateTime) return fullDateTime;
-
+  if (!raw) return null;
   const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function parseFullDateTimeLabel(value) {
-  const raw = String(value ?? '').trim();
-  const m = raw.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日\s+(\d{1,2}):(\d{2})$/);
-  if (!m) return null;
-  const [, y, mo, day, h, mi] = m.map(Number);
-  const d = new Date(y, mo - 1, day, h, mi, 0, 0);
-  if (
-    d.getFullYear() === y
-    && d.getMonth() === mo - 1
-    && d.getDate() === day
-    && d.getHours() === h
-    && d.getMinutes() === mi
-  ) return d;
-  return null;
+function getStrategyEndAt(row) {
+  return parseDateValue(row?.expiresAt);
 }
 
-function parseClockText(text) {
-  const m = String(text ?? '').trim().match(/(\d{1,2}):(\d{2})$/);
-  if (!m) return null;
-  const h = Number(m[1]);
-  const mi = Number(m[2]);
-  if (!Number.isFinite(h) || !Number.isFinite(mi) || h < 0 || h > 23 || mi < 0 || mi > 59) return null;
-  return { h, mi, mins: h * 60 + mi };
+function formatCompactDateTimeLabel(d, base = new Date()) {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
+  const date = d.getFullYear() === base.getFullYear()
+    ? `${d.getMonth() + 1}月${d.getDate()}日`
+    : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+  return `${date} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-function parseMonthDayText(text, reference) {
-  const m = String(text ?? '').trim().match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})$/);
-  if (!m) return null;
-  const [, mo, day, h, mi] = m.map(Number);
-  const d = new Date(reference.getFullYear(), mo - 1, day, h, mi, 0, 0);
-  if (
-    d.getMonth() !== mo - 1
-    || d.getDate() !== day
-    || d.getHours() !== h
-    || d.getMinutes() !== mi
-  ) return null;
-  const halfYearMs = 183 * 24 * 60 * 60 * 1000;
-  const diffMs = d.getTime() - reference.getTime();
-  if (diffMs > halfYearMs) d.setFullYear(d.getFullYear() - 1);
-  if (diffMs < -halfYearMs) d.setFullYear(d.getFullYear() + 1);
-  return d;
+function formatStrategyDeadline(endAt) {
+  return endAt ? formatCompactDateTimeLabel(endAt) : '—';
 }
 
-function parseRangeStartLabel(label, createdAt) {
-  const raw = String(label ?? '').trim();
-  const fullDateTime = parseFullDateTimeLabel(raw);
-  if (fullDateTime) return fullDateTime;
-
-  const monthDay = parseMonthDayText(raw, createdAt);
-  if (monthDay) return monthDay;
-
-  const clock = parseClockText(raw);
-  if (!clock) return null;
-
-  const startAt = new Date(createdAt.getFullYear(), createdAt.getMonth(), createdAt.getDate(), clock.h, clock.mi, 0, 0);
-  if (raw.startsWith('昨天')) {
-    startAt.setDate(startAt.getDate() - 1);
-    return startAt;
-  }
-
-  const createdMins = createdAt.getHours() * 60 + createdAt.getMinutes();
-  if (clock.mins > createdMins) startAt.setDate(startAt.getDate() - 1);
-  return startAt;
-}
-
-function parseRangeEndLabel(label, startAt, createdAt) {
-  const raw = String(label ?? '').trim();
-  const fullDateTime = parseFullDateTimeLabel(raw);
-  if (fullDateTime) return fullDateTime;
-
-  const monthDay = parseMonthDayText(raw, createdAt);
-  if (monthDay) return monthDay;
-
-  const clock = parseClockText(raw);
-  if (!clock) return null;
-
-  const base = startAt || createdAt;
-  const endAt = new Date(base.getFullYear(), base.getMonth(), base.getDate(), clock.h, clock.mi, 0, 0);
-  if (raw.startsWith('次日')) {
-    endAt.setDate(endAt.getDate() + 1);
-    return endAt;
-  }
-
-  const startMins = startAt ? startAt.getHours() * 60 + startAt.getMinutes() : 0;
-  if (startAt && clock.mins < startMins) endAt.setDate(endAt.getDate() + 1);
-  return endAt;
-}
-
-function getTimeRangeEndAt(timeRange, createdAtValue) {
-  const parts = splitTimeRangeText(timeRange);
-  if (parts.length < 2) return null;
-  const createdAt = parseCreatedAt(createdAtValue);
-  const startAt = parseRangeStartLabel(parts[0], createdAt);
-  return parseRangeEndLabel(parts[1], startAt, createdAt);
-}
-
-function formatTimeRangeForDisplay(timeRange, createdAtValue) {
-  const parts = splitTimeRangeText(timeRange);
-  if (parts.length < 2) return String(timeRange ?? '').trim();
-  const createdAt = parseCreatedAt(createdAtValue);
-  const startAt = parseRangeStartLabel(parts[0], createdAt);
-  const endAt = parseRangeEndLabel(parts[1], startAt, createdAt);
-  if (!startAt || !endAt) return String(timeRange ?? '').trim();
-  return `${formatFullDateTimeLabel(startAt)} — ${formatFullDateTimeLabel(endAt)}`;
-}
-
-function splitTimeRangeText(timeRange) {
-  return String(timeRange ?? '').split(/\s+(?:-|\u2013|\u2014)\s+/).map((part) => part.trim()).filter(Boolean);
+function formatCountdownTo(endAt, now = new Date()) {
+  if (!endAt) return '—';
+  const diffMs = endAt.getTime() - now.getTime();
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return '已到期';
+  const totalMinutes = Math.ceil(diffMs / (60 * 1000));
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}天${hours}小时${minutes}分钟`;
+  if (hours > 0) return `${hours}小时${minutes}分钟`;
+  return `${minutes}分钟`;
 }
 
 function getTimeRangeStatusByEndAt(endAt) {
@@ -834,60 +935,271 @@ function getTimeRangeStatusByEndAt(endAt) {
   return nowTs >= endTs ? 'ended' : 'active';
 }
 
-function getTimeRangeStatusLabel(status) {
-  return status === 'ended' ? '已结束' : '进行中';
+function getTimeRangeStatusLabel(timeStatus) {
+  return timeStatus === 'ended' ? '已结束' : '进行中';
 }
 
 const ADMIN_TIME_FILTER_LABELS = {
   all: '全部',
   active: '进行中',
-  ended: '已结束',
+  dueToday: '今日到期',
 };
 
-let adminTimeFilter = 'all';
+const ADMIN_TIMEFRAME_FILTER_LABELS = {
+  all: '全部',
+  '15m': '15分钟',
+  '1h': '1小时',
+  '4h': '4小时',
+};
+
+const ADMIN_OUTCOME_FILTER_LABELS = {
+  all: '全部',
+  pending: '待定',
+  profit: '盈利',
+  loss: '亏损',
+};
+
+const DEFAULT_ADMIN_TIME_FILTER = 'active';
+
+let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
+let adminTimeframeFilter = 'all';
+let adminOutcomeFilter = 'all';
+let adminNameSearch = '';
+let adminSearchTimer = null;
 
 function normalizeAdminTimeFilter(value) {
   return Object.prototype.hasOwnProperty.call(ADMIN_TIME_FILTER_LABELS, value) ? value : 'all';
 }
 
-function getRowTimeStatus(row) {
-  return getTimeRangeStatusByEndAt(getTimeRangeEndAt(row?.timeRange, row?.createdAt));
+function normalizeAdminTimeframeFilter(value) {
+  return Object.prototype.hasOwnProperty.call(ADMIN_TIMEFRAME_FILTER_LABELS, value) ? value : 'all';
 }
 
-function filterAdminRowsByTimeStatus(rows) {
-  const filter = normalizeAdminTimeFilter(adminTimeFilter);
-  if (filter === 'all') return rows;
-  return rows.filter((row) => getRowTimeStatus(row) === filter);
+function normalizeAdminOutcomeFilter(value) {
+  return Object.prototype.hasOwnProperty.call(ADMIN_OUTCOME_FILTER_LABELS, value) ? value : 'all';
+}
+
+function normalizeAdminNameSearch(value) {
+  return String(value ?? '').trim().replace(/\s+/g, ' ');
 }
 
 function renderAdminFilterTabs() {
   const tabsEl = document.getElementById('admin-filter-tabs');
+  renderAdminTabGroup(tabsEl, ADMIN_TIME_FILTER_LABELS, normalizeAdminTimeFilter(adminTimeFilter), 'admin-time-filter');
+}
+
+function renderAdminTimeframeFilterSelect() {
+  const selectEl = document.getElementById('admin-timeframe-filter-select');
+  renderAdminSelect(selectEl, ADMIN_TIMEFRAME_FILTER_LABELS, normalizeAdminTimeframeFilter(adminTimeframeFilter));
+}
+
+function renderAdminOutcomeFilterSelect() {
+  const selectEl = document.getElementById('admin-outcome-filter-select');
+  renderAdminSelect(selectEl, ADMIN_OUTCOME_FILTER_LABELS, normalizeAdminOutcomeFilter(adminOutcomeFilter));
+}
+
+function renderAdminTabGroup(tabsEl, labels, activeValue, dataAttr) {
   if (!tabsEl) return;
-  tabsEl.innerHTML = Object.entries(ADMIN_TIME_FILTER_LABELS).map(([value, label]) => {
-    const active = normalizeAdminTimeFilter(adminTimeFilter) === value;
-    return `<button type="button" class="admin-filter-tab${active ? ' is-active' : ''}" role="tab" aria-selected="${active ? 'true' : 'false'}" data-admin-time-filter="${value}">${escapeHtml(label)}</button>`;
+  tabsEl.innerHTML = Object.entries(labels).map(([value, label]) => {
+    const active = activeValue === value;
+    return `<button type="button" class="admin-filter-tab${active ? ' is-active' : ''}" role="tab" aria-selected="${active ? 'true' : 'false'}" data-${dataAttr}="${value}">${escapeHtml(label)}</button>`;
   }).join('');
 }
 
-let pendingStatusRecordId = '';
+function renderAdminSelect(selectEl, labels, activeValue) {
+  if (!selectEl) return;
+  selectEl.innerHTML = Object.entries(labels).map(([value, label]) => {
+    const selected = activeValue === value ? ' selected' : '';
+    return `<option value="${escapeHtml(value)}"${selected}>${escapeHtml(label)}</option>`;
+  }).join('');
+}
 
-function setStatusPickerLoading(loading) {
+function renderAdminControls() {
+  renderAdminFilterTabs();
+  renderAdminTimeframeFilterSelect();
+  renderAdminOutcomeFilterSelect();
+  const searchEl = document.getElementById('admin-name-search');
+  if (searchEl && searchEl.value !== adminNameSearch) searchEl.value = adminNameSearch;
+}
+
+function resetAdminPageState() {
+  closeOutcomeStatusPicker();
+  if (adminSearchTimer) {
+    clearTimeout(adminSearchTimer);
+    adminSearchTimer = null;
+  }
+  adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
+  adminTimeframeFilter = 'all';
+  adminOutcomeFilter = 'all';
+  adminNameSearch = '';
+  isAdminSelectionMode = false;
+  selectedStrategyIds.clear();
+  visibleAdminStrategyIds = [];
+  isDeletingStrategies = false;
+  renderAdminControls();
+  updateAdminSelectionControls();
+}
+
+function scheduleRenderAdminList(delay = 250) {
+  if (adminSearchTimer) clearTimeout(adminSearchTimer);
+  adminSearchTimer = setTimeout(() => {
+    adminSearchTimer = null;
+    renderAdminList().catch(() => {});
+  }, delay);
+}
+
+let selectedStrategyIds = new Set();
+let isDeletingStrategies = false;
+let isAdminSelectionMode = false;
+let visibleAdminStrategyIds = [];
+
+function getVisibleAdminStrategyIds() {
+  const domIds = Array.from(document.querySelectorAll('#admin-list .admin-item__select'))
+    .map((el) => String(el.getAttribute('data-id') ?? '').trim())
+    .filter(Boolean);
+  return domIds.length ? domIds : visibleAdminStrategyIds;
+}
+
+function syncAdminSelectionWithRows(rows) {
+  visibleAdminStrategyIds = rows.map((row) => String(row?.id ?? '').trim()).filter(Boolean);
+  const visibleIds = new Set(visibleAdminStrategyIds);
+  selectedStrategyIds = new Set(Array.from(selectedStrategyIds).filter((id) => visibleIds.has(id)));
+  updateAdminSelectionControls();
+}
+
+function updateAdminSelectionControls() {
+  const canDelete = isDevEnvironment();
+  if (!canDelete && isAdminSelectionMode) {
+    isAdminSelectionMode = false;
+    selectedStrategyIds.clear();
+  }
+
+  const selectedCount = selectedStrategyIds.size;
+  const selectionEl = document.getElementById('admin-selection');
+  const countEl = document.getElementById('admin-selection-count');
+  const selectAllBtn = document.getElementById('admin-select-all');
+  const clearSelectionBtn = document.getElementById('admin-clear-selection');
+  const deleteSelectedBtn = document.getElementById('admin-delete-selected');
+  const visibleCount = getVisibleAdminStrategyIds().length;
+
+  if (selectionEl) selectionEl.hidden = currentPage !== 'admin' || !canDelete || !isAdminSelectionMode || visibleCount === 0;
+  if (countEl) countEl.textContent = `已选 ${selectedCount} 条`;
+  if (selectAllBtn) selectAllBtn.disabled = isDeletingStrategies || !canDelete || !isAdminSelectionMode || visibleCount === 0;
+  if (clearSelectionBtn) clearSelectionBtn.disabled = isDeletingStrategies || !canDelete || !isAdminSelectionMode;
+  if (deleteSelectedBtn) {
+    deleteSelectedBtn.disabled = isDeletingStrategies || !canDelete || !isAdminSelectionMode || selectedCount === 0;
+    deleteSelectedBtn.setAttribute('aria-busy', isDeletingStrategies ? 'true' : 'false');
+  }
+
+  const btnClear = document.getElementById('btn-clear');
+  if (btnClear && currentPage !== 'admin') {
+    btnClear.hidden = true;
+    btnClear.textContent = '清空';
+    btnClear.disabled = false;
+    btnClear.setAttribute('aria-busy', 'false');
+  } else if (btnClear) {
+    btnClear.hidden = !canDelete;
+    btnClear.textContent = isAdminSelectionMode
+      ? (selectedCount ? `删除所选(${selectedCount})` : '取消删除')
+      : '删除';
+    btnClear.disabled = isDeletingStrategies || (!isAdminSelectionMode && visibleCount === 0);
+    btnClear.setAttribute('aria-busy', isDeletingStrategies ? 'true' : 'false');
+  }
+}
+
+function enterAdminSelectionMode() {
+  if (!isDevEnvironment()) return;
+  isAdminSelectionMode = true;
+  renderAdminList().catch(() => updateAdminSelectionControls());
+}
+
+function resetAdminSelectionMode() {
+  isAdminSelectionMode = false;
+  selectedStrategyIds.clear();
+  updateAdminSelectionControls();
+}
+
+function exitAdminSelectionMode() {
+  resetAdminSelectionMode();
+  renderAdminList().catch(() => updateAdminSelectionControls());
+}
+
+function setAdminDeleteLoading(loading) {
+  isDeletingStrategies = loading;
+  document.querySelectorAll('.admin-item__select').forEach((el) => {
+    el.disabled = loading;
+  });
+  document.querySelectorAll('.admin-item__selector').forEach((el) => {
+    el.classList.toggle('is-disabled', loading);
+  });
+  updateAdminSelectionControls();
+}
+
+function setVisibleAdminSelection(selected) {
+  document.querySelectorAll('#admin-list .admin-item__select').forEach((el) => {
+    const id = String(el.getAttribute('data-id') ?? '').trim();
+    if (!id) return;
+    if (selected) selectedStrategyIds.add(id);
+    else selectedStrategyIds.delete(id);
+    el.checked = selected;
+  });
+  updateAdminSelectionControls();
+}
+
+function confirmDeleteStrategies(count) {
+  if (typeof window.confirm !== 'function') return true;
+  return window.confirm(count > 1 ? `确认删除选中的 ${count} 条策略？` : '确认删除这条策略？');
+}
+
+function showAdminDeleteError() {
+  if (typeof window.alert === 'function') {
+    window.alert('删除失败，请检查网络或 Supabase 权限。');
+  }
+}
+
+async function deleteStrategyIdsWithConfirm(ids, options = {}) {
+  if (!isDevEnvironment()) return;
+  const { exitSelectionMode = false } = options;
+  const normalizedIds = normalizeStrategyIds(ids);
+  if (!normalizedIds.length || isDeletingStrategies) return;
+  if (!confirmDeleteStrategies(normalizedIds.length)) return;
+  setAdminDeleteLoading(true);
+  try {
+    await deleteStrategies(normalizedIds);
+    normalizedIds.forEach((id) => selectedStrategyIds.delete(id));
+    if (exitSelectionMode) isAdminSelectionMode = false;
+    await renderAdminList();
+  } catch {
+    showAdminDeleteError();
+  } finally {
+    setAdminDeleteLoading(false);
+  }
+}
+
+async function deleteSelectedStrategies() {
+  if (!isDevEnvironment()) return;
+  await deleteStrategyIdsWithConfirm(Array.from(selectedStrategyIds), { exitSelectionMode: true });
+}
+
+let pendingOutcomeStatusRecordId = '';
+
+function setOutcomeStatusPickerLoading(loading) {
   document.querySelectorAll('#status-picker button').forEach((btn) => {
     btn.disabled = loading;
   });
 }
 
-function setStatusPickerError(message) {
+function setOutcomeStatusPickerError(message) {
   const errEl = document.getElementById('status-picker-error');
   if (errEl) errEl.textContent = message;
 }
 
-function openStatusPicker(id) {
+function openOutcomeStatusPicker(id) {
   const picker = document.getElementById('status-picker');
   if (!picker || !id) return;
-  pendingStatusRecordId = id;
-  setStatusPickerLoading(false);
-  setStatusPickerError('');
+  pendingOutcomeStatusRecordId = id;
+  setOutcomeStatusPickerLoading(false);
+  setOutcomeStatusPickerError('');
   picker.hidden = false;
   document.body.style.overflow = 'hidden';
   window.requestAnimationFrame(() => {
@@ -895,41 +1207,38 @@ function openStatusPicker(id) {
   });
 }
 
-function closeStatusPicker() {
+function closeOutcomeStatusPicker() {
   const picker = document.getElementById('status-picker');
   if (!picker) return;
-  pendingStatusRecordId = '';
-  setStatusPickerLoading(false);
-  setStatusPickerError('');
+  pendingOutcomeStatusRecordId = '';
+  setOutcomeStatusPickerLoading(false);
+  setOutcomeStatusPickerError('');
   picker.hidden = true;
   document.body.style.overflow = '';
 }
 
-async function submitStatusFromPicker(status) {
-  const nextStatus = normalizeStrategyStatus(status);
-  const id = pendingStatusRecordId;
-  if (!id || nextStatus === 'pending') return;
-  setStatusPickerLoading(true);
-  setStatusPickerError('');
+async function submitOutcomeStatusFromPicker(outcomeStatus) {
+  const nextOutcomeStatus = normalizeOutcomeStatus(outcomeStatus);
+  const id = pendingOutcomeStatusRecordId;
+  if (!id || nextOutcomeStatus === 'pending') return;
+  setOutcomeStatusPickerLoading(true);
+  setOutcomeStatusPickerError('');
   try {
-    await updateStrategyStatus(id, nextStatus);
-    closeStatusPicker();
+    await updateStrategyOutcomeStatus(id, nextOutcomeStatus);
+    closeOutcomeStatusPicker();
     await renderAdminList();
   } catch {
-    setStatusPickerError('提交失败，请检查网络或 Supabase 权限。');
-    setStatusPickerLoading(false);
+    setOutcomeStatusPickerError('提交失败，请检查网络或 Supabase 权限。');
+    setOutcomeStatusPickerLoading(false);
   }
 }
 
-function renderAdminStats(rows) {
+function renderAdminStats(stats = {}) {
   const statsEl = document.getElementById('admin-stats');
   if (!statsEl) return;
-  const total = rows.length;
-  const profit = rows.filter((row) => normalizeStrategyStatus(row?.status) === 'profit').length;
-  const loss = rows.filter((row) => normalizeStrategyStatus(row?.status) === 'loss').length;
-  const opened = profit + loss;
-  const winRate = opened ? `${Math.round((profit / opened) * 100)}%` : '0%';
-  const openRate = total ? `${Math.round((opened / total) * 100)}%` : '0%';
+  const total = dbNumber(stats.totalCount);
+  const winRate = `${Math.round(dbNumber(stats.winRate))}%`;
+  const openRate = `${Math.round(dbNumber(stats.openRate))}%`;
   statsEl.innerHTML = [
     `<div class="admin-stat"><span class="admin-stat__label">数量</span><span class="admin-stat__value">${total}</span></div>`,
     `<div class="admin-stat"><span class="admin-stat__label">胜率</span><span class="admin-stat__value">${winRate}</span></div>`,
@@ -940,83 +1249,124 @@ function renderAdminStats(rows) {
 async function renderAdminList() {
   const listEl = document.getElementById('admin-list');
   if (!listEl) return;
-  renderAdminFilterTabs();
+  renderAdminControls();
   let rows = [];
+  let stats = fromStatsRecord(null);
   try {
-    rows = await fetchStrategies();
+    [rows, stats] = await Promise.all([
+      fetchStrategies(adminTimeFilter),
+      fetchStrategyStats(adminTimeFilter),
+    ]);
   } catch (err) {
-    renderAdminStats([]);
+    selectedStrategyIds.clear();
+    visibleAdminStrategyIds = [];
+    renderAdminStats(fromStatsRecord(null));
     listEl.innerHTML = `<div class="admin-sync-error">${escapeHtml(String(err?.message || '同步失败'))}</div>`;
+    updateAdminSelectionControls();
     return;
   }
-  const visibleRows = filterAdminRowsByTimeStatus(rows);
-  renderAdminStats(visibleRows);
-  if (!visibleRows.length) {
+  syncAdminSelectionWithRows(rows);
+  renderAdminStats(stats);
+  if (!rows.length) {
     listEl.innerHTML = '';
+    updateAdminSelectionControls();
     return;
   }
-  listEl.innerHTML = visibleRows.map((row) => {
-    const sideRaw = String(row?.side ?? '').trim();
-    const nameRaw = String(row?.name ?? '').trim();
+  listEl.innerHTML = rows.map((row) => {
+    const rawId = String(row?.id ?? '').trim();
+    const sideRaw = String(row?.positionSide ?? '').trim();
+    const nameRaw = String(row?.strategyName ?? '').trim();
     const isLong = sideRaw === 'long';
     const isShort = sideRaw === 'short';
     const sideMod = isLong ? 'long' : (isShort ? 'short' : 'flat');
     const sideText = escapeHtml(isLong ? '开多' : (isShort ? '开空' : '—'));
     const name = escapeHtml(nameRaw || '未命名');
-    const price = escapeHtml(String(row?.price ?? '-'));
+    const price = escapeHtml(String(row?.entryPrice ?? '-'));
     const qty = escapeHtml(String(row?.quantity ?? '-'));
-    const tp = escapeHtml(String(row?.takeProfit ?? '-'));
-    const stop = escapeHtml(String(row?.stopLoss ?? '-'));
-    const range = escapeHtml(formatTimeRangeForDisplay(row?.timeRange, row?.createdAt) || '-');
-    const createTime = escapeHtml(String(row?.createdAt ?? '-'));
-    const endAt = getTimeRangeEndAt(row?.timeRange, row?.createdAt);
-    const rangeParts = splitTimeRangeText(row?.timeRange);
-    const endTime = endAt
-      ? formatFullDateTimeLabel(endAt)
-      : rangeParts[rangeParts.length - 1] || '';
-    const copyText = escapeHtml(`帮我创建一个${endTime}的闹钟，名称为${nameRaw || '未命名'}。`);
-    const id = escapeHtml(String(row?.id ?? ''));
-    const status = normalizeStrategyStatus(row?.status);
-    const statusLabel = getStrategyStatusLabel(status);
-    const resultStatusHtml = statusLabel
-      ? `<div class="admin-status admin-status--${status}"><span class="admin-status__tag">${escapeHtml(statusLabel)}</span></div>`
+    const tp = escapeHtml(String(row?.takeProfitPrice ?? '-'));
+    const stop = escapeHtml(String(row?.stopLossPrice ?? '-'));
+    const timeframe = escapeHtml(row?.timeframeLabel || getTimeframeLabel(row?.timeframe) || '-');
+    const endAt = getStrategyEndAt(row);
+    const deadline = escapeHtml(formatStrategyDeadline(endAt));
+    const countdown = escapeHtml(formatCountdownTo(endAt));
+    const expiresAt = endAt ? escapeHtml(endAt.toISOString()) : '';
+    const copyText = escapeHtml(buildStrategyCopyText({
+      side: sideRaw,
+      name: nameRaw || '未命名',
+      price: row?.entryPrice ?? '-',
+      quantity: row?.quantity ?? '-',
+      takeProfit: row?.takeProfitPrice ?? '-',
+      stopLoss: row?.stopLossPrice ?? '-',
+    }));
+    const id = escapeHtml(rawId);
+    const checked = rawId && selectedStrategyIds.has(rawId) ? ' checked' : '';
+    const disabled = isDeletingStrategies ? ' disabled' : '';
+    const selectorDisabled = isDeletingStrategies ? ' is-disabled' : '';
+    const selectHtml = rawId && isAdminSelectionMode
+      ? [
+        `<label class="admin-item__selector${selectorDisabled}" aria-label="选择 ${name}">`,
+        `<input type="checkbox" class="admin-item__select" data-id="${id}"${checked}${disabled}>`,
+        '<span class="admin-item__checkmark" aria-hidden="true"></span>',
+        '</label>',
+      ].join('')
+      : '';
+    const outcomeStatus = normalizeOutcomeStatus(row?.outcomeStatus);
+    const outcomeStatusLabel = getOutcomeStatusLabel(outcomeStatus);
+    const outcomeStatusHtml = outcomeStatusLabel
+      ? `<div class="admin-status admin-status--${outcomeStatus}"><span class="admin-status__tag">${escapeHtml(outcomeStatusLabel)}</span></div>`
       : '';
     const timeStatus = getTimeRangeStatusByEndAt(endAt);
     const timeStatusLabel = escapeHtml(getTimeRangeStatusLabel(timeStatus));
     const timeStatusHtml = `<div class="admin-status admin-status--time-${timeStatus}"><span class="admin-status__tag">${timeStatusLabel}</span></div>`;
-    const statusAction = status === 'pending' && id
-      ? `<button type="button" class="admin-status__open" data-id="${id}" aria-haspopup="dialog" aria-controls="status-picker">提交状态</button>`
+    const outcomeStatusAction = outcomeStatus === 'pending' && id
+      ? `<button type="button" class="admin-status__open" data-id="${id}" aria-haspopup="dialog" aria-controls="status-picker">盈利状态</button>`
       : '';
     return [
       `<article class="admin-item admin-item--${sideMod}">`,
       '<header class="admin-item__head">',
+      selectHtml,
       `<span class="admin-item__side">${sideText}</span>`,
       `<span class="admin-item__title">${name}</span>`,
-      resultStatusHtml,
+      outcomeStatusHtml,
       timeStatusHtml,
       '</header>',
       '<div class="admin-item__metrics">',
-      `<div class="metric"><span class="metric__label">价格</span><span class="metric__value">${price}</span></div>`,
-      `<div class="metric"><span class="metric__label">数量</span><span class="metric__value">${qty}</span></div>`,
+      `<div class="metric metric--price"><span class="metric__label">价格</span><span class="metric__value">${price}</span></div>`,
+      `<div class="metric metric--qty"><span class="metric__label">数量</span><span class="metric__value">${qty}</span></div>`,
       `<div class="metric metric--tp"><span class="metric__label">参考止盈</span><span class="metric__value">${tp}</span></div>`,
       `<div class="metric metric--stop"><span class="metric__label">止损</span><span class="metric__value">${stop}</span></div>`,
       '</div>',
-      '<footer class="admin-item__foot">',
-      `<span class="admin-item__range">${range}</span>`,
-      `<span class="admin-item__created">${createTime}</span>`,
-      '</footer>',
       '<div class="admin-item__actions">',
+      '<div class="admin-item__meta">',
+      `<span class="admin-item__timeframe" aria-label="时间维度">${timeframe}</span>`,
+      `<span class="admin-item__deadline" aria-label="截止时间">${deadline}</span>`,
+      `<span class="admin-item__countdown" aria-label="倒计时"><span class="admin-item__countdown-value" data-expires-at="${expiresAt}">${countdown}</span></span>`,
+      '</div>',
       '<div class="admin-item__buttons">',
-      statusAction,
+      outcomeStatusAction,
       `<button type="button" class="admin-item__copy" data-copy="${copyText}" aria-label="复制指令">复制指令</button>`,
       '</div>',
       '</div>',
       '</article>',
     ].join('');
   }).join('');
+  updateAdminSelectionControls();
+  updateAdminCountdowns();
+}
+
+function updateAdminCountdowns() {
+  const now = new Date();
+  document.querySelectorAll('.admin-item__countdown-value').forEach((el) => {
+    const endAt = parseDateValue(el.getAttribute('data-expires-at'));
+    el.textContent = formatCountdownTo(endAt, now);
+  });
 }
 
 let currentPage = 'front';
+
+setInterval(() => {
+  if (currentPage === 'admin') updateAdminCountdowns();
+}, 60 * 1000);
 
 function setPage(mode) {
   const front = document.getElementById('front-page');
@@ -1034,10 +1384,31 @@ function setPage(mode) {
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   const btnClear = document.getElementById('btn-clear');
   if (btnClear) {
-    btnClear.hidden = toAdmin && !isDevEnvironment();
+    btnClear.hidden = !toAdmin || !isDevEnvironment();
     btnClear.textContent = toAdmin ? '删除' : '清空';
+    btnClear.disabled = toAdmin;
+    btnClear.setAttribute('aria-busy', 'false');
   }
-  if (toAdmin) renderAdminList().catch(() => {});
+  if (toAdmin) {
+    resetFrontPage();
+    resetAdminPageState();
+    renderAdminList().catch(() => {});
+  } else {
+    resetAdminPageState();
+    resetFrontPage();
+  }
+}
+
+function showToast(message, duration = 1500) {
+  const toast = document.getElementById('app-toast');
+  if (!toast) return;
+  if (toast._toastTimer) clearTimeout(toast._toastTimer);
+  toast.textContent = message;
+  toast.hidden = false;
+  toast._toastTimer = setTimeout(() => {
+    toast.hidden = true;
+    toast._toastTimer = null;
+  }, duration);
 }
 
 function flashCopyStrategyBtn(btn, label, duration = 1200) {
@@ -1050,6 +1421,8 @@ function flashCopyStrategyBtn(btn, label, duration = 1200) {
     btn._flashTimer = null;
   }, duration);
 }
+
+let isSavingStrategy = false;
 
 async function copyStrategyOutput() {
   const btn = document.getElementById('btn-copy-strategy');
@@ -1068,27 +1441,52 @@ async function copyStrategyOutput() {
     flashCopyStrategyBtn(btn, '无内容');
     return;
   }
+
+  if (isSavingStrategy) return;
+  isSavingStrategy = true;
+  if (btn) {
+    if (!btn.dataset.defaultLabel) btn.dataset.defaultLabel = btn.textContent;
+    if (btn._flashTimer) {
+      clearTimeout(btn._flashTimer);
+      btn._flashTimer = null;
+    }
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.textContent = '保存中';
+  }
+
   let ok = false;
+  let saved = false;
   try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      ok = true;
-    }
-  } catch {
-    ok = false;
-  }
-  if (!ok) ok = copyFallback(text);
-  if (ok && out?.dataset.record) {
     try {
-      await createStrategy(JSON.parse(out.dataset.record));
-      if (currentPage === 'admin') await renderAdminList();
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      }
     } catch {
-      if (errEl) errEl.textContent = '复制成功，但保存失败。请检查 Supabase 表和权限。';
-      flashCopyStrategyBtn(btn, '保存失败');
-      return;
+      ok = false;
+    }
+    if (!ok) ok = copyFallback(text);
+    if (ok && out?.dataset.record) {
+      try {
+        await createStrategy(JSON.parse(out.dataset.record));
+        saved = true;
+        if (currentPage === 'admin') await renderAdminList();
+      } catch {
+        if (errEl) errEl.textContent = '复制成功，但保存失败。请检查 Supabase 表和权限。';
+        flashCopyStrategyBtn(btn, '保存失败');
+        return;
+      }
+    }
+    if (saved) showToast('保存成功');
+    flashCopyStrategyBtn(btn, saved ? '已保存' : (ok ? '已复制' : '复制失败'));
+  } finally {
+    isSavingStrategy = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
     }
   }
-  flashCopyStrategyBtn(btn, ok ? '已保存' : '复制失败');
 }
 
 async function copyQtyOutput() {
@@ -1116,25 +1514,17 @@ const btnCopyStrategy = document.getElementById('btn-copy-strategy');
 if (btnCopyStrategy) btnCopyStrategy.addEventListener('click', copyStrategyOutput);
 const btnCopyQty = document.getElementById('btn-copy-qty');
 if (btnCopyQty) btnCopyQty.addEventListener('click', copyQtyOutput);
-const clearFront = () => {
-  if (openInput) openInput.value = '';
-  if (stopInput) stopInput.value = '';
-  if (nameInput) nameInput.value = '';
-  const errEl = document.getElementById('error');
-  const outEl = document.getElementById('strategy-output');
-  if (errEl) errEl.textContent = '';
-  clearStrategyOutput(outEl);
-  if (openInput) openInput.focus({ preventScroll: true });
-};
 const clearAll = () => {
-  if (currentPage === 'admin') {
-    if (!isDevEnvironment()) return;
-    clearStrategies()
-      .then(renderAdminList)
-      .catch(() => {});
+  if (currentPage !== 'admin' || !isDevEnvironment()) return;
+  if (!isAdminSelectionMode) {
+    enterAdminSelectionMode();
     return;
   }
-  clearFront();
+  if (selectedStrategyIds.size === 0) {
+    exitAdminSelectionMode();
+    return;
+  }
+  deleteSelectedStrategies().catch(() => {});
 };
 const btnClear = document.getElementById('btn-clear');
 if (btnClear) btnClear.addEventListener('click', clearAll);
@@ -1156,16 +1546,73 @@ if (adminFilterTabsEl) {
   });
 }
 
+const adminNameSearchEl = document.getElementById('admin-name-search');
+if (adminNameSearchEl) {
+  adminNameSearchEl.addEventListener('input', () => {
+    adminNameSearch = normalizeAdminNameSearch(adminNameSearchEl.value);
+    scheduleRenderAdminList();
+  });
+}
+
+const adminTimeframeFilterSelectEl = document.getElementById('admin-timeframe-filter-select');
+if (adminTimeframeFilterSelectEl) {
+  adminTimeframeFilterSelectEl.addEventListener('change', () => {
+    const nextFilter = normalizeAdminTimeframeFilter(adminTimeframeFilterSelectEl.value);
+    if (adminTimeframeFilter === nextFilter) return;
+    adminTimeframeFilter = nextFilter;
+    renderAdminList().catch(() => {});
+  });
+}
+
+const adminOutcomeFilterSelectEl = document.getElementById('admin-outcome-filter-select');
+if (adminOutcomeFilterSelectEl) {
+  adminOutcomeFilterSelectEl.addEventListener('change', () => {
+    const nextFilter = normalizeAdminOutcomeFilter(adminOutcomeFilterSelectEl.value);
+    if (adminOutcomeFilter === nextFilter) return;
+    adminOutcomeFilter = nextFilter;
+    renderAdminList().catch(() => {});
+  });
+}
+
+const adminSelectionEl = document.getElementById('admin-selection');
+if (adminSelectionEl) {
+  adminSelectionEl.addEventListener('click', (e) => {
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    if (!target) return;
+    if (target.closest('#admin-select-all')) {
+      setVisibleAdminSelection(true);
+      return;
+    }
+    if (target.closest('#admin-clear-selection')) {
+      exitAdminSelectionMode();
+      return;
+    }
+    if (target.closest('#admin-delete-selected')) {
+      deleteSelectedStrategies().catch(() => {});
+    }
+  });
+}
+
 const adminListEl = document.getElementById('admin-list');
 if (adminListEl) {
+  adminListEl.addEventListener('change', (e) => {
+    const checkbox = e.target instanceof HTMLElement ? e.target.closest('.admin-item__select') : null;
+    if (!checkbox) return;
+    const id = String(checkbox.getAttribute('data-id') ?? '').trim();
+    if (!id) return;
+    if (checkbox.checked) selectedStrategyIds.add(id);
+    else selectedStrategyIds.delete(id);
+    updateAdminSelectionControls();
+  });
+
   adminListEl.addEventListener('click', async (e) => {
     const target = e.target instanceof HTMLElement ? e.target : null;
     if (!target) return;
 
-    const statusOpenBtn = target.closest('.admin-status__open');
-    if (statusOpenBtn) {
-      const id = String(statusOpenBtn.getAttribute('data-id') ?? '').trim();
-      openStatusPicker(id);
+    const outcomeStatusOpenBtn = target.closest('.admin-status__open');
+    if (outcomeStatusOpenBtn) {
+      const id = String(outcomeStatusOpenBtn.getAttribute('data-id') ?? '').trim();
+      openOutcomeStatusPicker(id);
       return;
     }
 
@@ -1187,27 +1634,27 @@ if (adminListEl) {
   });
 }
 
-const statusPicker = document.getElementById('status-picker');
-if (statusPicker) {
-  statusPicker.addEventListener('click', (e) => {
+const outcomeStatusPicker = document.getElementById('status-picker');
+if (outcomeStatusPicker) {
+  outcomeStatusPicker.addEventListener('click', (e) => {
     const target = e.target instanceof HTMLElement ? e.target : null;
     if (!target) return;
     if (target.getAttribute('data-status-picker-dismiss') === 'true') {
-      closeStatusPicker();
+      closeOutcomeStatusPicker();
       return;
     }
-    const option = target.closest('[data-status]');
+    const option = target.closest('[data-outcome-status]');
     if (!option) return;
-    submitStatusFromPicker(option.getAttribute('data-status'));
+    submitOutcomeStatusFromPicker(option.getAttribute('data-outcome-status'));
   });
 }
 
-const statusPickerCancel = document.getElementById('status-picker-cancel');
-if (statusPickerCancel) statusPickerCancel.addEventListener('click', closeStatusPicker);
+const outcomeStatusPickerCancel = document.getElementById('status-picker-cancel');
+if (outcomeStatusPickerCancel) outcomeStatusPickerCancel.addEventListener('click', closeOutcomeStatusPicker);
 
 document.addEventListener('keydown', (e) => {
   const picker = document.getElementById('status-picker');
-  if (e.key === 'Escape' && picker && !picker.hidden) closeStatusPicker();
+  if (e.key === 'Escape' && picker && !picker.hidden) closeOutcomeStatusPicker();
 });
 
 setPage('front');
