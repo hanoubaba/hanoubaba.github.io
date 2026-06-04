@@ -136,6 +136,7 @@ as $$
         or (
           p_time_filter = 'active'
           and expires_at > coalesce(p_now, now())
+          and (p_outcome_status is not null and p_outcome_status <> 'all' or outcome_status = 'pending')
         )
         or (
           p_time_filter = 'dueToday'

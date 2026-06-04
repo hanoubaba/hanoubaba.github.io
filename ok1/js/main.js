@@ -780,6 +780,10 @@ function buildStrategiesQuery(filterValue = 'all') {
   }
   if (filter === 'active') {
     params.push(`expires_at=gt.${encodeURIComponent(new Date().toISOString())}`);
+    // 进行中只显示未操作的（待定状态）
+    if (outcomeFilter === 'all') {
+      params.push('outcome_status=eq.pending');
+    }
   } else if (filter === 'dueToday') {
     const { start, end } = getLocalDayRange();
     params.push(`expires_at=gte.${encodeURIComponent(start.toISOString())}`);
@@ -921,6 +925,19 @@ function getOutcomeStatusLabel(outcomeStatus) {
   if (outcomeStatus === 'loss') return '亏损';
   if (outcomeStatus === 'not_filled') return '未成交';
   return '';
+}
+
+function getCombinedStatusLabel(outcomeStatus, timeStatus) {
+  // 优先显示盈利状态
+  if (outcomeStatus === 'profit') return { label: '盈利', type: 'profit' };
+  if (outcomeStatus === 'loss') return { label: '亏损', type: 'loss' };
+  if (outcomeStatus === 'not_filled') return { label: '未成交', type: 'not-filled' };
+
+  // 待定状态下，根据时间状态显示
+  if (timeStatus === 'ended') return { label: '已到期', type: 'expired' };
+
+  // 进行中的待定状态，显示进行中
+  return { label: '进行中', type: 'active' };
 }
 
 function parseDateValue(value) {
@@ -1284,34 +1301,16 @@ async function renderAdminList() {
   if (!listEl) return;
   renderAdminControls();
   let rows = [];
-  let stats = fromStatsRecord(null);
   try {
-    [rows, stats] = await Promise.all([
-      fetchStrategies(adminTimeFilter),
-      fetchStrategyStats(adminTimeFilter),
-    ]);
+    rows = await fetchStrategies(adminTimeFilter);
   } catch (err) {
     selectedStrategyIds.clear();
     visibleAdminStrategyIds = [];
-    renderAdminStats(fromStatsRecord(null));
     listEl.innerHTML = `<div class="admin-sync-error">${escapeHtml(String(err?.message || '同步失败'))}</div>`;
     updateAdminSelectionControls();
     return;
   }
   syncAdminSelectionWithRows(rows);
-  renderAdminStats(stats);
-
-  // 后端统计近10单的胜率和成交率（全局，不受筛选影响）
-  try {
-    const recent10Stats = await fetchRecent10Stats();
-    if (recent10Stats.totalCount > 0) {
-      console.log(`近10单统计 (总数: ${recent10Stats.totalCount}):`);
-      console.log(`  盈利: ${recent10Stats.profitCount}单, 亏损: ${recent10Stats.lossCount}单, 未成交: ${recent10Stats.notFilledCount}单, 待定: ${recent10Stats.pendingCount}单`);
-      console.log(`  胜率: ${recent10Stats.winRate}%, 成交率: ${recent10Stats.openRate}%`);
-    }
-  } catch (err) {
-    console.error('获取近10单统计失败:', err);
-  }
 
   if (!rows.length) {
     listEl.innerHTML = '';
@@ -1357,13 +1356,11 @@ async function renderAdminList() {
       ].join('')
       : '';
     const outcomeStatus = normalizeOutcomeStatus(row?.outcomeStatus);
-    const outcomeStatusLabel = getOutcomeStatusLabel(outcomeStatus);
-    const outcomeStatusHtml = outcomeStatusLabel
-      ? `<div class="admin-status admin-status--${outcomeStatus}"><span class="admin-status__tag">${escapeHtml(outcomeStatusLabel)}</span></div>`
-      : '';
     const timeStatus = getTimeRangeStatusByEndAt(endAt);
-    const timeStatusLabel = escapeHtml(getTimeRangeStatusLabel(timeStatus));
-    const timeStatusHtml = `<div class="admin-status admin-status--time-${timeStatus}"><span class="admin-status__tag">${timeStatusLabel}</span></div>`;
+    const combinedStatus = getCombinedStatusLabel(outcomeStatus, timeStatus);
+    const statusHtml = combinedStatus.label
+      ? `<div class="admin-status admin-status--${combinedStatus.type}"><span class="admin-status__tag">${escapeHtml(combinedStatus.label)}</span></div>`
+      : '';
     const outcomeStatusAction = outcomeStatus === 'pending' && id
       ? `<button type="button" class="admin-status__open" data-id="${id}" aria-haspopup="dialog" aria-controls="status-picker">盈利状态</button>`
       : '';
@@ -1373,8 +1370,7 @@ async function renderAdminList() {
       selectHtml,
       `<span class="admin-item__side">${sideText}</span>`,
       `<span class="admin-item__title">${name}</span>`,
-      outcomeStatusHtml,
-      timeStatusHtml,
+      statusHtml,
       '</header>',
       '<div class="admin-item__metrics">',
       `<div class="metric metric--price"><span class="metric__label">价格</span><span class="metric__value">${price}</span></div>`,
@@ -1414,20 +1410,97 @@ setInterval(() => {
   if (currentPage === 'admin') updateAdminCountdowns();
 }, 60 * 1000);
 
+async function renderStatsPage() {
+  const statsEl = document.getElementById('stats-recent-10');
+  if (!statsEl) return;
+
+  statsEl.innerHTML = '<div class="stats-loading">加载中...</div>';
+
+  try {
+    // 获取全部数据的统计和近10单统计
+    const [allStats, recent10Stats] = await Promise.all([
+      fetchStrategyStats('all'),
+      fetchRecent10Stats(),
+    ]);
+
+    // 渲染全部数据统计（使用已有的函数）
+    renderAdminStats(allStats);
+
+    // 渲染近10单统计
+    if (recent10Stats.totalCount === 0) {
+      statsEl.innerHTML = '<div class="stats-empty">暂无数据</div>';
+      return;
+    }
+
+    const html = [
+      '<div class="stats-summary">',
+      `<div class="stats-summary__item">`,
+      `<span class="stats-summary__label">总数</span>`,
+      `<span class="stats-summary__value">${recent10Stats.totalCount}单</span>`,
+      '</div>',
+      `<div class="stats-summary__item stats-summary__item--profit">`,
+      `<span class="stats-summary__label">盈利</span>`,
+      `<span class="stats-summary__value">${recent10Stats.profitCount}单</span>`,
+      '</div>',
+      `<div class="stats-summary__item stats-summary__item--loss">`,
+      `<span class="stats-summary__label">亏损</span>`,
+      `<span class="stats-summary__value">${recent10Stats.lossCount}单</span>`,
+      '</div>',
+      `<div class="stats-summary__item">`,
+      `<span class="stats-summary__label">未成交</span>`,
+      `<span class="stats-summary__value">${recent10Stats.notFilledCount}单</span>`,
+      '</div>',
+      `<div class="stats-summary__item">`,
+      `<span class="stats-summary__label">待定</span>`,
+      `<span class="stats-summary__value">${recent10Stats.pendingCount}单</span>`,
+      '</div>',
+      '</div>',
+      '<div class="stats-rates">',
+      `<div class="stats-rate">`,
+      `<span class="stats-rate__label">胜率</span>`,
+      `<span class="stats-rate__value stats-rate__value--highlight">${recent10Stats.winRate}%</span>`,
+      `<span class="stats-rate__note">盈利单数 / (盈利+亏损)</span>`,
+      '</div>',
+      `<div class="stats-rate">`,
+      `<span class="stats-rate__label">成交率</span>`,
+      `<span class="stats-rate__value stats-rate__value--highlight">${recent10Stats.openRate}%</span>`,
+      `<span class="stats-rate__note">(盈利+亏损) / 总单数</span>`,
+      '</div>',
+      '</div>',
+    ].join('');
+
+    statsEl.innerHTML = html;
+  } catch (err) {
+    statsEl.innerHTML = `<div class="stats-error">加载失败：${escapeHtml(String(err?.message || '未知错误'))}</div>`;
+  }
+}
+
 function setPage(mode) {
   const front = document.getElementById('front-page');
   const admin = document.getElementById('admin-page');
+  const stats = document.getElementById('stats-page');
   const btnFront = document.getElementById('btn-tab-front');
   const btnAdmin = document.getElementById('btn-tab-admin');
-  if (!front || !admin || !btnFront || !btnAdmin) return;
+  const btnStats = document.getElementById('btn-tab-stats');
+  if (!front || !admin || !stats || !btnFront || !btnAdmin || !btnStats) return;
+
   const toAdmin = mode === 'admin';
-  currentPage = toAdmin ? 'admin' : 'front';
-  front.hidden = toAdmin;
+  const toStats = mode === 'stats';
+  const toFront = !toAdmin && !toStats;
+
+  currentPage = toAdmin ? 'admin' : (toStats ? 'stats' : 'front');
+
+  front.hidden = !toFront;
   admin.hidden = !toAdmin;
-  btnFront.classList.toggle('is-active', !toAdmin);
-  btnFront.setAttribute('aria-selected', toAdmin ? 'false' : 'true');
+  stats.hidden = !toStats;
+
+  btnFront.classList.toggle('is-active', toFront);
+  btnFront.setAttribute('aria-selected', toFront ? 'true' : 'false');
   btnAdmin.classList.toggle('is-active', toAdmin);
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
+  btnStats.classList.toggle('is-active', toStats);
+  btnStats.setAttribute('aria-selected', toStats ? 'true' : 'false');
+
   const btnClear = document.getElementById('btn-clear');
   if (btnClear) {
     btnClear.hidden = !toAdmin || !isDevEnvironment();
@@ -1435,10 +1508,15 @@ function setPage(mode) {
     btnClear.disabled = toAdmin;
     btnClear.setAttribute('aria-busy', 'false');
   }
+
   if (toAdmin) {
     resetFrontPage();
     resetAdminPageState();
     renderAdminList().catch(() => {});
+  } else if (toStats) {
+    resetFrontPage();
+    resetAdminPageState();
+    renderStatsPage().catch(() => {});
   } else {
     resetAdminPageState();
     resetFrontPage();
@@ -1579,6 +1657,8 @@ const btnTabFront = document.getElementById('btn-tab-front');
 if (btnTabFront) btnTabFront.addEventListener('click', () => setPage('front'));
 const btnTabAdmin = document.getElementById('btn-tab-admin');
 if (btnTabAdmin) btnTabAdmin.addEventListener('click', () => setPage('admin'));
+const btnTabStats = document.getElementById('btn-tab-stats');
+if (btnTabStats) btnTabStats.addEventListener('click', () => setPage('stats'));
 
 const adminFilterTabsEl = document.getElementById('admin-filter-tabs');
 if (adminFilterTabsEl) {

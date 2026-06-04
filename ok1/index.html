@@ -15,6 +15,7 @@
         <div class="page-switch" role="tablist" aria-label="页面切换">
           <button id="btn-tab-front" type="button" class="page-switch__btn is-active" role="tab" aria-selected="true">前台</button>
           <button id="btn-tab-admin" type="button" class="page-switch__btn" role="tab" aria-selected="false">后台管理</button>
+          <button id="btn-tab-stats" type="button" class="page-switch__btn" role="tab" aria-selected="false">数据统计</button>
         </div>
       </div>
     </header>
@@ -77,7 +78,6 @@
     </section>
 
     <section id="admin-page" class="panel admin-page" aria-label="后台管理" hidden>
-      <div id="admin-stats" class="admin-stats"></div>
       <div class="admin-controls">
         <div class="admin-control-row">
           <label class="admin-search">
@@ -97,6 +97,16 @@
         </div>
       </div>
       <div id="admin-list" class="admin-list"></div>
+    </section>
+
+    <section id="stats-page" class="panel stats-page" aria-label="数据统计" hidden>
+      <h2 class="stats-page__title">数据统计</h2>
+      <h3 class="stats-section-title">当前筛选统计</h3>
+      <div id="admin-stats" class="admin-stats"></div>
+      <h3 class="stats-section-title">近10单统计</h3>
+      <div id="stats-recent-10" class="stats-recent-10">
+        <div class="stats-loading">加载中...</div>
+      </div>
     </section>
   </main>
 
