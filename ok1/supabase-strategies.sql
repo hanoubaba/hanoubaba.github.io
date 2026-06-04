@@ -1,9 +1,7 @@
 create extension if not exists pgcrypto;
 create extension if not exists pg_trgm;
 
-drop table if exists public.strategies cascade;
-
-create table public.strategies (
+create table if not exists public.strategies (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -37,7 +35,7 @@ create table public.strategies (
   constraint strategies_timeframe_check
     check (timeframe in ('15m', '1h', '4h')),
   constraint strategies_outcome_status_check
-    check (outcome_status in ('pending', 'profit', 'loss')),
+    check (outcome_status in ('pending', 'profit', 'loss', 'not_filled')),
   constraint strategies_positive_values_check
     check (
       input_price > 0
@@ -73,26 +71,26 @@ create table public.strategies (
     )
 );
 
-create index strategies_created_at_idx
+create index if not exists strategies_created_at_idx
 on public.strategies (created_at desc);
 
-create index strategies_strategy_name_trgm_idx
+create index if not exists strategies_strategy_name_trgm_idx
 on public.strategies
 using gin (strategy_name gin_trgm_ops);
 
-create index strategies_expires_at_created_at_idx
+create index if not exists strategies_expires_at_created_at_idx
 on public.strategies (expires_at, created_at desc);
 
-create index strategies_outcome_status_created_at_idx
+create index if not exists strategies_outcome_status_created_at_idx
 on public.strategies (outcome_status, created_at desc);
 
-create index strategies_position_side_created_at_idx
+create index if not exists strategies_position_side_created_at_idx
 on public.strategies (position_side, created_at desc);
 
-create index strategies_timeframe_created_at_idx
+create index if not exists strategies_timeframe_created_at_idx
 on public.strategies (timeframe, created_at desc);
 
-create index strategies_timeframe_outcome_status_created_at_idx
+create index if not exists strategies_timeframe_outcome_status_created_at_idx
 on public.strategies (timeframe, outcome_status, created_at desc);
 
 create or replace function public.get_strategy_stats(
@@ -145,6 +143,7 @@ as $$
           and p_today_end is not null
           and expires_at >= p_today_start
           and expires_at < p_today_end
+          and (p_outcome_status is not null and p_outcome_status <> 'all' or outcome_status = 'pending')
         )
         or (
           p_time_filter = 'createdToday'
@@ -190,6 +189,58 @@ grant execute on function public.get_strategy_stats(
   timestamptz
 ) to anon;
 
+create or replace function public.get_recent_10_stats()
+returns table (
+  total_count bigint,
+  profit_count bigint,
+  loss_count bigint,
+  not_filled_count bigint,
+  pending_count bigint,
+  opened_count bigint,
+  win_rate numeric,
+  open_rate numeric
+)
+language sql
+stable
+set search_path = public
+as $$
+  with recent_10 as (
+    select outcome_status
+    from public.strategies
+    order by created_at desc
+    limit 10
+  ),
+  counted as (
+    select
+      count(*) as total_count,
+      count(*) filter (where outcome_status = 'profit') as profit_count,
+      count(*) filter (where outcome_status = 'loss') as loss_count,
+      count(*) filter (where outcome_status = 'not_filled') as not_filled_count,
+      count(*) filter (where outcome_status = 'pending') as pending_count
+    from recent_10
+  )
+  select
+    total_count,
+    profit_count,
+    loss_count,
+    not_filled_count,
+    pending_count,
+    profit_count + loss_count as opened_count,
+    case
+      when profit_count + loss_count > 0
+        then round((profit_count::numeric / (profit_count + loss_count)) * 100, 2)
+      else 0
+    end as win_rate,
+    case
+      when total_count > 0
+        then round(((profit_count + loss_count)::numeric / total_count) * 100, 2)
+      else 0
+    end as open_rate
+  from counted;
+$$;
+
+grant execute on function public.get_recent_10_stats() to anon;
+
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
@@ -200,6 +251,8 @@ begin
 end;
 $$;
 
+drop trigger if exists strategies_set_updated_at on public.strategies;
+
 create trigger strategies_set_updated_at
 before update on public.strategies
 for each row
@@ -207,18 +260,21 @@ execute function public.set_updated_at();
 
 alter table public.strategies enable row level security;
 
+drop policy if exists "allow anon select strategies" on public.strategies;
 create policy "allow anon select strategies"
 on public.strategies
 for select
 to anon
 using (true);
 
+drop policy if exists "allow anon insert strategies" on public.strategies;
 create policy "allow anon insert strategies"
 on public.strategies
 for insert
 to anon
 with check (true);
 
+drop policy if exists "allow anon update strategies" on public.strategies;
 create policy "allow anon update strategies"
 on public.strategies
 for update
@@ -226,6 +282,7 @@ to anon
 using (true)
 with check (true);
 
+drop policy if exists "allow anon delete strategies" on public.strategies;
 create policy "allow anon delete strategies"
 on public.strategies
 for delete
@@ -233,3 +290,16 @@ to anon
 using (true);
 
 notify pgrst, 'reload schema';
+
+-- ============================================================
+-- 以下是约束更新语句，每次执行都会更新到最新版本
+-- 即使表已存在，也会正确更新约束（不会删数据）
+-- ============================================================
+
+-- 更新盈利状态约束（添加新状态值）
+alter table public.strategies
+drop constraint if exists strategies_outcome_status_check;
+
+alter table public.strategies
+add constraint strategies_outcome_status_check
+check (outcome_status in ('pending', 'profit', 'loss', 'not_filled'));

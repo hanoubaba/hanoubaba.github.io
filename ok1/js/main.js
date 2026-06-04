@@ -161,6 +161,7 @@ const SUPABASE_URL = 'https://rxggjijrfafcrmtkqkuv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_8B1PLTeHhtPou4lPt9cl6w_O2hipMVY';
 const STRATEGIES_ENDPOINT = `${SUPABASE_URL}/rest/v1/strategies`;
 const STRATEGY_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_strategy_stats`;
+const RECENT_10_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_recent_10_stats`;
 
 function getSupabaseHeaders(extra = {}) {
   return {
@@ -783,6 +784,10 @@ function buildStrategiesQuery(filterValue = 'all') {
     const { start, end } = getLocalDayRange();
     params.push(`expires_at=gte.${encodeURIComponent(start.toISOString())}`);
     params.push(`expires_at=lt.${encodeURIComponent(end.toISOString())}`);
+    // 今日到期只显示未操作的（待定状态）
+    if (outcomeFilter === 'all') {
+      params.push('outcome_status=eq.pending');
+    }
   } else if (filter === 'createdToday') {
     const { start, end } = getLocalDayRange();
     params.push(`created_at=gte.${encodeURIComponent(start.toISOString())}`);
@@ -851,6 +856,27 @@ async function fetchStrategyStats(filterValue = 'all') {
   return fromStatsRecord(row || {});
 }
 
+async function fetchRecent10Stats() {
+  const res = await fetch(RECENT_10_STATS_ENDPOINT, {
+    method: 'POST',
+    headers: getSupabaseHeaders(),
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    totalCount: dbNumber(row?.total_count),
+    profitCount: dbNumber(row?.profit_count),
+    lossCount: dbNumber(row?.loss_count),
+    notFilledCount: dbNumber(row?.not_filled_count),
+    pendingCount: dbNumber(row?.pending_count),
+    openedCount: dbNumber(row?.opened_count),
+    winRate: dbNumber(row?.win_rate),
+    openRate: dbNumber(row?.open_rate),
+  };
+}
+
 async function createStrategy(record) {
   const res = await fetch(STRATEGIES_ENDPOINT, {
     method: 'POST',
@@ -887,12 +913,13 @@ async function updateStrategyOutcomeStatus(id, outcomeStatus) {
 }
 
 function normalizeOutcomeStatus(outcomeStatus) {
-  return outcomeStatus === 'profit' || outcomeStatus === 'loss' ? outcomeStatus : 'pending';
+  return outcomeStatus === 'profit' || outcomeStatus === 'loss' || outcomeStatus === 'not_filled' ? outcomeStatus : 'pending';
 }
 
 function getOutcomeStatusLabel(outcomeStatus) {
   if (outcomeStatus === 'profit') return '盈利';
   if (outcomeStatus === 'loss') return '亏损';
+  if (outcomeStatus === 'not_filled') return '未成交';
   return '';
 }
 
@@ -962,6 +989,7 @@ const ADMIN_OUTCOME_FILTER_LABELS = {
   pending: '待定',
   profit: '盈利',
   loss: '亏损',
+  not_filled: '未成交',
 };
 
 const DEFAULT_ADMIN_TIME_FILTER = 'active';
@@ -1272,6 +1300,19 @@ async function renderAdminList() {
   }
   syncAdminSelectionWithRows(rows);
   renderAdminStats(stats);
+
+  // 后端统计近10单的胜率和成交率（全局，不受筛选影响）
+  try {
+    const recent10Stats = await fetchRecent10Stats();
+    if (recent10Stats.totalCount > 0) {
+      console.log(`近10单统计 (总数: ${recent10Stats.totalCount}):`);
+      console.log(`  盈利: ${recent10Stats.profitCount}单, 亏损: ${recent10Stats.lossCount}单, 未成交: ${recent10Stats.notFilledCount}单, 待定: ${recent10Stats.pendingCount}单`);
+      console.log(`  胜率: ${recent10Stats.winRate}%, 成交率: ${recent10Stats.openRate}%`);
+    }
+  } catch (err) {
+    console.error('获取近10单统计失败:', err);
+  }
+
   if (!rows.length) {
     listEl.innerHTML = '';
     updateAdminSelectionControls();
