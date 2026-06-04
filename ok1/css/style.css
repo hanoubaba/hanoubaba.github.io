@@ -1043,9 +1043,11 @@ body {
 }
 
 .status-picker__option:disabled,
-.status-picker__cancel:disabled {
+.status-picker__cancel:disabled,
+.status-picker__option.is-disabled {
   opacity: 0.58;
   cursor: not-allowed;
+  pointer-events: none;
 }
 
 .status-picker__option-title {

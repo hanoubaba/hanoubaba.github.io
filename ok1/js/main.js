@@ -1232,6 +1232,7 @@ async function deleteSelectedStrategies() {
 }
 
 let pendingOutcomeStatusRecordId = '';
+let pendingOutcomeStatusTimeStatus = '';
 
 function setOutcomeStatusPickerLoading(loading) {
   document.querySelectorAll('#status-picker button').forEach((btn) => {
@@ -1244,12 +1245,27 @@ function setOutcomeStatusPickerError(message) {
   if (errEl) errEl.textContent = message;
 }
 
-function openOutcomeStatusPicker(id) {
+function openOutcomeStatusPicker(id, timeStatus) {
   const picker = document.getElementById('status-picker');
   if (!picker || !id) return;
   pendingOutcomeStatusRecordId = id;
+  pendingOutcomeStatusTimeStatus = timeStatus;
   setOutcomeStatusPickerLoading(false);
   setOutcomeStatusPickerError('');
+
+  // 根据时间状态禁用"未成交"按钮
+  const notFilledBtn = document.getElementById('status-picker-not-filled');
+  if (notFilledBtn) {
+    const isActive = timeStatus === 'active';
+    notFilledBtn.disabled = isActive;
+    notFilledBtn.classList.toggle('is-disabled', isActive);
+    if (isActive) {
+      notFilledBtn.title = '时间未到期，不能选择未成交';
+    } else {
+      notFilledBtn.title = '';
+    }
+  }
+
   picker.hidden = false;
   document.body.style.overflow = 'hidden';
   window.requestAnimationFrame(() => {
@@ -1261,6 +1277,7 @@ function closeOutcomeStatusPicker() {
   const picker = document.getElementById('status-picker');
   if (!picker) return;
   pendingOutcomeStatusRecordId = '';
+  pendingOutcomeStatusTimeStatus = '';
   setOutcomeStatusPickerLoading(false);
   setOutcomeStatusPickerError('');
   picker.hidden = true;
@@ -1361,8 +1378,9 @@ async function renderAdminList() {
     const statusHtml = combinedStatus.label
       ? `<div class="admin-status admin-status--${combinedStatus.type}"><span class="admin-status__tag">${escapeHtml(combinedStatus.label)}</span></div>`
       : '';
+    // 待定状态都可以操作，但在选择器中会根据时间状态禁用"未成交"选项
     const outcomeStatusAction = outcomeStatus === 'pending' && id
-      ? `<button type="button" class="admin-status__open" data-id="${id}" aria-haspopup="dialog" aria-controls="status-picker">盈利状态</button>`
+      ? `<button type="button" class="admin-status__open" data-id="${id}" data-time-status="${timeStatus}" aria-haspopup="dialog" aria-controls="status-picker">盈利状态</button>`
       : '';
     return [
       `<article class="admin-item admin-item--${sideMod}">`,
@@ -1738,7 +1756,8 @@ if (adminListEl) {
     const outcomeStatusOpenBtn = target.closest('.admin-status__open');
     if (outcomeStatusOpenBtn) {
       const id = String(outcomeStatusOpenBtn.getAttribute('data-id') ?? '').trim();
-      openOutcomeStatusPicker(id);
+      const timeStatus = String(outcomeStatusOpenBtn.getAttribute('data-time-status') ?? '').trim();
+      openOutcomeStatusPicker(id, timeStatus);
       return;
     }
 
