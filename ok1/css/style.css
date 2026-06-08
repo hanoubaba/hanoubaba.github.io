@@ -593,6 +593,10 @@ body {
 .metric--tp .metric__value,
 .metric--stop .metric__value { color: var(--text); }
 
+.metric--tp .metric__value {
+  text-decoration: line-through;
+}
+
 .admin-item__actions {
   display: flex;
   flex-wrap: wrap;

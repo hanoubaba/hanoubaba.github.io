@@ -113,7 +113,7 @@ function addPeriodToStart(startValue, periodMinutes) {
   return new Date(startAt.getTime() + periodMinutes * 60 * 1000);
 }
 
-/** 按当前时间取当前已完成的时间起点（15 分钟 / 1 小时 / 4 小时格） */
+/** 按当前时间取当前已完成的时间起点（1 小时 / 4 小时格） */
 function getCurrentTimeSlot(stepMinutes) {
   return formatStartSlotValue(floorDateToStep(new Date(), stepMinutes));
 }
@@ -121,18 +121,16 @@ function getCurrentTimeSlot(stepMinutes) {
 const START_TIME_SLOT_COUNT = 5;
 
 const TIMEFRAME_MINUTES = {
-  '15m': 15,
   '1h': 60,
   '4h': 240,
 };
 
 const TIMEFRAME_LABELS = {
-  '15m': '15分钟',
   '1h': '1小时',
   '4h': '4小时',
 };
 
-const PRICE_ADJUSTMENT_RATE = 0.2;
+const PRICE_ADJUSTMENT_RATE = 0;
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const STRATEGY_DURATION_PERIODS = 9;
 
@@ -152,9 +150,9 @@ function getTimeframeLabel(mode) {
 }
 
 function getOpenCost() {
-  const active = document.querySelector('[data-tablist="open-cost"] .tab-btn.is-active');
-  const n = Number(active?.getAttribute('data-value'));
-  return Number.isFinite(n) && n > 0 ? n : 30;
+  const input = document.getElementById('open-cost-input');
+  const n = toNumber(input && 'value' in input ? input.value : '');
+  return n !== null && n > 0 ? n : null;
 }
 
 const SUPABASE_URL = 'https://rxggjijrfafcrmtkqkuv.supabase.co';
@@ -479,10 +477,7 @@ function calcTakeProfit(open, stop, multiplier = 1) {
 }
 
 function calcAdjustedOpenPrice(open, stop, decimalPlaces) {
-  const diff = open - stop;
-  const adjustment = diff * PRICE_ADJUSTMENT_RATE;
-  const adjusted = open + adjustment;
-  return Number(formatFixedDecimals(adjusted, decimalPlaces));
+  return Number(formatFixedDecimals(open, decimalPlaces));
 }
 
 function getStartDateTime(startValue) {
@@ -511,7 +506,7 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
   const unitMin = getTimeframeMinutes(timeframe);
   const spanMinutes = unitMin * STRATEGY_DURATION_PERIODS;
   const adjustedOpen = calcAdjustedOpenPrice(open, stop, priceDecimalPlaces);
-  const priceAdjustment = adjustedOpen - open;
+  const priceAdjustment = 0;
   const stopDiff = Math.abs(adjustedOpen - stop);
   const quantity = openCost / stopDiff;
   const tp = calcTakeProfit(adjustedOpen, stop, TAKE_PROFIT_R_MULTIPLE);
@@ -599,6 +594,7 @@ function generate() {
 
   const open = toNumber(openEl && 'value' in openEl ? openEl.value : '');
   const stop = toNumber(stopEl && 'value' in stopEl ? stopEl.value : '');
+  const openCost = getOpenCost();
   const startTime = timeEl && 'value' in timeEl ? String(timeEl.value).trim() : '';
   const startTimeLabel = timeEl ? String(timeEl.selectedOptions?.[0]?.textContent ?? '').trim() : '';
 
@@ -612,6 +608,12 @@ function generate() {
 
   if (open <= 0) {
     if (errEl) errEl.textContent = '价格须为大于 0 的数字。';
+    clearStrategyOutput(outEl);
+    return;
+  }
+
+  if (openCost === null) {
+    if (errEl) errEl.textContent = '请输入有效的开仓成本（大于 0 的数字）。';
     clearStrategyOutput(outEl);
     return;
   }
@@ -634,11 +636,11 @@ function generate() {
   const adjustedOpen = calcAdjustedOpenPrice(open, stop, priceDecimals);
   const takeProfit = calcTakeProfit(adjustedOpen, stop, TAKE_PROFIT_R_MULTIPLE);
   if (!Number.isFinite(adjustedOpen) || adjustedOpen <= 0 || !Number.isFinite(takeProfit) || takeProfit <= 0) {
-    if (errEl) errEl.textContent = '让利后的价格或止盈价无效，请检查价格与止损。';
+    if (errEl) errEl.textContent = '价格或止盈价无效，请检查价格与止损。';
     clearStrategyOutput(outEl);
     return;
   }
-  const strategy = buildStrategy(open, stop, startTime, startTimeLabel, getOpenCost(), priceDecimals);
+  const strategy = buildStrategy(open, stop, startTime, startTimeLabel, openCost, priceDecimals);
   renderStrategyOutput(outEl, strategy);
   if (outEl) {
     outEl.dataset.copyText = strategy.copyText;
@@ -662,12 +664,14 @@ bindMobileTimePickerEvents();
 
 const openInput = document.getElementById('open-price-input');
 const stopInput = document.getElementById('stop-price-input');
+const openCostInput = document.getElementById('open-cost-input');
 const startTimeSelect = document.getElementById('start-time');
 function onEnter(e) {
   if (e.key === 'Enter') generate();
 }
 if (openInput) openInput.addEventListener('keydown', onEnter);
 if (stopInput) stopInput.addEventListener('keydown', onEnter);
+if (openCostInput) openCostInput.addEventListener('keydown', onEnter);
 if (startTimeSelect) startTimeSelect.addEventListener('keydown', onEnter);
 
 function autoGenerateIfReady() {
@@ -685,6 +689,7 @@ function autoGenerateIfReady() {
 
 if (openInput) openInput.addEventListener('input', autoGenerateIfReady);
 if (stopInput) stopInput.addEventListener('input', autoGenerateIfReady);
+if (openCostInput) openCostInput.addEventListener('input', autoGenerateIfReady);
 if (startTimeSelect) startTimeSelect.addEventListener('change', autoGenerateIfReady);
 if (startTimeSelect) startTimeSelect.addEventListener('change', updateStartTimeTriggerLabel);
 if (startTimeSelect) startTimeSelect.addEventListener('change', () => { startTimeUserPicked = true; });
@@ -701,12 +706,12 @@ function setTablistValue(tablistName, value) {
 
 function resetFrontPage() {
   closeMobileTimePicker();
-  setTablistValue('open-cost', '30');
   setTablistValue('timeframe', '4h');
   startTimeUserPicked = false;
   rebuildStartTimeOptions();
   if (openInput) openInput.value = '';
   if (stopInput) stopInput.value = '';
+  if (openCostInput) openCostInput.value = '';
   if (nameInput) nameInput.value = '';
   const errEl = document.getElementById('error');
   const outEl = document.getElementById('strategy-output');
@@ -996,7 +1001,6 @@ const ADMIN_TIME_FILTER_LABELS = {
 
 const ADMIN_TIMEFRAME_FILTER_LABELS = {
   all: '全部',
-  '15m': '15分钟',
   '1h': '1小时',
   '4h': '4小时',
 };
@@ -1393,7 +1397,7 @@ async function renderAdminList() {
       '<div class="admin-item__metrics">',
       `<div class="metric metric--price"><span class="metric__label">价格</span><span class="metric__value">${price}</span></div>`,
       `<div class="metric metric--qty"><span class="metric__label">数量</span><span class="metric__value">${qty}</span></div>`,
-      `<div class="metric metric--tp"><span class="metric__label">参考止盈</span><span class="metric__value">${tp}</span></div>`,
+      `<div class="metric metric--tp"><span class="metric__label">止盈</span><span class="metric__value">${tp}</span></div>`,
       `<div class="metric metric--stop"><span class="metric__label">止损</span><span class="metric__value">${stop}</span></div>`,
       '</div>',
       '<div class="admin-item__actions">',

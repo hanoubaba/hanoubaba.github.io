@@ -17,7 +17,7 @@ create table if not exists public.strategies (
   stop_loss_price numeric not null,
 
   open_cost numeric not null,
-  price_adjustment_rate numeric not null default 0.2,
+  price_adjustment_rate numeric not null default 0,
   price_adjustment numeric not null,
   take_profit_r_multiple numeric not null default 1,
 
@@ -33,7 +33,7 @@ create table if not exists public.strategies (
   constraint strategies_position_side_check
     check (position_side in ('long', 'short')),
   constraint strategies_timeframe_check
-    check (timeframe in ('15m', '1h', '4h')),
+    check (timeframe in ('1h', '4h')),
   constraint strategies_outcome_status_check
     check (outcome_status in ('pending', 'profit', 'loss', 'not_filled')),
   constraint strategies_positive_values_check
