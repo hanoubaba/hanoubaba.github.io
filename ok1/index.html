@@ -3,18 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>插针止损策略</title>
+  <title>无限拟合模型</title>
   <link rel="stylesheet" href="./css/style.css" />
 </head>
 <body>
   <main class="container">
     <header class="header">
       <div class="header-bar">
-        <button id="btn-clear" type="button" class="header-action">清空</button>
+        <button id="btn-clear" type="button" class="header-action" hidden>清空</button>
         <h1 class="title"></h1>
         <div class="page-switch" role="tablist" aria-label="页面切换">
           <button id="btn-tab-front" type="button" class="page-switch__btn is-active" role="tab" aria-selected="true">前台</button>
           <button id="btn-tab-admin" type="button" class="page-switch__btn" role="tab" aria-selected="false">后台管理</button>
+          <button id="btn-tab-stats" type="button" class="page-switch__btn" role="tab" aria-selected="false">数据统计</button>
         </div>
       </div>
     </header>
@@ -31,21 +32,16 @@
         <input id="stop-price-input" class="field-input" inputmode="decimal" autocomplete="off" />
       </label>
 
-      <div class="field field--spaced" role="group" aria-labelledby="open-cost-label">
-        <span id="open-cost-label" class="field-label">开仓成本</span>
-        <div class="tabs" role="tablist" aria-label="开仓成本" data-tablist="open-cost">
-          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" data-value="30">30</button>
-          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="50">50</button>
-          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="100">100</button>
-        </div>
-      </div>
+      <label class="field field--spaced">
+        <span class="field-label">开仓成本</span>
+        <input id="open-cost-input" class="field-input" inputmode="decimal" autocomplete="off" />
+      </label>
 
       <div class="field field--spaced" role="group" aria-labelledby="time-dim-label">
         <span id="time-dim-label" class="field-label">时间维度</span>
         <div class="tabs" role="tablist" aria-label="时间维度" data-tablist="timeframe">
-          <button id="tab-15m" class="tab-btn is-active" type="button" role="tab" aria-selected="true" data-value="15m">15分钟</button>
           <button id="tab-1h" class="tab-btn" type="button" role="tab" aria-selected="false" data-value="1h">1小时</button>
-          <button id="tab-4h" class="tab-btn" type="button" role="tab" aria-selected="false" data-value="4h">4小时</button>
+          <button id="tab-4h" class="tab-btn is-active" type="button" role="tab" aria-selected="true" data-value="4h">4小时</button>
         </div>
         <span class="field-label" id="start-time-label">开始时间</span>
         <select id="start-time" class="field-input field-input--select" aria-labelledby="start-time-label" autocomplete="off">
@@ -77,9 +73,35 @@
     </section>
 
     <section id="admin-page" class="panel admin-page" aria-label="后台管理" hidden>
-      <div id="admin-stats" class="admin-stats"></div>
+      <div class="admin-controls">
+        <div class="admin-control-row">
+          <label class="admin-search">
+            <input id="admin-name-search" class="admin-search__input" type="search" autocomplete="off" placeholder="搜索名称" />
+          </label>
+          <select id="admin-timeframe-filter-select" class="admin-filter-select" aria-label="时间维度筛选"></select>
+          <select id="admin-outcome-filter-select" class="admin-filter-select" aria-label="盈利状态筛选"></select>
+        </div>
+      </div>
       <div id="admin-filter-tabs" class="admin-filter-tabs" role="tablist" aria-label="时间状态筛选"></div>
+      <div id="admin-selection" class="admin-selection" hidden>
+        <span id="admin-selection-count" class="admin-selection__count">已选 0 条</span>
+        <div class="admin-selection__buttons">
+          <button id="admin-select-all" type="button" class="admin-selection__btn">全选</button>
+          <button id="admin-clear-selection" type="button" class="admin-selection__btn">取消</button>
+          <button id="admin-delete-selected" type="button" class="admin-selection__btn admin-selection__btn--danger">删除所选</button>
+        </div>
+      </div>
       <div id="admin-list" class="admin-list"></div>
+    </section>
+
+    <section id="stats-page" class="panel stats-page" aria-label="数据统计" hidden>
+      <h2 class="stats-page__title">数据统计</h2>
+      <h3 class="stats-section-title">当前筛选统计</h3>
+      <div id="admin-stats" class="admin-stats"></div>
+      <h3 class="stats-section-title">近10单统计</h3>
+      <div id="stats-recent-10" class="stats-recent-10">
+        <div class="stats-loading">加载中...</div>
+      </div>
     </section>
   </main>
 
@@ -90,10 +112,6 @@
         <h2 id="time-picker-title" class="time-picker__title">选择开始时间</h2>
       </div>
       <div id="time-picker-list" class="time-picker__list" role="listbox" aria-label="开始时间"></div>
-      <div class="time-picker__actions">
-        <button id="time-picker-cancel" type="button" class="time-picker__btn time-picker__btn--ghost">取消</button>
-        <button id="time-picker-confirm" type="button" class="time-picker__btn time-picker__btn--primary">确定</button>
-      </div>
     </div>
   </div>
 
@@ -102,23 +120,29 @@
     <div class="status-picker__sheet" role="dialog" aria-modal="true" aria-labelledby="status-picker-title">
       <div class="status-picker__grabber" aria-hidden="true"></div>
       <div class="status-picker__header">
-        <h2 id="status-picker-title" class="status-picker__title">提交状态</h2>
+        <h2 id="status-picker-title" class="status-picker__title">盈利状态</h2>
         <p id="status-picker-desc" class="status-picker__desc">选择后会同步更新后台统计数据。</p>
       </div>
       <div class="status-picker__options">
-        <button id="status-picker-profit" type="button" class="status-picker__option status-picker__option--profit" data-status="profit">
+        <button id="status-picker-profit" type="button" class="status-picker__option status-picker__option--profit" data-outcome-status="profit">
           <span class="status-picker__option-title">盈利</span>
           <span class="status-picker__option-note">本单已开单并盈利</span>
         </button>
-        <button id="status-picker-loss" type="button" class="status-picker__option status-picker__option--loss" data-status="loss">
+        <button id="status-picker-loss" type="button" class="status-picker__option status-picker__option--loss" data-outcome-status="loss">
           <span class="status-picker__option-title">亏损</span>
           <span class="status-picker__option-note">本单已开单并亏损</span>
+        </button>
+        <button id="status-picker-not-filled" type="button" class="status-picker__option status-picker__option--not-filled" data-outcome-status="not_filled">
+          <span class="status-picker__option-title">未成交</span>
+          <span class="status-picker__option-note">本单未能成交</span>
         </button>
       </div>
       <p id="status-picker-error" class="status-picker__error" role="alert" aria-live="polite"></p>
       <button id="status-picker-cancel" type="button" class="status-picker__cancel">取消</button>
     </div>
   </div>
+
+  <div id="app-toast" class="app-toast" role="status" aria-live="polite" hidden></div>
 
   <script src="./js/main.js"></script>
 </body>
