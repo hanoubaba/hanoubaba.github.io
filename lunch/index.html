@@ -4,30 +4,32 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#fff7f0" />
-  <title>午餐菜单</title>
+  <title>陈住气小饭堂</title>
   <link rel="stylesheet" href="./css/style.css" />
 </head>
 <body>
-  <main class="app" aria-label="午餐菜单">
+  <main class="app" aria-label="陈住气小饭堂">
     <header class="topbar">
       <div class="topbar__copy">
-        <p class="topbar__eyebrow">MINI MENU</p>
-        <h1>午餐菜单</h1>
-        <p class="topbar__desc">左侧点分类，右侧直接看菜名和图片。</p>
+        <h1>陈住气小饭堂</h1>
       </div>
-      <div class="topbar__status">
-        <span class="topbar__status-dot" aria-hidden="true"></span>
-        营业中
+      <div class="page-switch" role="tablist" aria-label="页面切换">
+        <button id="btn-tab-order" type="button" class="page-switch__btn is-active" role="tab" aria-selected="true">点餐</button>
+        <button id="btn-tab-stats" type="button" class="page-switch__btn" role="tab" aria-selected="false">统计</button>
       </div>
     </header>
 
-    <section class="hero-strip" id="hero-strip" aria-label="推荐菜品"></section>
-
-    <section class="menu-shell" aria-label="菜单列表">
-      <aside class="category-rail" id="category-rail" aria-label="菜单分类"></aside>
-      <section class="menu-panel">
-        <div class="menu-scroll" id="menu-scroll"></div>
+    <section id="order-page" class="order-page" aria-label="点餐">
+      <section class="menu-shell" aria-label="菜单列表">
+        <aside class="category-rail" id="category-rail" aria-label="菜单分类"></aside>
+        <section class="menu-panel">
+          <div class="menu-scroll" id="menu-scroll"></div>
+        </section>
       </section>
+    </section>
+
+    <section id="stats-page" class="stats-page" aria-label="统计" hidden>
+      <div id="stats-panel" class="stats-panel"></div>
     </section>
   </main>
 

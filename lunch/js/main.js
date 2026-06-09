@@ -1,103 +1,323 @@
 const MENU = [
   {
-    id: 'rice',
-    name: '盖饭',
-    desc: '下饭稳妥，工作日最省脑子。',
+    id: 'meat',
+    name: '肉食主义',
+    desc: '大口吃肉，今天就选硬菜。',
     cover: './assets/rice.png',
     items: [
-      { name: '黄焖鸡米饭', price: 22, desc: '鸡腿肉、香菇、青椒，酱香很足。', sales: '月售 186', tags: ['热销', '米饭'] },
-      { name: '台式卤肉饭', price: 24, desc: '卤肉碎配卤蛋，口味偏甜咸。', sales: '月售 132', tags: ['经典', '卤香'] },
-      { name: '照烧鸡排饭', price: 25, desc: '鸡排外脆内嫩，适合想吃得扎实一点。', sales: '月售 168', tags: ['招牌', '鸡排'] },
-      { name: '黑椒牛柳饭', price: 28, desc: '黑椒香气更重，配菜也更足。', sales: '月售 119', tags: ['牛肉', '重口'] },
+      { name: '红烧排骨', desc: '酱香浓一点，配米饭很稳。', tags: ['排骨', '红烧'] },
+      { name: '炒鸡', desc: '家常炒鸡，香辣下饭。', tags: ['鸡肉', '下饭'] },
+      { name: '咖喱鸡', desc: '咖喱汤汁浓，适合拌饭。', tags: ['鸡肉', '咖喱'] },
+      { name: '番茄牛腩', desc: '番茄酸甜，牛腩炖软。', tags: ['牛腩', '酸甜'] },
+      { name: '肉末豆腐', desc: '豆腐嫩，肉末香，口味不重。', tags: ['豆腐', '肉末'] },
+      { name: '红烧肉', desc: '肥瘦相间，甜咸口。', tags: ['猪肉', '红烧'] },
+      { name: '红烧猪蹄', desc: '软糯胶香，适合慢慢吃。', tags: ['猪蹄', '红烧'] },
+      { name: '卤鸡腿', desc: '卤香入味，简单顶饱。', tags: ['鸡腿', '卤味'] },
     ],
   },
   {
-    id: 'noodle',
-    name: '粉面',
-    desc: '出餐快，汤面拌面都能选。',
-    cover: './assets/noodle.png',
-    items: [
-      { name: '兰州牛肉面', price: 20, desc: '清汤红油分层，牛肉片加香菜。', sales: '月售 208', tags: ['汤面', '清爽'] },
-      { name: '重庆小面', price: 18, desc: '麻辣鲜香，适合想吃得更刺激一点。', sales: '月售 174', tags: ['麻辣', '拌面'] },
-      { name: '酸辣粉', price: 19, desc: '红薯粉更滑，酸度更突出。', sales: '月售 153', tags: ['开胃', '粉类'] },
-      { name: '肥肠米线', price: 24, desc: '汤底更浓，带一点酸豆角香。', sales: '月售 91', tags: ['米线', '浓汤'] },
-    ],
-  },
-  {
-    id: 'snack',
-    name: '小吃简餐',
-    desc: '吃得快一点，也适合拼单。',
-    cover: './assets/snack.png',
-    items: [
-      { name: '沙县蒸饺套餐', price: 16, desc: '蒸饺配炖盅，分量轻巧。', sales: '月售 143', tags: ['轻量', '套餐'] },
-      { name: '生煎锅贴', price: 17, desc: '底部酥脆，适合配豆浆。', sales: '月售 157', tags: ['人气', '脆口'] },
-      { name: '鸡腿手抓饼', price: 15, desc: '酱香偏甜，适合边走边吃。', sales: '月售 121', tags: ['便捷', '饼类'] },
-      { name: '炸鸡年糕杯', price: 21, desc: '韩式甜辣风味，满足感更强。', sales: '月售 88', tags: ['韩式', '小食'] },
-    ],
-  },
-  {
-    id: 'light',
-    name: '轻食',
-    desc: '下午不犯困的组合。',
+    id: 'vegetable',
+    name: '素菜',
+    desc: '清爽一点，配肉也合适。',
     cover: './assets/light.png',
     items: [
-      { name: '鸡胸沙拉碗', price: 26, desc: '鸡胸、玉米、紫甘蓝、油醋汁。', sales: '月售 111', tags: ['低负担', '高蛋白'] },
-      { name: '牛油果虾仁卷', price: 29, desc: '口感更清爽，适合天气热的时候。', sales: '月售 74', tags: ['冷食', '清爽'] },
-      { name: '全麦三明治', price: 18, desc: '火腿鸡蛋搭配生菜番茄。', sales: '月售 127', tags: ['便当', '轻量'] },
-      { name: '酸奶水果杯', price: 16, desc: '可以配主食，也能单独加餐。', sales: '月售 98', tags: ['加餐', '甜口'] },
+      { name: '番茄炒蛋', desc: '酸甜家常，最稳的素菜。', tags: ['鸡蛋', '番茄'] },
+      { name: '炒土豆丝', desc: '脆口清爽，简单下饭。', tags: ['土豆', '爽口'] },
+      { name: '炒豆芽', desc: '清脆不腻，适合配肉菜。', tags: ['豆芽', '清爽'] },
     ],
   },
   {
     id: 'soup',
     name: '汤锅',
-    desc: '想吃热乎的就看这里。',
+    desc: '热乎乎的汤和面。',
     cover: './assets/soup.png',
     items: [
-      { name: '番茄肥牛锅', price: 29, desc: '酸甜汤底，配金针菇和粉丝。', sales: '月售 138', tags: ['暖胃', '肥牛'] },
-      { name: '酸菜鱼单人锅', price: 32, desc: '鱼片更嫩，酸菜味更立体。', sales: '月售 116', tags: ['单人锅', '招牌'] },
-      { name: '麻辣烫自选锅', price: 24, desc: '微麻微辣，蔬菜肉丸都能搭。', sales: '月售 192', tags: ['自选', '热辣'] },
-      { name: '菌菇鸡汤锅', price: 28, desc: '汤底清鲜，适合不想吃辣。', sales: '月售 83', tags: ['清汤', '菌菇'] },
-    ],
-  },
-  {
-    id: 'drink',
-    name: '饮品配餐',
-    desc: '补一个饮品，或者甜口收尾。',
-    cover: './assets/drink.png',
-    items: [
-      { name: '鲜榨柠檬茶', price: 12, desc: '酸甜清口，配炸物很合适。', sales: '月售 223', tags: ['解腻', '冷饮'] },
-      { name: '无糖豆浆', price: 8, desc: '热饮稳妥，早餐午餐都能配。', sales: '月售 165', tags: ['热饮', '低糖'] },
-      { name: '杨枝甘露', price: 15, desc: '芒果和西米更多，适合甜口。', sales: '月售 118', tags: ['甜品', '冰爽'] },
-      { name: '乌龙奶茶', price: 14, desc: '茶味更重，甜度中等。', sales: '月售 149', tags: ['奶茶', '加餐'] },
+      { name: '排骨汤', desc: '清炖排骨汤，暖胃不腻。', tags: ['排骨', '汤'] },
+      { name: '丸子汤', desc: '丸子配清汤，简单热乎。', tags: ['丸子', '汤'] },
+      { name: '紫菜汤', desc: '清淡快手，配饭刚好。', tags: ['紫菜', '清淡'] },
+      { name: '炝锅面', desc: '热汤面，想吃主食就选它。', tags: ['面', '热汤'] },
     ],
   },
 ];
 
-const heroStripEl = document.getElementById('hero-strip');
+const statsPanelEl = document.getElementById('stats-panel');
 const categoryRailEl = document.getElementById('category-rail');
 const menuScrollEl = document.getElementById('menu-scroll');
+const STORAGE_KEY = 'chenzhuqi-lunch-choice-history';
 
 let activeCategoryId = MENU[0]?.id || '';
+let currentPage = 'order';
 let syncingFromRail = false;
 let syncTimer = 0;
+let syncFrame = 0;
+let choiceHistory = readChoiceHistory();
 
-function formatPrice(price) {
-  return `¥${price}`;
+function buildDishId(sectionId, itemIndex) {
+  return `${sectionId}-${itemIndex}`;
 }
 
-function renderHeroStrip() {
-  const picks = MENU.map((section) => ({
-    section: section.name,
-    item: section.items[0],
-  })).slice(0, 3);
+function getTodayKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
-  heroStripEl.innerHTML = picks.map(({ section, item }) => `
-    <article class="hero-card">
-      <p class="hero-card__label">${section}</p>
-      <h2 class="hero-card__name">${item.name}</h2>
-      <p class="hero-card__price">${formatPrice(item.price)}</p>
-    </article>
-  `).join('');
+function formatDateLabel(dateKey) {
+  if (dateKey === getTodayKey()) return '今天';
+  const parts = dateKey.split('-');
+  if (parts.length !== 3) return dateKey;
+  return `${Number(parts[1])}月${Number(parts[2])}日`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char]));
+}
+
+function readChoiceHistory() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_err) {
+    return {};
+  }
+}
+
+function saveChoiceHistory() {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(choiceHistory));
+  } catch (_err) {
+    // 本地存储不可用时仍保留当前页面内的选择状态。
+  }
+}
+
+function getTodayChoice() {
+  const choice = choiceHistory[getTodayKey()] || null;
+  return choice && findDishById(choice.dishId) ? choice : null;
+}
+
+function getTodayRecord() {
+  const choice = choiceHistory[getTodayKey()] || null;
+  return choice && choice.dishName ? choice : null;
+}
+
+function findDishById(dishId) {
+  for (const section of MENU) {
+    const itemIndex = section.items.findIndex((item, index) => buildDishId(section.id, index) === dishId);
+    if (itemIndex >= 0) {
+      return {
+        dishId,
+        item: section.items[itemIndex],
+        section,
+      };
+    }
+  }
+  return null;
+}
+
+function getHistoryRecords() {
+  return Object.values(choiceHistory)
+    .filter((record) => record && record.date && record.dishName)
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function getRecordInfo(record) {
+  const dish = record.dishId ? findDishById(record.dishId) : null;
+  const matchedSection = dish?.section || MENU.find((section) => (
+    section.id === record.sectionId || section.name === record.sectionName
+  ));
+
+  return {
+    dishName: record.dishName || dish?.item.name || '未命名',
+    sectionId: record.sectionId || matchedSection?.id || record.sectionName || 'unknown',
+    sectionName: record.sectionName || matchedSection?.name || '未分类',
+  };
+}
+
+function getDishStats(records) {
+  const counts = new Map();
+  records.forEach((record) => {
+    const info = getRecordInfo(record);
+    const current = counts.get(info.dishName) || {
+      dishName: info.dishName,
+      sectionName: info.sectionName,
+      count: 0,
+    };
+    current.count += 1;
+    counts.set(info.dishName, current);
+  });
+
+  return Array.from(counts.values())
+    .sort((a, b) => b.count - a.count || a.dishName.localeCompare(b.dishName, 'zh-Hans-CN'));
+}
+
+function getSectionStats(records) {
+  const counts = new Map(MENU.map((section, index) => [section.id, {
+    sectionId: section.id,
+    sectionName: section.name,
+    count: 0,
+    order: index,
+  }]));
+
+  records.forEach((record) => {
+    const info = getRecordInfo(record);
+    const current = counts.get(info.sectionId) || {
+      sectionId: info.sectionId,
+      sectionName: info.sectionName,
+      count: 0,
+      order: MENU.length,
+    };
+    current.count += 1;
+    counts.set(info.sectionId, current);
+  });
+
+  return Array.from(counts.values())
+    .sort((a, b) => a.order - b.order || a.sectionName.localeCompare(b.sectionName, 'zh-Hans-CN'));
+}
+
+function getPercentValue(count, total) {
+  if (!total) return 0;
+  return Math.round((count / total) * 100);
+}
+
+function renderStatsPanel() {
+  const todayChoice = getTodayRecord();
+  const records = getHistoryRecords();
+  const dishStats = getDishStats(records);
+  const sectionStats = getSectionStats(records);
+  const dishStatMap = new Map(dishStats.map((stat) => [stat.dishName, stat]));
+  const dishRankMap = new Map(dishStats.map((stat, index) => [stat.dishName, index + 1]));
+  const sectionStatMap = new Map(sectionStats.map((stat) => [stat.sectionId, stat]));
+  const favoriteDish = dishStats[0] || null;
+  const favoriteSection = sectionStats
+    .filter((stat) => stat.count > 0)
+    .sort((a, b) => b.count - a.count || a.order - b.order)[0] || null;
+
+  const categoryMarkup = sectionStats.map((stat) => {
+    const percent = getPercentValue(stat.count, records.length);
+    const isTop = favoriteSection?.sectionId === stat.sectionId;
+
+    return `
+      <div class="stats-category${isTop ? ' is-top' : ''}">
+        <div class="stats-category__head">
+          <strong>${escapeHtml(stat.sectionName)}</strong>
+          <span>${stat.count}次</span>
+        </div>
+        <div class="stats-category__meter" aria-label="${escapeHtml(stat.sectionName)}占比${percent}%">
+          <span style="--value: ${percent}%"></span>
+        </div>
+        <span class="stats-category__percent">${percent}%</span>
+      </div>
+    `;
+  }).join('');
+
+  const historyMarkup = records.length
+    ? records.map((record) => {
+      const info = getRecordInfo(record);
+      const dishStat = dishStatMap.get(info.dishName);
+      const sectionStat = sectionStatMap.get(info.sectionId);
+      const rank = dishRankMap.get(info.dishName);
+
+      return `
+      <li class="stats-list__item">
+        <span class="stats-list__date">${formatDateLabel(record.date)}</span>
+        <div class="stats-list__main">
+          <strong>${escapeHtml(info.dishName)}</strong>
+          <span>${escapeHtml(info.sectionName)}</span>
+        </div>
+        <div class="stats-list__chips">
+          <span>本菜 ${dishStat?.count || 0}次</span>
+          <span>分类 ${sectionStat?.count || 0}次</span>
+          <span>常选 #${rank || '-'}</span>
+        </div>
+      </li>
+    `;
+    }).join('')
+    : '<li class="stats-empty">暂无记录</li>';
+
+  statsPanelEl.innerHTML = `
+    <section class="stats-block stats-block--overview">
+      <div class="stats-block__header">
+        <h2>数据统计</h2>
+        ${todayChoice ? '<button type="button" class="stats-clear" data-clear-today="true">清除</button>' : ''}
+      </div>
+      <div class="stats-summary">
+        <div class="stats-summary__item">
+          <span class="stats-summary__label">记录天数</span>
+          <span class="stats-summary__value">${records.length}天</span>
+        </div>
+        <div class="stats-summary__item${todayChoice ? ' stats-summary__item--today' : ''}">
+          <span class="stats-summary__label">今日</span>
+          <span class="stats-summary__value">${todayChoice ? escapeHtml(todayChoice.dishName) : '未选'}</span>
+        </div>
+        <div class="stats-summary__item">
+          <span class="stats-summary__label">菜品数</span>
+          <span class="stats-summary__value">${dishStats.length}道</span>
+        </div>
+        <div class="stats-summary__item${favoriteDish ? ' stats-summary__item--favorite' : ''}">
+          <span class="stats-summary__label">常选</span>
+          <span class="stats-summary__value">${favoriteDish ? escapeHtml(favoriteDish.dishName) : '-'}</span>
+          <span class="stats-summary__note">${favoriteDish ? `${favoriteDish.count}次` : '暂无'}</span>
+        </div>
+      </div>
+    </section>
+    <section class="stats-block">
+      <div class="stats-block__header">
+        <h2>分类占比</h2>
+        <span>${favoriteSection ? `偏好 ${escapeHtml(favoriteSection.sectionName)}` : '暂无偏好'}</span>
+      </div>
+      <div class="stats-categories">${categoryMarkup}</div>
+    </section>
+    <section class="stats-block">
+      <div class="stats-block__header">
+        <h2>每日列表</h2>
+        <span>${records.length}天</span>
+      </div>
+      <ul class="stats-list">${historyMarkup}</ul>
+    </section>
+  `;
+}
+
+function updateSelectedDishCards() {
+  const selectedDishId = getTodayChoice()?.dishId || '';
+  menuScrollEl.querySelectorAll('[data-dish-id]').forEach((button) => {
+    const selected = button.getAttribute('data-dish-id') === selectedDishId;
+    button.classList.toggle('is-selected', selected);
+    button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    const selectedBadge = button.querySelector('.dish-card__selected');
+    if (selectedBadge) {
+      selectedBadge.hidden = !selected;
+    }
+  });
+}
+
+function toggleDishChoice(dishId) {
+  const todayKey = getTodayKey();
+  const currentChoice = getTodayChoice();
+
+  if (currentChoice?.dishId === dishId) {
+    delete choiceHistory[todayKey];
+  } else {
+    const dish = findDishById(dishId);
+    if (!dish) return;
+    choiceHistory[todayKey] = {
+      date: todayKey,
+      dishId,
+      dishName: dish.item.name,
+      sectionId: dish.section.id,
+      sectionName: dish.section.name,
+    };
+  }
+
+  saveChoiceHistory();
+  renderStatsPanel();
+  updateSelectedDishCards();
 }
 
 function renderCategoryRail() {
@@ -122,28 +342,37 @@ function renderMenuSections() {
         <div>
           <h2 class="section-header__title">${section.name}</h2>
           <p class="section-header__desc">${section.desc}</p>
-          <div class="section-header__count">${section.items.length} 款在售</div>
+          <div class="section-header__count">${section.items.length} 道可选</div>
         </div>
         <img class="section-header__thumb" src="${section.cover}" alt="${section.name}" loading="lazy" />
       </header>
 
       <div class="dish-list">
-        ${section.items.map((item) => `
-          <article class="dish-card">
+        ${section.items.map((item, itemIndex) => {
+          const dishId = buildDishId(section.id, itemIndex);
+          const selected = getTodayChoice()?.dishId === dishId;
+
+          return `
+          <button
+            type="button"
+            class="dish-card${selected ? ' is-selected' : ''}"
+            data-dish-id="${dishId}"
+            aria-pressed="${selected ? 'true' : 'false'}"
+          >
             <div class="dish-card__body">
-              <h3 class="dish-card__title">${item.name}</h3>
+              <div class="dish-card__head">
+                <h3 class="dish-card__title">${item.name}</h3>
+                <span class="dish-card__selected"${selected ? '' : ' hidden'}>已选</span>
+              </div>
               <p class="dish-card__desc">${item.desc}</p>
               <div class="dish-card__meta">
                 ${item.tags.map((tag, tagIndex) => `<span class="${buildTagClass(tagIndex)}">${tag}</span>`).join('')}
               </div>
-              <div class="dish-card__bottom">
-                <span class="dish-card__sales">${item.sales}</span>
-                <strong class="dish-card__price">${formatPrice(item.price)}</strong>
-              </div>
             </div>
             <img class="dish-card__image" src="${section.cover}" alt="${item.name}" loading="lazy" />
-          </article>
-        `).join('')}
+          </button>
+        `;
+        }).join('')}
       </div>
     </section>
   `).join('');
@@ -165,15 +394,30 @@ function setActiveCategory(id) {
 function scrollMenuToCategory(id) {
   const target = document.getElementById(`section-${id}`);
   if (!target) return;
+  const maxScrollTop = Math.max(0, menuScrollEl.scrollHeight - menuScrollEl.clientHeight);
+  const targetTop = Math.min(Math.max(0, target.offsetTop - 10), maxScrollTop);
+
   syncingFromRail = true;
+  window.clearTimeout(syncTimer);
+  window.cancelAnimationFrame(syncFrame);
   menuScrollEl.scrollTo({
-    top: target.offsetTop - 10,
+    top: targetTop,
     behavior: 'smooth',
   });
-  window.clearTimeout(syncTimer);
+
+  const waitForScroll = () => {
+    if (Math.abs(menuScrollEl.scrollTop - targetTop) <= 2) {
+      syncingFromRail = false;
+      return;
+    }
+    syncFrame = window.requestAnimationFrame(waitForScroll);
+  };
+
+  syncFrame = window.requestAnimationFrame(waitForScroll);
   syncTimer = window.setTimeout(() => {
+    window.cancelAnimationFrame(syncFrame);
     syncingFromRail = false;
-  }, 260);
+  }, 900);
 }
 
 function getCurrentSectionId() {
@@ -200,6 +444,50 @@ function bindCategoryRail() {
   });
 }
 
+function bindStatsPanel() {
+  statsPanelEl.addEventListener('click', (event) => {
+    const button = event.target instanceof HTMLElement ? event.target.closest('[data-clear-today]') : null;
+    if (!button) return;
+    delete choiceHistory[getTodayKey()];
+    saveChoiceHistory();
+    renderStatsPanel();
+    updateSelectedDishCards();
+  });
+}
+
+function bindDishSelection() {
+  menuScrollEl.addEventListener('click', (event) => {
+    const button = event.target instanceof HTMLElement ? event.target.closest('[data-dish-id]') : null;
+    if (!button) return;
+    toggleDishChoice(button.getAttribute('data-dish-id') || '');
+  });
+}
+
+function setPage(mode) {
+  const orderPage = document.getElementById('order-page');
+  const statsPage = document.getElementById('stats-page');
+  const btnOrder = document.getElementById('btn-tab-order');
+  const btnStats = document.getElementById('btn-tab-stats');
+  if (!orderPage || !statsPage || !btnOrder || !btnStats) return;
+
+  const toStats = mode === 'stats';
+  currentPage = toStats ? 'stats' : 'order';
+
+  orderPage.hidden = toStats;
+  statsPage.hidden = !toStats;
+  btnOrder.classList.toggle('is-active', !toStats);
+  btnOrder.setAttribute('aria-selected', toStats ? 'false' : 'true');
+  btnStats.classList.toggle('is-active', toStats);
+  btnStats.setAttribute('aria-selected', toStats ? 'true' : 'false');
+
+  if (toStats) renderStatsPanel();
+}
+
+function bindPageSwitch() {
+  document.getElementById('btn-tab-order')?.addEventListener('click', () => setPage('order'));
+  document.getElementById('btn-tab-stats')?.addEventListener('click', () => setPage('stats'));
+}
+
 function bindMenuScroll() {
   menuScrollEl.addEventListener('scroll', () => {
     if (syncingFromRail) return;
@@ -210,8 +498,12 @@ function bindMenuScroll() {
   }, { passive: true });
 }
 
-renderHeroStrip();
+renderStatsPanel();
 renderCategoryRail();
 renderMenuSections();
 bindCategoryRail();
+bindStatsPanel();
+bindDishSelection();
+bindPageSwitch();
 bindMenuScroll();
+setPage(currentPage);
