@@ -43,13 +43,29 @@ const MENU = [
 const statsPanelEl = document.getElementById('stats-panel');
 const categoryRailEl = document.getElementById('category-rail');
 const menuScrollEl = document.getElementById('menu-scroll');
+const submitBarEl = document.getElementById('submit-bar');
+const submitDishEl = document.getElementById('submit-dish');
+const submitMetaEl = document.getElementById('submit-meta');
+const submitChoiceButtonEl = document.getElementById('submit-choice');
+const submitStatusEl = document.getElementById('submit-status');
 const STORAGE_KEY = 'chenzhuqi-lunch-choice-history';
+const SUPABASE_URL = 'https://rxggjijrfafcrmtkqkuv.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_8B1PLTeHhtPou4lPt9cl6w_O2hipMVY';
+const LUNCH_ORDERS_ENDPOINT = `${SUPABASE_URL}/rest/v1/lunch_orders`;
+const LUNCH_ORDERS_QUERY = 'select=id,selected_at,category,name,created_at&order=selected_at.desc';
 
 let activeCategoryId = MENU[0]?.id || '';
 let currentPage = 'order';
 let syncingFromRail = false;
 let syncTimer = 0;
 let syncFrame = 0;
+let submitPending = false;
+let submitFeedback = '';
+let submitFeedbackType = '';
+let statsRecords = [];
+let statsLoading = false;
+let statsLoaded = false;
+let statsError = '';
 let choiceHistory = readChoiceHistory();
 
 function buildDishId(sectionId, itemIndex) {
@@ -61,6 +77,11 @@ function getTodayKey(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function getDateKeyFromTimestamp(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : getTodayKey(date);
 }
 
 function formatDateLabel(dateKey) {
@@ -97,6 +118,15 @@ function saveChoiceHistory() {
   }
 }
 
+function getSupabaseHeaders(extra = {}) {
+  return {
+    apikey: SUPABASE_KEY,
+    Authorization: `Bearer ${SUPABASE_KEY}`,
+    'Content-Type': 'application/json',
+    ...extra,
+  };
+}
+
 function getTodayChoice() {
   const choice = choiceHistory[getTodayKey()] || null;
   return choice && findDishById(choice.dishId) ? choice : null;
@@ -125,6 +155,64 @@ function getHistoryRecords() {
   return Object.values(choiceHistory)
     .filter((record) => record && record.date && record.dishName)
     .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function normalizeLunchOrderRows(rows) {
+  const mappedRecords = (Array.isArray(rows) ? rows : [])
+    .map((row) => {
+      const selectedAt = row?.selected_at || row?.created_at || '';
+      return {
+        id: row?.id || '',
+        date: getDateKeyFromTimestamp(selectedAt),
+        selectedAt,
+        dishName: row?.name || '',
+        sectionName: row?.category || '',
+      };
+    })
+    .filter((record) => record.date && record.dishName && record.sectionName);
+
+  const latestByDate = new Map();
+  mappedRecords.forEach((record) => {
+    const existing = latestByDate.get(record.date);
+    if (!existing || String(record.selectedAt).localeCompare(String(existing.selectedAt)) > 0) {
+      latestByDate.set(record.date, record);
+    }
+  });
+
+  return Array.from(latestByDate.values())
+    .sort((a, b) => (
+      b.date.localeCompare(a.date)
+      || String(b.selectedAt).localeCompare(String(a.selectedAt))
+    ));
+}
+
+async function fetchLunchOrderRecords() {
+  const res = await fetch(`${LUNCH_ORDERS_ENDPOINT}?${LUNCH_ORDERS_QUERY}`, {
+    headers: getSupabaseHeaders(),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return normalizeLunchOrderRows(await res.json());
+}
+
+async function loadStatsPanel({ force = false } = {}) {
+  if (statsLoading || (statsLoaded && !force)) {
+    renderStatsPanel();
+    return;
+  }
+
+  statsLoading = true;
+  statsError = '';
+  renderStatsPanel();
+
+  try {
+    statsRecords = await fetchLunchOrderRecords();
+    statsLoaded = true;
+  } catch (_err) {
+    statsError = '统计加载失败';
+  } finally {
+    statsLoading = false;
+    renderStatsPanel();
+  }
 }
 
 function getRecordInfo(record) {
@@ -187,8 +275,18 @@ function getPercentValue(count, total) {
 }
 
 function renderStatsPanel() {
-  const todayChoice = getTodayRecord();
-  const records = getHistoryRecords();
+  if (statsLoading && !statsLoaded) {
+    statsPanelEl.innerHTML = '<section class="stats-block"><div class="stats-empty">加载中...</div></section>';
+    return;
+  }
+
+  if (statsError && !statsRecords.length) {
+    statsPanelEl.innerHTML = `<section class="stats-block"><div class="stats-empty">${escapeHtml(statsError)}</div></section>`;
+    return;
+  }
+
+  const records = statsRecords;
+  const todayChoice = records.find((record) => record.date === getTodayKey()) || null;
   const dishStats = getDishStats(records);
   const sectionStats = getSectionStats(records);
   const dishStatMap = new Map(dishStats.map((stat) => [stat.dishName, stat]));
@@ -245,7 +343,7 @@ function renderStatsPanel() {
     <section class="stats-block stats-block--overview">
       <div class="stats-block__header">
         <h2>数据统计</h2>
-        ${todayChoice ? '<button type="button" class="stats-clear" data-clear-today="true">清除</button>' : ''}
+        <span>${statsLoading ? '刷新中' : '接口数据'}</span>
       </div>
       <div class="stats-summary">
         <div class="stats-summary__item">
@@ -254,7 +352,7 @@ function renderStatsPanel() {
         </div>
         <div class="stats-summary__item${todayChoice ? ' stats-summary__item--today' : ''}">
           <span class="stats-summary__label">今日</span>
-          <span class="stats-summary__value">${todayChoice ? escapeHtml(todayChoice.dishName) : '未选'}</span>
+          <span class="stats-summary__value">${todayChoice ? escapeHtml(todayChoice.dishName) : '未提交'}</span>
         </div>
         <div class="stats-summary__item">
           <span class="stats-summary__label">菜品数</span>
@@ -282,6 +380,89 @@ function renderStatsPanel() {
       <ul class="stats-list">${historyMarkup}</ul>
     </section>
   `;
+}
+
+function setSubmitFeedback(message = '', type = '') {
+  submitFeedback = message;
+  submitFeedbackType = type;
+  renderSubmitBar();
+}
+
+function renderSubmitBar() {
+  if (!submitBarEl || !submitDishEl || !submitMetaEl || !submitChoiceButtonEl || !submitStatusEl) return;
+
+  const choice = getTodayChoice();
+  if (!choice) {
+    submitBarEl.hidden = true;
+    submitDishEl.textContent = '未选择';
+    submitMetaEl.textContent = '请选择今日想吃的饭';
+    submitStatusEl.textContent = '';
+    submitStatusEl.className = 'submit-bar__status';
+    submitChoiceButtonEl.disabled = true;
+    submitChoiceButtonEl.textContent = '提交';
+    return;
+  }
+
+  submitBarEl.hidden = false;
+  submitDishEl.textContent = choice.dishName;
+  submitMetaEl.textContent = `${choice.sectionName} · ${choice.submittedAt ? '已提交' : '待提交'}`;
+  submitChoiceButtonEl.disabled = submitPending || Boolean(choice.submittedAt);
+  submitChoiceButtonEl.textContent = submitPending ? '提交中' : (choice.submittedAt ? '已提交' : '提交');
+  submitStatusEl.textContent = submitFeedback;
+  submitStatusEl.className = `submit-bar__status${submitFeedbackType ? ` is-${submitFeedbackType}` : ''}`;
+}
+
+async function submitLunchOrder(record) {
+  const res = await fetch(LUNCH_ORDERS_ENDPOINT, {
+    method: 'POST',
+    headers: getSupabaseHeaders({ Prefer: 'return=representation' }),
+    body: JSON.stringify(record),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  return Array.isArray(data) ? data[0] : data;
+}
+
+async function submitCurrentChoice() {
+  if (submitPending) return;
+
+  const todayKey = getTodayKey();
+  const choice = getTodayChoice();
+  if (!choice) {
+    setSubmitFeedback('请先选择', 'error');
+    return;
+  }
+  if (choice.submittedAt) return;
+
+  const submittedAt = new Date().toISOString();
+  submitPending = true;
+  setSubmitFeedback('', '');
+
+  try {
+    const result = await submitLunchOrder({
+      selected_at: submittedAt,
+      category: choice.sectionName,
+      name: choice.dishName,
+    });
+
+    choiceHistory[todayKey] = {
+      ...choiceHistory[todayKey],
+      submittedAt,
+      remoteOrderId: result?.id || choiceHistory[todayKey]?.remoteOrderId || '',
+    };
+    saveChoiceHistory();
+    setSubmitFeedback('已提交', 'success');
+    statsLoaded = false;
+    statsError = '';
+    if (currentPage === 'stats') {
+      loadStatsPanel({ force: true });
+    }
+  } catch (_err) {
+    setSubmitFeedback('提交失败', 'error');
+  } finally {
+    submitPending = false;
+    renderSubmitBar();
+  }
 }
 
 function updateSelectedDishCards() {
@@ -317,6 +498,8 @@ function toggleDishChoice(dishId) {
 
   saveChoiceHistory();
   renderStatsPanel();
+  setSubmitFeedback('', '');
+  renderSubmitBar();
   updateSelectedDishCards();
 }
 
@@ -451,6 +634,8 @@ function bindStatsPanel() {
     delete choiceHistory[getTodayKey()];
     saveChoiceHistory();
     renderStatsPanel();
+    setSubmitFeedback('', '');
+    renderSubmitBar();
     updateSelectedDishCards();
   });
 }
@@ -480,12 +665,16 @@ function setPage(mode) {
   btnStats.classList.toggle('is-active', toStats);
   btnStats.setAttribute('aria-selected', toStats ? 'true' : 'false');
 
-  if (toStats) renderStatsPanel();
+  if (toStats) loadStatsPanel({ force: true });
 }
 
 function bindPageSwitch() {
   document.getElementById('btn-tab-order')?.addEventListener('click', () => setPage('order'));
   document.getElementById('btn-tab-stats')?.addEventListener('click', () => setPage('stats'));
+}
+
+function bindSubmitChoice() {
+  submitChoiceButtonEl?.addEventListener('click', submitCurrentChoice);
 }
 
 function bindMenuScroll() {
@@ -501,9 +690,11 @@ function bindMenuScroll() {
 renderStatsPanel();
 renderCategoryRail();
 renderMenuSections();
+renderSubmitBar();
 bindCategoryRail();
 bindStatsPanel();
 bindDishSelection();
 bindPageSwitch();
+bindSubmitChoice();
 bindMenuScroll();
 setPage(currentPage);

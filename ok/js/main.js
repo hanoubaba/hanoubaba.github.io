@@ -932,17 +932,24 @@ function getOutcomeStatusLabel(outcomeStatus) {
   return '';
 }
 
-function getCombinedStatusLabel(outcomeStatus, timeStatus) {
+function getCombinedStatusLabel(outcomeStatus, timeStatus, endAt) {
   // 优先显示盈利状态
   if (outcomeStatus === 'profit') return { label: '盈利', type: 'profit' };
   if (outcomeStatus === 'loss') return { label: '亏损', type: 'loss' };
   if (outcomeStatus === 'not_filled') return { label: '未成交', type: 'not-filled' };
 
-  // 待定状态下，根据时间状态显示
-  if (timeStatus === 'ended') return { label: '已到期', type: 'expired' };
+  // 待定且已到期：展示过期了多久，盈利状态修改后不再显示
+  if (timeStatus === 'ended') {
+    const expiredLabel = formatExpiredDuration(endAt);
+    return { label: expiredLabel || '已到期', type: 'expired' };
+  }
 
   // 进行中的待定状态，显示进行中
   return { label: '进行中', type: 'active' };
+}
+
+function shouldShowAdminExpireMeta(outcomeStatus) {
+  return normalizeOutcomeStatus(outcomeStatus) === 'pending';
 }
 
 function parseDateValue(value) {
@@ -968,17 +975,29 @@ function formatStrategyDeadline(endAt) {
   return endAt ? formatCompactDateTimeLabel(endAt) : '—';
 }
 
-function formatCountdownTo(endAt, now = new Date()) {
-  if (!endAt) return '—';
-  const diffMs = endAt.getTime() - now.getTime();
-  if (!Number.isFinite(diffMs) || diffMs <= 0) return '已到期';
-  const totalMinutes = Math.ceil(diffMs / (60 * 1000));
+function formatDurationLabel(totalMinutes) {
   const days = Math.floor(totalMinutes / (24 * 60));
   const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
   const minutes = totalMinutes % 60;
   if (days > 0) return `${days}天${hours}小时${minutes}分钟`;
   if (hours > 0) return `${hours}小时${minutes}分钟`;
   return `${minutes}分钟`;
+}
+
+function formatCountdownTo(endAt, now = new Date()) {
+  if (!endAt) return '—';
+  const diffMs = endAt.getTime() - now.getTime();
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return '已到期';
+  const totalMinutes = Math.ceil(diffMs / (60 * 1000));
+  return formatDurationLabel(totalMinutes);
+}
+
+function formatExpiredDuration(endAt, now = new Date()) {
+  if (!endAt) return '';
+  const diffMs = now.getTime() - endAt.getTime();
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return '';
+  const totalMinutes = Math.ceil(diffMs / (60 * 1000));
+  return totalMinutes > 0 ? `已过期 ${formatDurationLabel(totalMinutes)}` : '已过期';
 }
 
 function getTimeRangeStatusByEndAt(endAt) {
@@ -1378,9 +1397,19 @@ async function renderAdminList() {
       : '';
     const outcomeStatus = normalizeOutcomeStatus(row?.outcomeStatus);
     const timeStatus = getTimeRangeStatusByEndAt(endAt);
-    const combinedStatus = getCombinedStatusLabel(outcomeStatus, timeStatus);
+    const combinedStatus = getCombinedStatusLabel(outcomeStatus, timeStatus, endAt);
+    const showExpireMeta = shouldShowAdminExpireMeta(outcomeStatus);
+    const statusTimeAttrs = combinedStatus.type === 'expired' && expiresAt
+      ? ` data-expires-at="${expiresAt}" data-time-status="ended"`
+      : '';
     const statusHtml = combinedStatus.label
-      ? `<div class="admin-status admin-status--${combinedStatus.type}"><span class="admin-status__tag">${escapeHtml(combinedStatus.label)}</span></div>`
+      ? `<div class="admin-status admin-status--${combinedStatus.type}"><span class="admin-status__tag admin-status__time-value"${statusTimeAttrs}>${escapeHtml(combinedStatus.label)}</span></div>`
+      : '';
+    const expireMetaHtml = showExpireMeta && endAt && timeStatus === 'active'
+      ? [
+        `<span class="admin-item__deadline" aria-label="过期时间">${deadline}</span>`,
+        `<span class="admin-item__countdown" aria-label="倒计时"><span class="admin-item__countdown-value" data-expires-at="${expiresAt}" data-time-status="active">${countdown}</span></span>`,
+      ].join('')
       : '';
     // 待定状态都可以操作，但在选择器中会根据时间状态禁用"未成交"选项
     const outcomeStatusAction = outcomeStatus === 'pending' && id
@@ -1403,8 +1432,7 @@ async function renderAdminList() {
       '<div class="admin-item__actions">',
       '<div class="admin-item__meta">',
       `<span class="admin-item__timeframe" aria-label="时间维度">${timeframe}</span>`,
-      `<span class="admin-item__deadline" aria-label="截止时间">${deadline}</span>`,
-      `<span class="admin-item__countdown" aria-label="倒计时"><span class="admin-item__countdown-value" data-expires-at="${expiresAt}">${countdown}</span></span>`,
+      expireMetaHtml,
       '</div>',
       '<div class="admin-item__buttons">',
       outcomeStatusAction,
@@ -1420,9 +1448,14 @@ async function renderAdminList() {
 
 function updateAdminCountdowns() {
   const now = new Date();
-  document.querySelectorAll('.admin-item__countdown-value').forEach((el) => {
+  document.querySelectorAll('.admin-item__countdown-value[data-time-status="active"]').forEach((el) => {
     const endAt = parseDateValue(el.getAttribute('data-expires-at'));
     el.textContent = formatCountdownTo(endAt, now);
+  });
+  document.querySelectorAll('.admin-status__time-value[data-time-status="ended"]').forEach((el) => {
+    const endAt = parseDateValue(el.getAttribute('data-expires-at'));
+    const label = formatExpiredDuration(endAt, now);
+    if (label) el.textContent = label;
   });
 }
 
