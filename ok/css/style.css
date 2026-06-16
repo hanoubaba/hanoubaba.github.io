@@ -458,29 +458,6 @@ body {
   text-overflow: ellipsis;
 }
 
-.admin-item__copy {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--primary-strong);
-  padding: 7px 10px;
-  min-height: 32px;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.2;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.admin-item__copy:hover {
-  background: var(--surface-tint);
-  color: var(--primary-deep);
-}
-
-.admin-item__copy:active {
-  transform: translateY(1px);
-}
-
 .admin-status {
   flex: none;
   display: flex;
@@ -600,7 +577,7 @@ body {
 .admin-item__actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   margin-top: 9px;
@@ -614,6 +591,7 @@ body {
   align-items: center;
   gap: 4px 0;
   min-width: 0;
+  min-height: 32px;
   color: var(--text);
   font-size: 11px;
   line-height: 1.35;
@@ -632,9 +610,7 @@ body {
   font-weight: 700;
 }
 
-.admin-item__timeframe,
-.admin-item__deadline,
-.admin-item__countdown {
+.admin-item__time-range {
   color: var(--text);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -1363,8 +1339,7 @@ body {
     gap: 7px;
   }
 
-  .admin-status__open,
-  .admin-item__copy {
+  .admin-status__open {
     width: 100%;
     min-height: 34px;
   }

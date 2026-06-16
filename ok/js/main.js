@@ -119,6 +119,7 @@ function getCurrentTimeSlot(stepMinutes) {
 }
 
 const START_TIME_SLOT_COUNT = 5;
+const DEFAULT_TIMEFRAME = '4h';
 
 const TIMEFRAME_MINUTES = {
   '1h': 60,
@@ -132,16 +133,14 @@ const TIMEFRAME_LABELS = {
 
 const PRICE_ADJUSTMENT_RATE = 0;
 const TAKE_PROFIT_R_MULTIPLE = 1;
-const STRATEGY_DURATION_PERIODS = 9;
+const STRATEGY_DURATION_PERIODS = 10;
 
 function getTimeframeMode() {
-  const active = document.querySelector('[data-tablist="timeframe"] .tab-btn.is-active');
-  const mode = active?.getAttribute('data-value');
-  return Object.prototype.hasOwnProperty.call(TIMEFRAME_MINUTES, mode) ? mode : '4h';
+  return DEFAULT_TIMEFRAME;
 }
 
 function getTimeframeMinutes(mode = getTimeframeMode()) {
-  return TIMEFRAME_MINUTES[mode] ?? TIMEFRAME_MINUTES['4h'];
+  return TIMEFRAME_MINUTES[mode] ?? TIMEFRAME_MINUTES[DEFAULT_TIMEFRAME];
 }
 
 function getTimeframeLabel(mode) {
@@ -653,7 +652,6 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     const tablist = btn.closest('[role="tablist"]');
     if (tablist?.getAttribute('data-locked') === 'true') return;
     setTabsActive(btn);
-    if (btn.closest('[data-tablist="timeframe"]')) rebuildStartTimeOptions();
     autoGenerateIfReady();
   });
 });
@@ -706,7 +704,6 @@ function setTablistValue(tablistName, value) {
 
 function resetFrontPage() {
   closeMobileTimePicker();
-  setTablistValue('timeframe', '4h');
   startTimeUserPicked = false;
   rebuildStartTimeOptions();
   if (openInput) openInput.value = '';
@@ -830,12 +827,13 @@ function fromStatsRecord(row) {
   };
 }
 
-function buildStrategyStatsPayload(filterValue = 'all') {
+function buildStrategyStatsPayload(filterValue = 'all', options = {}) {
+  const { ignoreAdminFilters = false } = options;
   const timeFilter = normalizeAdminTimeFilter(filterValue);
-  const timeframeFilter = normalizeAdminTimeframeFilter(adminTimeframeFilter);
-  const outcomeFilter = normalizeAdminOutcomeFilter(adminOutcomeFilter);
+  const timeframeFilter = ignoreAdminFilters ? 'all' : normalizeAdminTimeframeFilter(adminTimeframeFilter);
+  const outcomeFilter = ignoreAdminFilters ? 'all' : normalizeAdminOutcomeFilter(adminOutcomeFilter);
   const payload = {
-    p_name_search: normalizeAdminNameSearch(adminNameSearch) || null,
+    p_name_search: ignoreAdminFilters ? null : normalizeAdminNameSearch(adminNameSearch) || null,
     p_timeframe: timeframeFilter === 'all' ? null : timeframeFilter,
     p_outcome_status: outcomeFilter === 'all' ? null : outcomeFilter,
     p_time_filter: timeFilter,
@@ -853,11 +851,11 @@ function buildStrategyStatsPayload(filterValue = 'all') {
   return payload;
 }
 
-async function fetchStrategyStats(filterValue = 'all') {
+async function fetchStrategyStats(filterValue = 'all', options = {}) {
   const res = await fetch(STRATEGY_STATS_ENDPOINT, {
     method: 'POST',
     headers: getSupabaseHeaders(),
-    body: JSON.stringify(buildStrategyStatsPayload(filterValue)),
+    body: JSON.stringify(buildStrategyStatsPayload(filterValue, options)),
   });
   if (!res.ok) throw new Error(await res.text());
   const data = await res.json();
@@ -944,12 +942,7 @@ function getCombinedStatusLabel(outcomeStatus, timeStatus, endAt) {
     return { label: expiredLabel || '已到期', type: 'expired' };
   }
 
-  // 进行中的待定状态，显示进行中
-  return { label: '进行中', type: 'active' };
-}
-
-function shouldShowAdminExpireMeta(outcomeStatus) {
-  return normalizeOutcomeStatus(outcomeStatus) === 'pending';
+  return { label: formatCountdownTo(endAt), type: 'active' };
 }
 
 function parseDateValue(value) {
@@ -963,6 +956,10 @@ function getStrategyEndAt(row) {
   return parseDateValue(row?.expiresAt);
 }
 
+function getStrategyStartAt(row) {
+  return parseDateValue(row?.startAt);
+}
+
 function formatCompactDateTimeLabel(d, base = new Date()) {
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
   const date = d.getFullYear() === base.getFullYear()
@@ -971,8 +968,10 @@ function formatCompactDateTimeLabel(d, base = new Date()) {
   return `${date} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-function formatStrategyDeadline(endAt) {
-  return endAt ? formatCompactDateTimeLabel(endAt) : '—';
+function formatAdminTimeRange(startAt, endAt) {
+  const start = startAt ? formatCompactDateTimeLabel(startAt) : '—';
+  const end = endAt ? formatCompactDateTimeLabel(endAt) : '—';
+  return `${start} — ${end}`;
 }
 
 function formatDurationLabel(totalMinutes) {
@@ -1255,7 +1254,6 @@ async function deleteSelectedStrategies() {
 }
 
 let pendingOutcomeStatusRecordId = '';
-let pendingOutcomeStatusTimeStatus = '';
 
 function setOutcomeStatusPickerLoading(loading) {
   document.querySelectorAll('#status-picker button').forEach((btn) => {
@@ -1272,22 +1270,8 @@ function openOutcomeStatusPicker(id, timeStatus) {
   const picker = document.getElementById('status-picker');
   if (!picker || !id) return;
   pendingOutcomeStatusRecordId = id;
-  pendingOutcomeStatusTimeStatus = timeStatus;
   setOutcomeStatusPickerLoading(false);
   setOutcomeStatusPickerError('');
-
-  // 根据时间状态禁用"未成交"按钮
-  const notFilledBtn = document.getElementById('status-picker-not-filled');
-  if (notFilledBtn) {
-    const isActive = timeStatus === 'active';
-    notFilledBtn.disabled = isActive;
-    notFilledBtn.classList.toggle('is-disabled', isActive);
-    if (isActive) {
-      notFilledBtn.title = '时间未到期，不能选择未成交';
-    } else {
-      notFilledBtn.title = '';
-    }
-  }
 
   picker.hidden = false;
   document.body.style.overflow = 'hidden';
@@ -1300,7 +1284,6 @@ function closeOutcomeStatusPicker() {
   const picker = document.getElementById('status-picker');
   if (!picker) return;
   pendingOutcomeStatusRecordId = '';
-  pendingOutcomeStatusTimeStatus = '';
   setOutcomeStatusPickerLoading(false);
   setOutcomeStatusPickerError('');
   picker.hidden = true;
@@ -1370,19 +1353,10 @@ async function renderAdminList() {
     const qty = escapeHtml(String(row?.quantity ?? '-'));
     const tp = escapeHtml(String(row?.takeProfitPrice ?? '-'));
     const stop = escapeHtml(String(row?.stopLossPrice ?? '-'));
-    const timeframe = escapeHtml(row?.timeframeLabel || getTimeframeLabel(row?.timeframe) || '-');
+    const startAt = getStrategyStartAt(row);
     const endAt = getStrategyEndAt(row);
-    const deadline = escapeHtml(formatStrategyDeadline(endAt));
-    const countdown = escapeHtml(formatCountdownTo(endAt));
+    const timeRange = escapeHtml(formatAdminTimeRange(startAt, endAt));
     const expiresAt = endAt ? escapeHtml(endAt.toISOString()) : '';
-    const copyText = escapeHtml(buildStrategyCopyText({
-      side: sideRaw,
-      name: nameRaw || '未命名',
-      price: row?.entryPrice ?? '-',
-      quantity: row?.quantity ?? '-',
-      takeProfit: row?.takeProfitPrice ?? '-',
-      stopLoss: row?.stopLossPrice ?? '-',
-    }));
     const id = escapeHtml(rawId);
     const checked = rawId && selectedStrategyIds.has(rawId) ? ' checked' : '';
     const disabled = isDeletingStrategies ? ' disabled' : '';
@@ -1398,22 +1372,18 @@ async function renderAdminList() {
     const outcomeStatus = normalizeOutcomeStatus(row?.outcomeStatus);
     const timeStatus = getTimeRangeStatusByEndAt(endAt);
     const combinedStatus = getCombinedStatusLabel(outcomeStatus, timeStatus, endAt);
-    const showExpireMeta = shouldShowAdminExpireMeta(outcomeStatus);
-    const statusTimeAttrs = combinedStatus.type === 'expired' && expiresAt
-      ? ` data-expires-at="${expiresAt}" data-time-status="ended"`
+    const statusTimeAttrs = (combinedStatus.type === 'expired' || combinedStatus.type === 'active') && expiresAt
+      ? ` data-expires-at="${expiresAt}" data-time-status="${combinedStatus.type === 'expired' ? 'ended' : 'active'}"`
       : '';
     const statusHtml = combinedStatus.label
       ? `<div class="admin-status admin-status--${combinedStatus.type}"><span class="admin-status__tag admin-status__time-value"${statusTimeAttrs}>${escapeHtml(combinedStatus.label)}</span></div>`
       : '';
-    const expireMetaHtml = showExpireMeta && endAt && timeStatus === 'active'
-      ? [
-        `<span class="admin-item__deadline" aria-label="过期时间">${deadline}</span>`,
-        `<span class="admin-item__countdown" aria-label="倒计时"><span class="admin-item__countdown-value" data-expires-at="${expiresAt}" data-time-status="active">${countdown}</span></span>`,
-      ].join('')
-      : '';
-    // 待定状态都可以操作，但在选择器中会根据时间状态禁用"未成交"选项
+    // 待定状态都可以操作
     const outcomeStatusAction = outcomeStatus === 'pending' && id
       ? `<button type="button" class="admin-status__open" data-id="${id}" data-time-status="${timeStatus}" aria-haspopup="dialog" aria-controls="status-picker">盈利状态</button>`
+      : '';
+    const buttonsHtml = outcomeStatusAction
+      ? `<div class="admin-item__buttons">${outcomeStatusAction}</div>`
       : '';
     return [
       `<article class="admin-item admin-item--${sideMod}">`,
@@ -1431,13 +1401,9 @@ async function renderAdminList() {
       '</div>',
       '<div class="admin-item__actions">',
       '<div class="admin-item__meta">',
-      `<span class="admin-item__timeframe" aria-label="时间维度">${timeframe}</span>`,
-      expireMetaHtml,
+      `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
       '</div>',
-      '<div class="admin-item__buttons">',
-      outcomeStatusAction,
-      `<button type="button" class="admin-item__copy" data-copy="${copyText}" aria-label="复制指令">复制指令</button>`,
-      '</div>',
+      buttonsHtml,
       '</div>',
       '</article>',
     ].join('');
@@ -1448,7 +1414,7 @@ async function renderAdminList() {
 
 function updateAdminCountdowns() {
   const now = new Date();
-  document.querySelectorAll('.admin-item__countdown-value[data-time-status="active"]').forEach((el) => {
+  document.querySelectorAll('.admin-status__time-value[data-time-status="active"]').forEach((el) => {
     const endAt = parseDateValue(el.getAttribute('data-expires-at'));
     el.textContent = formatCountdownTo(endAt, now);
   });
@@ -1474,7 +1440,7 @@ async function renderStatsPage() {
   try {
     // 获取全部数据的统计和近10单统计
     const [allStats, recent10Stats] = await Promise.all([
-      fetchStrategyStats('all'),
+      fetchStrategyStats('all', { ignoreAdminFilters: true }),
       fetchRecent10Stats(),
     ]);
 
@@ -1657,7 +1623,10 @@ async function copyStrategyOutput() {
         return;
       }
     }
-    if (saved) showToast('保存成功');
+    if (saved) {
+      showToast('保存成功');
+      resetFrontPage();
+    }
     flashCopyStrategyBtn(btn, saved ? '已保存' : (ok ? '已复制' : '复制失败'));
   } finally {
     isSavingStrategy = false;
@@ -1795,24 +1764,7 @@ if (adminListEl) {
       const id = String(outcomeStatusOpenBtn.getAttribute('data-id') ?? '').trim();
       const timeStatus = String(outcomeStatusOpenBtn.getAttribute('data-time-status') ?? '').trim();
       openOutcomeStatusPicker(id, timeStatus);
-      return;
     }
-
-    const btn = target.closest('.admin-item__copy');
-    if (!btn) return;
-    const text = String(btn.getAttribute('data-copy') ?? '').trim();
-    if (!text) return;
-    let ok = false;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        ok = true;
-      }
-    } catch {
-      ok = false;
-    }
-    if (!ok) ok = copyFallback(text);
-    flashCopyStrategyBtn(btn, ok ? '已复制' : '复制失败');
   });
 }
 
