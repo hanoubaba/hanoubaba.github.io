@@ -548,35 +548,43 @@ body {
 .admin-outcome-status__tag {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   white-space: nowrap;
-  border-radius: 999px;
-  padding: 3px 8px;
-  font-size: 11px;
+  box-sizing: border-box;
+  border-radius: 6px;
+  padding: 5px 10px;
+  min-height: 28px;
+  min-width: 52px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1.2;
-  background: #f0fdf4;
+  border: 1px solid var(--border);
+  background: #fff;
   color: var(--muted);
 }
 
 .admin-outcome-status--profit .admin-outcome-status__tag {
   background: var(--long-soft);
   color: var(--long);
+  border-color: var(--border);
 }
 
 .admin-outcome-status--loss .admin-outcome-status__tag {
   background: var(--short-soft);
   color: var(--short);
+  border-color: #fecaca;
 }
 
 .admin-outcome-status--not-filled .admin-outcome-status__tag {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: #f8fafc;
+  color: #64748b;
+  border-color: #e2e8f0;
 }
 
 .admin-outcome-status--pending .admin-outcome-status__tag {
-  background: #f0fdf4;
-  color: var(--muted);
-  border: 1px dashed var(--border);
+  background: var(--surface-tint);
+  color: var(--primary-strong);
+  border-color: var(--border);
 }
 
 .admin-outcome-status--actionable {
@@ -595,7 +603,7 @@ body {
 .admin-outcome-status--actionable:focus-visible {
   outline: 2px solid rgba(34, 197, 94, 0.55);
   outline-offset: 2px;
-  border-radius: 999px;
+  border-radius: 6px;
 }
 
 .admin-item__metrics {
@@ -1096,11 +1104,6 @@ body {
   background: #fff7f7;
 }
 
-.status-picker__option--pending {
-  border-color: var(--border);
-  background: #f8fafc;
-}
-
 .status-picker__option:active {
   transform: translateY(1px);
 }
@@ -1423,9 +1426,10 @@ body {
     gap: 7px;
   }
 
-  .admin-outcome-status--actionable .admin-outcome-status__tag {
+  .admin-outcome-status__tag {
     min-height: 32px;
-    padding: 7px 10px;
+    min-width: 56px;
+    padding: 7px 12px;
     font-size: 12px;
   }
 

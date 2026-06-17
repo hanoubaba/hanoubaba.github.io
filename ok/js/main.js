@@ -1303,7 +1303,7 @@ function closeOutcomeStatusPicker() {
 }
 
 function isOutcomeStatusChoice(value) {
-  return value === 'profit' || value === 'loss' || value === 'not_filled' || value === 'pending';
+  return value === 'profit' || value === 'loss' || value === 'not_filled';
 }
 
 async function submitOutcomeStatusFromPicker(outcomeStatus) {
