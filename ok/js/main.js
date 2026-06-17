@@ -990,8 +990,17 @@ function formatCountdownTo(endAt, now = new Date()) {
   if (!endAt) return '—';
   const diffMs = endAt.getTime() - now.getTime();
   if (!Number.isFinite(diffMs) || diffMs <= 0) return '已到期';
-  const totalMinutes = Math.ceil(diffMs / (60 * 1000));
-  return formatDurationLabel(totalMinutes);
+
+  const totalSeconds = Math.floor(diffMs / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) return `${days}天${hours}小时${minutes}分钟`;
+  if (hours > 0) return `${hours}小时${minutes}分${pad2(seconds)}秒`;
+  if (minutes > 0) return `${minutes}分${pad2(seconds)}秒`;
+  return `${seconds}秒`;
 }
 
 const COUNTDOWN_URGENT_HOURS = 4;
@@ -1438,16 +1447,35 @@ function updateAdminCountdowns() {
       container?.remove();
       return;
     }
-    el.textContent = formatCountdownTo(endAt, now);
+    const nextLabel = formatCountdownTo(endAt, now);
+    if (el.textContent !== nextLabel) {
+      el.textContent = nextLabel;
+      el.classList.remove('is-ticking');
+      void el.offsetWidth;
+      el.classList.add('is-ticking');
+    }
     container?.classList.toggle('admin-time-status--urgent', isCountdownWithinUrgentWindow(endAt, now));
   });
 }
 
+let adminCountdownTimer = null;
+
+function syncAdminCountdownTimer() {
+  const shouldRun = currentPage === 'admin' && !document.hidden;
+  if (shouldRun && !adminCountdownTimer) {
+    updateAdminCountdowns();
+    adminCountdownTimer = setInterval(updateAdminCountdowns, 1000);
+  } else if (!shouldRun && adminCountdownTimer) {
+    clearInterval(adminCountdownTimer);
+    adminCountdownTimer = null;
+  }
+}
+
 let currentPage = 'front';
 
-setInterval(() => {
-  if (currentPage === 'admin') updateAdminCountdowns();
-}, 60 * 1000);
+document.addEventListener('visibilitychange', () => {
+  syncAdminCountdownTimer();
+});
 
 async function renderStatsPage() {
   const statsEl = document.getElementById('stats-recent-10');
@@ -1560,6 +1588,8 @@ function setPage(mode) {
     resetAdminPageState();
     resetFrontPage();
   }
+
+  syncAdminCountdownTimer();
 }
 
 function showToast(message, duration = 1500) {

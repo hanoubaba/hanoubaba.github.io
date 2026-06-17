@@ -476,12 +476,20 @@ body {
   line-height: 1.2;
   background: #f0fdf4;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 4.5em;
+  justify-content: center;
 }
 
 .admin-time-status--active .admin-time-status__tag {
   background: var(--long-soft);
   color: var(--primary-deep);
   border: 1px solid var(--border);
+  animation: admin-time-status-pulse 1s ease-in-out infinite;
+}
+
+.admin-time-status__value.is-ticking {
+  animation: admin-time-status-tick 0.35s ease;
 }
 
 .admin-time-status--urgent .admin-time-status__tag {
@@ -489,6 +497,34 @@ body {
   color: #c2410c;
   border: 1px solid #fdba74;
   animation: admin-time-status-blink 1.2s ease-in-out infinite;
+}
+
+.admin-time-status--urgent .admin-time-status__value.is-ticking {
+  animation: admin-time-status-tick 0.35s ease, admin-time-status-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes admin-time-status-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03);
+  }
+}
+
+@keyframes admin-time-status-tick {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  35% {
+    transform: translateY(-1px);
+    opacity: 0.65;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 @keyframes admin-time-status-blink {
