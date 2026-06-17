@@ -914,7 +914,7 @@ async function updateStrategyOutcomeStatus(id, outcomeStatus) {
   const res = await fetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
     method: 'PATCH',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify({ outcome_status: normalizeOutcomeStatus(outcomeStatus) }),
+    body: JSON.stringify({ outcome_status: outcomeStatus }),
   });
   if (!res.ok) throw new Error(await res.text());
 }
@@ -927,22 +927,25 @@ function getOutcomeStatusLabel(outcomeStatus) {
   if (outcomeStatus === 'profit') return '盈利';
   if (outcomeStatus === 'loss') return '亏损';
   if (outcomeStatus === 'not_filled') return '未成交';
-  return '';
+  return '待定';
 }
 
-function getCombinedStatusLabel(outcomeStatus, timeStatus, endAt) {
-  // 优先显示盈利状态
-  if (outcomeStatus === 'profit') return { label: '盈利', type: 'profit' };
-  if (outcomeStatus === 'loss') return { label: '亏损', type: 'loss' };
-  if (outcomeStatus === 'not_filled') return { label: '未成交', type: 'not-filled' };
+function getTimeBadgeInfo(endAt, now = new Date()) {
+  if (!endAt) return null;
+  if (getTimeRangeStatusByEndAt(endAt) === 'ended') return null;
+  return {
+    label: formatCountdownTo(endAt, now),
+    type: 'active',
+    timeStatus: 'active',
+  };
+}
 
-  // 待定且已到期：展示过期了多久，盈利状态修改后不再显示
-  if (timeStatus === 'ended') {
-    const expiredLabel = formatExpiredDuration(endAt);
-    return { label: expiredLabel || '已到期', type: 'expired' };
-  }
-
-  return { label: formatCountdownTo(endAt), type: 'active' };
+function getOutcomeStatusInfo(outcomeStatus) {
+  const normalized = normalizeOutcomeStatus(outcomeStatus);
+  if (normalized === 'profit') return { label: '盈利', type: 'profit' };
+  if (normalized === 'loss') return { label: '亏损', type: 'loss' };
+  if (normalized === 'not_filled') return { label: '未成交', type: 'not-filled' };
+  return { label: '待定', type: 'pending' };
 }
 
 function parseDateValue(value) {
@@ -991,12 +994,12 @@ function formatCountdownTo(endAt, now = new Date()) {
   return formatDurationLabel(totalMinutes);
 }
 
-function formatExpiredDuration(endAt, now = new Date()) {
-  if (!endAt) return '';
-  const diffMs = now.getTime() - endAt.getTime();
-  if (!Number.isFinite(diffMs) || diffMs <= 0) return '';
-  const totalMinutes = Math.ceil(diffMs / (60 * 1000));
-  return totalMinutes > 0 ? `已过期 ${formatDurationLabel(totalMinutes)}` : '已过期';
+const COUNTDOWN_URGENT_HOURS = 4;
+
+function isCountdownWithinUrgentWindow(endAt, now = new Date()) {
+  if (!endAt) return false;
+  const diffMs = endAt.getTime() - now.getTime();
+  return Number.isFinite(diffMs) && diffMs > 0 && diffMs <= COUNTDOWN_URGENT_HOURS * 60 * 60 * 1000;
 }
 
 function getTimeRangeStatusByEndAt(endAt) {
@@ -1290,10 +1293,14 @@ function closeOutcomeStatusPicker() {
   document.body.style.overflow = '';
 }
 
+function isOutcomeStatusChoice(value) {
+  return value === 'profit' || value === 'loss' || value === 'not_filled' || value === 'pending';
+}
+
 async function submitOutcomeStatusFromPicker(outcomeStatus) {
-  const nextOutcomeStatus = normalizeOutcomeStatus(outcomeStatus);
+  const nextOutcomeStatus = String(outcomeStatus ?? '').trim();
   const id = pendingOutcomeStatusRecordId;
-  if (!id || nextOutcomeStatus === 'pending') return;
+  if (!id || !isOutcomeStatusChoice(nextOutcomeStatus)) return;
   setOutcomeStatusPickerLoading(true);
   setOutcomeStatusPickerError('');
   try {
@@ -1371,27 +1378,37 @@ async function renderAdminList() {
       : '';
     const outcomeStatus = normalizeOutcomeStatus(row?.outcomeStatus);
     const timeStatus = getTimeRangeStatusByEndAt(endAt);
-    const combinedStatus = getCombinedStatusLabel(outcomeStatus, timeStatus, endAt);
-    const statusTimeAttrs = (combinedStatus.type === 'expired' || combinedStatus.type === 'active') && expiresAt
-      ? ` data-expires-at="${expiresAt}" data-time-status="${combinedStatus.type === 'expired' ? 'ended' : 'active'}"`
+    const timeBadge = getTimeBadgeInfo(endAt);
+    const outcomeInfo = getOutcomeStatusInfo(outcomeStatus);
+    const timeBadgeUrgent = timeBadge?.type === 'active' && isCountdownWithinUrgentWindow(endAt)
+      ? ' admin-time-status--urgent'
       : '';
-    const statusHtml = combinedStatus.label
-      ? `<div class="admin-status admin-status--${combinedStatus.type}"><span class="admin-status__tag admin-status__time-value"${statusTimeAttrs}>${escapeHtml(combinedStatus.label)}</span></div>`
+    const timeBadgeHtml = timeBadge && expiresAt
+      ? [
+        `<div class="admin-time-status admin-time-status--${timeBadge.type}${timeBadgeUrgent}">`,
+        `<span class="admin-time-status__tag admin-time-status__value" data-expires-at="${expiresAt}" data-time-status="${timeBadge.timeStatus}">${escapeHtml(timeBadge.label)}</span>`,
+        '</div>',
+      ].join('')
       : '';
-    // 待定状态都可以操作
-    const outcomeStatusAction = outcomeStatus === 'pending' && id
-      ? `<button type="button" class="admin-status__open" data-id="${id}" data-time-status="${timeStatus}" aria-haspopup="dialog" aria-controls="status-picker">盈利状态</button>`
-      : '';
-    const buttonsHtml = outcomeStatusAction
-      ? `<div class="admin-item__buttons">${outcomeStatusAction}</div>`
-      : '';
+    const outcomeStatusHtml = id
+      ? [
+        `<button type="button" class="admin-outcome-status admin-outcome-status--${outcomeInfo.type} admin-outcome-status--actionable" data-id="${id}" data-time-status="${timeStatus}" aria-haspopup="dialog" aria-controls="status-picker" aria-label="修改盈利状态">`,
+        `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
+        '</button>',
+      ].join('')
+      : [
+        `<div class="admin-outcome-status admin-outcome-status--${outcomeInfo.type}">`,
+        `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
+        '</div>',
+      ].join('');
+    const buttonsHtml = `<div class="admin-item__buttons">${outcomeStatusHtml}</div>`;
     return [
       `<article class="admin-item admin-item--${sideMod}">`,
       '<header class="admin-item__head">',
       selectHtml,
       `<span class="admin-item__side">${sideText}</span>`,
       `<span class="admin-item__title">${name}</span>`,
-      statusHtml,
+      timeBadgeHtml,
       '</header>',
       '<div class="admin-item__metrics">',
       `<div class="metric metric--price"><span class="metric__label">价格</span><span class="metric__value">${price}</span></div>`,
@@ -1414,14 +1431,15 @@ async function renderAdminList() {
 
 function updateAdminCountdowns() {
   const now = new Date();
-  document.querySelectorAll('.admin-status__time-value[data-time-status="active"]').forEach((el) => {
+  document.querySelectorAll('.admin-time-status__value[data-time-status="active"]').forEach((el) => {
     const endAt = parseDateValue(el.getAttribute('data-expires-at'));
+    const container = el.closest('.admin-time-status');
+    if (!endAt || getTimeRangeStatusByEndAt(endAt) === 'ended') {
+      container?.remove();
+      return;
+    }
     el.textContent = formatCountdownTo(endAt, now);
-  });
-  document.querySelectorAll('.admin-status__time-value[data-time-status="ended"]').forEach((el) => {
-    const endAt = parseDateValue(el.getAttribute('data-expires-at'));
-    const label = formatExpiredDuration(endAt, now);
-    if (label) el.textContent = label;
+    container?.classList.toggle('admin-time-status--urgent', isCountdownWithinUrgentWindow(endAt, now));
   });
 }
 
@@ -1759,10 +1777,10 @@ if (adminListEl) {
     const target = e.target instanceof HTMLElement ? e.target : null;
     if (!target) return;
 
-    const outcomeStatusOpenBtn = target.closest('.admin-status__open');
-    if (outcomeStatusOpenBtn) {
-      const id = String(outcomeStatusOpenBtn.getAttribute('data-id') ?? '').trim();
-      const timeStatus = String(outcomeStatusOpenBtn.getAttribute('data-time-status') ?? '').trim();
+    const outcomeStatusActionBtn = target.closest('.admin-outcome-status--actionable');
+    if (outcomeStatusActionBtn) {
+      const id = String(outcomeStatusActionBtn.getAttribute('data-id') ?? '').trim();
+      const timeStatus = String(outcomeStatusActionBtn.getAttribute('data-time-status') ?? '').trim();
       openOutcomeStatusPicker(id, timeStatus);
     }
   });
