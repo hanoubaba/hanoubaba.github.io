@@ -149,8 +149,9 @@ function getTimeframeLabel(mode) {
 }
 
 function getOpenCost() {
-  const input = document.getElementById('open-cost-input');
-  const n = toNumber(input && 'value' in input ? input.value : '');
+  const activeBtn = document.querySelector('.cost-switch__btn.is-active');
+  if (!activeBtn) return null;
+  const n = toNumber(activeBtn.getAttribute('data-cost'));
   return n !== null && n > 0 ? n : null;
 }
 
@@ -662,14 +663,27 @@ bindMobileTimePickerEvents();
 
 const openInput = document.getElementById('open-price-input');
 const stopInput = document.getElementById('stop-price-input');
-const openCostInput = document.getElementById('open-cost-input');
 const startTimeSelect = document.getElementById('start-time');
+
+// 开仓成本按钮切换
+const costBtns = document.querySelectorAll('.cost-switch__btn');
+costBtns.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    costBtns.forEach((b) => {
+      b.classList.remove('is-active');
+      b.setAttribute('aria-selected', 'false');
+    });
+    btn.classList.add('is-active');
+    btn.setAttribute('aria-selected', 'true');
+    autoGenerateIfReady();
+  });
+});
+
 function onEnter(e) {
   if (e.key === 'Enter') generate();
 }
 if (openInput) openInput.addEventListener('keydown', onEnter);
 if (stopInput) stopInput.addEventListener('keydown', onEnter);
-if (openCostInput) openCostInput.addEventListener('keydown', onEnter);
 if (startTimeSelect) startTimeSelect.addEventListener('keydown', onEnter);
 
 function autoGenerateIfReady() {
@@ -687,7 +701,6 @@ function autoGenerateIfReady() {
 
 if (openInput) openInput.addEventListener('input', autoGenerateIfReady);
 if (stopInput) stopInput.addEventListener('input', autoGenerateIfReady);
-if (openCostInput) openCostInput.addEventListener('input', autoGenerateIfReady);
 if (startTimeSelect) startTimeSelect.addEventListener('change', autoGenerateIfReady);
 if (startTimeSelect) startTimeSelect.addEventListener('change', updateStartTimeTriggerLabel);
 if (startTimeSelect) startTimeSelect.addEventListener('change', () => { startTimeUserPicked = true; });
@@ -708,7 +721,13 @@ function resetFrontPage() {
   rebuildStartTimeOptions();
   if (openInput) openInput.value = '';
   if (stopInput) stopInput.value = '';
-  if (openCostInput) openCostInput.value = '';
+  // 重置开仓成本为默认值66
+  const costBtns = document.querySelectorAll('.cost-switch__btn');
+  costBtns.forEach((btn) => {
+    const isDefault = btn.getAttribute('data-cost') === '66';
+    btn.classList.toggle('is-active', isDefault);
+    btn.setAttribute('aria-selected', isDefault ? 'true' : 'false');
+  });
   if (nameInput) nameInput.value = '';
   const errEl = document.getElementById('error');
   const outEl = document.getElementById('strategy-output');
@@ -1471,7 +1490,7 @@ function syncAdminCountdownTimer() {
   }
 }
 
-let currentPage = 'front';
+let currentPage = 'admin';
 
 document.addEventListener('visibilitychange', () => {
   syncAdminCountdownTimer();
@@ -1648,25 +1667,15 @@ async function copyStrategyOutput() {
     btn.textContent = '保存中';
   }
 
-  let ok = false;
   let saved = false;
   try {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        ok = true;
-      }
-    } catch {
-      ok = false;
-    }
-    if (!ok) ok = copyFallback(text);
-    if (ok && out?.dataset.record) {
+    if (out?.dataset.record) {
       try {
         await createStrategy(JSON.parse(out.dataset.record));
         saved = true;
         if (currentPage === 'admin') await renderAdminList();
       } catch {
-        if (errEl) errEl.textContent = '复制成功，但保存失败。请检查 Supabase 表和权限。';
+        if (errEl) errEl.textContent = '保存失败。请检查 Supabase 表和权限。';
         flashCopyStrategyBtn(btn, '保存失败');
         return;
       }
@@ -1675,7 +1684,7 @@ async function copyStrategyOutput() {
       showToast('保存成功');
       resetFrontPage();
     }
-    flashCopyStrategyBtn(btn, saved ? '已保存' : (ok ? '已复制' : '复制失败'));
+    flashCopyStrategyBtn(btn, saved ? '已保存' : '保存失败');
   } finally {
     isSavingStrategy = false;
     if (btn) {
@@ -1839,4 +1848,4 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && picker && !picker.hidden) closeOutcomeStatusPicker();
 });
 
-setPage('front');
+setPage('admin');

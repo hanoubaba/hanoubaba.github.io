@@ -765,6 +765,45 @@ body {
   margin-top: 8px;
 }
 
+.cost-switch {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(236, 253, 245, 0.95);
+  width: 100%;
+}
+
+.cost-switch__btn {
+  flex: 1;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  color: var(--muted);
+  background: transparent;
+  transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.cost-switch__btn:hover:not(.is-active) {
+  color: var(--primary-deep);
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.cost-switch__btn:focus-visible {
+  outline: 2px solid rgba(34, 197, 94, 0.55);
+  outline-offset: 2px;
+}
+
+.cost-switch__btn.is-active {
+  color: var(--primary-strong);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(22, 101, 52, 0.14), 0 0 0 1px var(--border);
+}
+
 .tabs {
   display: flex;
   gap: 3px;
