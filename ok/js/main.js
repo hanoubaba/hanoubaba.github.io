@@ -553,16 +553,13 @@ function buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rat
 
 function renderStrategyConcessionsHtml(items) {
   if (!items.length) return '';
-  const rows = items.map((item) => {
-    const isBaseline = Number(item.rate) === 0;
-    return [
-      `<div class="strategy-concession${isBaseline ? ' strategy-concession--baseline' : ''}">`,
-      `<span class="strategy-concession__rate">${escapeHtml(formatConcessionPercent(item.rate))}</span>`,
-      `<span class="strategy-concession__price">${escapeHtml(item.price)}</span>`,
-      `<span class="strategy-concession__qty">${escapeHtml(item.quantity)}</span>`,
-      '</div>',
-    ].join('');
-  }).join('');
+  const rows = items.map((item) => [
+    '<div class="strategy-concession">',
+    `<span class="strategy-concession__rate">${escapeHtml(formatConcessionPercent(item.rate))}</span>`,
+    `<span class="strategy-concession__price">${escapeHtml(item.price)}</span>`,
+    `<span class="strategy-concession__qty">${escapeHtml(item.quantity)}</span>`,
+    '</div>',
+  ].join('')).join('');
   return [
     '<div class="strategy-card__concessions" aria-label="让利档位">',
     '<div class="strategy-concession strategy-concession--head">',
@@ -620,16 +617,13 @@ function buildStrategyPlainText({
 function renderAdminConcessionsHtml(concessions) {
   if (!hasConcessions(concessions)) return '';
   const items = concessions;
-  const rows = items.map((item) => {
-    const isBaseline = Number(item.rate) === 0;
-    return [
-      `<div class="admin-concession${isBaseline ? ' admin-concession--baseline' : ''}">`,
-      `<span class="admin-concession__rate">${escapeHtml(formatConcessionPercent(item.rate))}</span>`,
-      `<span class="admin-concession__price">${escapeHtml(item.price)}</span>`,
-      `<span class="admin-concession__qty">${escapeHtml(item.quantity)}</span>`,
-      '</div>',
-    ].join('');
-  }).join('');
+  const rows = items.map((item) => [
+    '<div class="admin-concession">',
+    `<span class="admin-concession__rate">${escapeHtml(formatConcessionPercent(item.rate))}</span>`,
+    `<span class="admin-concession__price">${escapeHtml(item.price)}</span>`,
+    `<span class="admin-concession__qty">${escapeHtml(item.quantity)}</span>`,
+    '</div>',
+  ].join('')).join('');
   return [
     '<div class="admin-item__concessions" aria-label="让利档位">',
     '<div class="admin-concession admin-concession--head">',

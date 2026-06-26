@@ -663,8 +663,8 @@ body {
 }
 
 .admin-concession--head {
-  background: var(--surface-tint);
-  color: var(--muted);
+  background: #f8fafc;
+  color: #64748b;
   font-weight: 700;
 }
 
@@ -673,16 +673,10 @@ body {
   font-weight: 700;
 }
 
-.admin-concession--head .admin-concession__rate {
-  color: var(--muted);
-}
-
-.admin-concession--baseline {
-  background: rgba(236, 253, 245, 0.72);
-}
-
-.admin-concession--baseline .admin-concession__rate {
-  color: var(--text);
+.admin-concession--head .admin-concession__rate,
+.admin-concession--head .admin-concession__price,
+.admin-concession--head .admin-concession__qty {
+  color: #475569;
 }
 
 .admin-concession__price,
@@ -1123,8 +1117,8 @@ body {
 }
 
 .strategy-concession--head {
-  background: var(--surface-tint);
-  color: var(--muted);
+  background: #f8fafc;
+  color: #64748b;
   font-weight: 700;
 }
 
@@ -1133,16 +1127,10 @@ body {
   font-weight: 700;
 }
 
-.strategy-concession--head .strategy-concession__rate {
-  color: var(--muted);
-}
-
-.strategy-concession--baseline {
-  background: rgba(236, 253, 245, 0.72);
-}
-
-.strategy-concession--baseline .strategy-concession__rate {
-  color: var(--text);
+.strategy-concession--head .strategy-concession__rate,
+.strategy-concession--head .strategy-concession__price,
+.strategy-concession--head .strategy-concession__qty {
+  color: #475569;
 }
 
 .strategy-concession__price,
