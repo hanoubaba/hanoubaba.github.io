@@ -433,7 +433,7 @@ body {
 
 .admin-item__side {
   flex: none;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.5px;
   color: var(--muted);
@@ -449,7 +449,7 @@ body {
 .admin-item__title {
   flex: 1;
   min-width: 0;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--text);
   line-height: 1.3;
@@ -470,8 +470,8 @@ body {
   align-items: center;
   white-space: nowrap;
   border-radius: 999px;
-  padding: 3px 8px;
-  font-size: 11px;
+  padding: 4px 10px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1.2;
   background: #f0fdf4;
@@ -555,7 +555,7 @@ body {
   padding: 4px 9px;
   min-height: 26px;
   min-width: 44px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1.2;
   border: 1px solid var(--border);
@@ -612,24 +612,8 @@ body {
   gap: 6px 16px;
 }
 
-.metric--price,
-.metric--qty {
-  grid-column: 1;
-}
-
-.metric--tp,
-.metric--stop {
-  grid-column: 2;
-}
-
-.metric--price,
-.metric--tp {
-  grid-row: 1;
-}
-
-.metric--qty,
-.metric--stop {
-  grid-row: 2;
+.admin-item__metrics--tp-stop {
+  margin-bottom: 0;
 }
 
 .metric {
@@ -640,12 +624,12 @@ body {
 }
 
 .metric__label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 
 .metric__value {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text);
   font-variant-numeric: tabular-nums;
@@ -656,8 +640,59 @@ body {
 .metric--tp .metric__value,
 .metric--stop .metric__value { color: var(--text); }
 
-.metric--tp .metric__value {
-  text-decoration: line-through;
+.admin-item__concessions {
+  margin-top: 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.admin-concession {
+  display: grid;
+  grid-template-columns: 42px 1fr 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 8px;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.admin-concession + .admin-concession {
+  border-top: 1px solid var(--border-soft);
+}
+
+.admin-concession--head {
+  background: var(--surface-tint);
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.admin-concession__rate {
+  color: var(--primary-strong);
+  font-weight: 700;
+}
+
+.admin-concession--head .admin-concession__rate {
+  color: var(--muted);
+}
+
+.admin-concession--baseline {
+  background: rgba(236, 253, 245, 0.72);
+}
+
+.admin-concession--baseline .admin-concession__rate {
+  color: var(--text);
+}
+
+.admin-concession__price,
+.admin-concession__qty {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  word-break: break-all;
 }
 
 .admin-item__actions {
@@ -679,7 +714,7 @@ body {
   min-width: 0;
   min-height: 32px;
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.35;
 }
 
@@ -699,6 +734,7 @@ body {
 .admin-item__time-range {
   color: var(--text);
   font-weight: 600;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -962,20 +998,183 @@ body {
 
 .strategy-output {
   margin: 0;
-  padding: 12px;
+  padding: 0;
   min-height: 0;
-  border-radius: 10px;
-  border: 1px dashed #86efac;
-  background: rgba(255, 255, 255, 0.92);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 16px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--text);
   justify-self: stretch;
   width: 100%;
   box-sizing: border-box;
+}
+
+.strategy-output:empty {
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.strategy-card {
+  position: relative;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px 13px 11px 15px;
+  overflow: hidden;
+}
+
+.strategy-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--border);
+}
+
+.strategy-card--short {
+  border-color: #fecaca;
+  background: linear-gradient(135deg, #fff1f2 0%, #fff 58%);
+}
+
+.strategy-card--short::before {
+  background: var(--short);
+}
+
+.strategy-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+
+.strategy-card__side {
+  flex: none;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.strategy-card--long .strategy-card__side,
+.strategy-card--short .strategy-card__side {
+  color: var(--text);
+}
+
+.strategy-card--short .strategy-card__side {
+  color: var(--short);
+}
+
+.strategy-card__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strategy-card__metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+  margin-bottom: 8px;
+}
+
+.strategy-metric {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.strategy-metric__label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.strategy-metric__value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+  text-align: right;
+}
+
+.strategy-card__concessions {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.strategy-concession {
+  display: grid;
+  grid-template-columns: 42px 1fr 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 8px;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.strategy-concession + .strategy-concession {
+  border-top: 1px solid var(--border-soft);
+}
+
+.strategy-concession--head {
+  background: var(--surface-tint);
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.strategy-concession__rate {
+  color: var(--primary-strong);
+  font-weight: 700;
+}
+
+.strategy-concession--head .strategy-concession__rate {
+  color: var(--muted);
+}
+
+.strategy-concession--baseline {
+  background: rgba(236, 253, 245, 0.72);
+}
+
+.strategy-concession--baseline .strategy-concession__rate {
+  color: var(--text);
+}
+
+.strategy-concession__price,
+.strategy-concession__qty {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.strategy-card__time {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.strategy-card__time-label {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.strategy-card__time-value {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
 }
 
 .start-time-trigger {
@@ -1441,11 +1640,23 @@ body {
   }
 
   .admin-item__title {
-    font-size: 14px;
+    font-size: 16px;
   }
 
   .admin-item__metrics {
     gap: 5px 12px;
+  }
+
+  .admin-concession {
+    grid-template-columns: 36px 1fr 1fr;
+    gap: 6px;
+    padding: 4px 7px;
+    font-size: 12px;
+  }
+
+  .admin-concession__price,
+  .admin-concession__qty {
+    font-size: 13px;
   }
 
   .admin-item__actions {
@@ -1461,6 +1672,7 @@ body {
     flex: 1;
     min-width: 0;
     min-height: 0;
+    font-size: 12px;
   }
 
   .admin-item__time-range {
@@ -1468,6 +1680,7 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 12px;
   }
 
   .admin-item__buttons {
@@ -1481,15 +1694,15 @@ body {
   }
 
   .admin-outcome-status__tag {
-    min-height: 22px;
+    min-height: 26px;
     min-width: 0;
-    padding: 2px 7px;
-    font-size: 10px;
-    border-radius: 5px;
+    padding: 4px 9px;
+    font-size: 12px;
+    border-radius: 6px;
   }
 
   .metric__value {
-    font-size: 13px;
+    font-size: 15px;
   }
 
   .panel[aria-label="策略输出"] > .field {
@@ -1555,11 +1768,39 @@ body {
   .strategy-output {
     flex: 1;
     min-height: 0;
-    overflow: hidden;
-    padding: 8px 10px;
-    font-size: 14px;
-    line-height: 1.38;
-    border-radius: 8px;
+    overflow: auto;
+  }
+
+  .strategy-card {
+    padding: 10px 11px 9px 13px;
+  }
+
+  .strategy-card__title {
+    font-size: 16px;
+  }
+
+  .strategy-metric__label {
+    font-size: 13px;
+  }
+
+  .strategy-metric__value {
+    font-size: 15px;
+  }
+
+  .strategy-concession {
+    grid-template-columns: 36px 1fr 1fr;
+    gap: 6px;
+    padding: 4px 7px;
+    font-size: 12px;
+  }
+
+  .strategy-concession__price,
+  .strategy-concession__qty {
+    font-size: 13px;
+  }
+
+  .strategy-card__time {
+    font-size: 12px;
   }
 
   .actions:not(.actions--single) {
@@ -1592,12 +1833,6 @@ body {
 
   .btn {
     padding: 7px 8px;
-  }
-
-  .strategy-output {
-    font-size: 13px;
-    line-height: 1.35;
-    padding: 6px 8px;
   }
 }
 

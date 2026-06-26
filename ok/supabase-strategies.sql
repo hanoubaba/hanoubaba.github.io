@@ -19,6 +19,7 @@ create table if not exists public.strategies (
   open_cost numeric not null,
   price_adjustment_rate numeric not null default 0,
   price_adjustment numeric not null,
+  concessions jsonb not null default '[]'::jsonb,
   take_profit_r_multiple numeric not null default 1,
 
   timeframe text not null,
@@ -304,3 +305,6 @@ drop constraint if exists strategies_outcome_status_check;
 alter table public.strategies
 add constraint strategies_outcome_status_check
 check (outcome_status in ('pending', 'profit', 'loss', 'not_filled'));
+
+alter table public.strategies
+add column if not exists concessions jsonb not null default '[]'::jsonb;

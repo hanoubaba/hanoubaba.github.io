@@ -131,7 +131,8 @@ const TIMEFRAME_LABELS = {
   '4h': '4小时',
 };
 
-const PRICE_ADJUSTMENT_RATE = 0;
+const PRICE_ADJUSTMENT_RATE = 0.2;
+const CONCESSION_RATES = [0, 0.2, 0.5, 0.8];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const STRATEGY_DURATION_PERIODS = 10;
 
@@ -170,16 +171,51 @@ function getSupabaseHeaders(extra = {}) {
   };
 }
 
-function isDevEnvironment() {
-  const host = window.location.hostname;
-  return window.location.protocol === 'file:'
-    || host === 'localhost'
-    || host === '127.0.0.1'
-    || host === '::1';
-}
-
 function dbValueToString(value) {
   return value == null ? '' : String(value);
+}
+
+function normalizeConcessions(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => ({
+      rate: Number(item?.rate),
+      price: dbValueToString(item?.price),
+      quantity: dbValueToString(item?.quantity),
+    }))
+    .filter((item) => Number.isFinite(item.rate) && item.rate >= 0 && item.price && item.quantity);
+}
+
+function enrichConcessionsWithBaseline(concessions, entryPrice, quantity) {
+  if (!hasConcessions(concessions)) return concessions;
+  const items = concessions.slice();
+  if (!items.some((item) => Number(item.rate) === 0)) {
+    const price = String(entryPrice ?? '').trim();
+    const qty = String(quantity ?? '').trim();
+    if (price && qty) items.unshift({ rate: 0, price, quantity: qty });
+  }
+  return items.slice().sort((a, b) => Number(a.rate) - Number(b.rate));
+}
+
+function buildAdminConcessionsForRow(row) {
+  const entryPrice = String(row?.entryPrice ?? '').trim();
+  const quantity = String(row?.quantity ?? '').trim();
+  if (!entryPrice || !quantity) return [];
+  if (hasConcessions(row?.concessions)) {
+    return enrichConcessionsWithBaseline(row.concessions, entryPrice, quantity);
+  }
+  return [{ rate: 0, price: entryPrice, quantity }];
+}
+
+/** 旧数据无 concessions 字段、为 null 或空数组时返回 null，列表不展示让利区块 */
+function parseConcessionsFromDb(value) {
+  if (value == null) return null;
+  const items = normalizeConcessions(value);
+  return items.length ? items : null;
+}
+
+function hasConcessions(concessions) {
+  return Array.isArray(concessions) && concessions.length > 0;
 }
 
 function fromDbRecord(row) {
@@ -198,6 +234,7 @@ function fromDbRecord(row) {
     openCost: row.open_cost,
     priceAdjustmentRate: row.price_adjustment_rate,
     priceAdjustment: row.price_adjustment,
+    concessions: parseConcessionsFromDb(row.concessions),
     takeProfitRMultiple: row.take_profit_r_multiple,
     timeframe: row.timeframe,
     timeframeMinutes: row.timeframe_minutes,
@@ -225,6 +262,9 @@ function toDbRecord(record) {
     open_cost: Number(record.openCost),
     price_adjustment_rate: Number(record.priceAdjustmentRate),
     price_adjustment: toNumber(record.priceAdjustment),
+    concessions: hasConcessions(record.concessions)
+      ? normalizeConcessions(record.concessions)
+      : [],
     take_profit_r_multiple: Number(record.takeProfitRMultiple),
     timeframe: record.timeframe,
     timeframe_minutes: Number(record.timeframeMinutes),
@@ -437,7 +477,6 @@ function clearStrategyOutput(outEl) {
   if (!outEl) return;
   outEl.textContent = '';
   delete outEl.dataset.plainText;
-  delete outEl.dataset.qty;
   delete outEl.dataset.copyText;
   delete outEl.dataset.record;
 }
@@ -446,8 +485,6 @@ function renderStrategyOutput(outEl, { plain, html }) {
   if (!outEl) return;
   outEl.innerHTML = html;
   outEl.dataset.plainText = plain;
-  const qtyLine = String(plain ?? '').split('\n').find((line) => line.startsWith('数量：')) || '';
-  outEl.dataset.qty = qtyLine.replace(/^数量：/, '').trim();
 }
 
 function getStrategySideText(side) {
@@ -480,6 +517,131 @@ function calcAdjustedOpenPrice(open, stop, decimalPlaces) {
   return Number(formatFixedDecimals(open, decimalPlaces));
 }
 
+/** 让利价：在开仓价基础上，沿远离止损方向移动 rate×|价格-止损|（开多上调、开空下调） */
+function calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces) {
+  const stopDiff = Math.abs(entryPrice - stopLoss);
+  if (!(stopDiff > 0) || !Number.isFinite(rate) || rate < 0) return null;
+  const awayFromStop = entryPrice > stopLoss ? 1 : -1;
+  const price = entryPrice + awayFromStop * rate * stopDiff;
+  return Number(formatFixedDecimals(price, decimalPlaces));
+}
+
+function calcQuantityByRisk(openCost, entryPrice, stopLoss) {
+  const stopDiff = Math.abs(entryPrice - stopLoss);
+  if (!(stopDiff > 0) || openCost == null || !(openCost > 0)) return null;
+  return openCost / stopDiff;
+}
+
+function formatConcessionPercent(rate) {
+  return `${Math.round(rate * 100)}%`;
+}
+
+function buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rates = CONCESSION_RATES) {
+  const items = [];
+  for (const rate of rates) {
+    const price = calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces);
+    const qty = price == null ? null : calcQuantityByRisk(openCost, price, stopLoss);
+    if (price == null || qty == null) continue;
+    items.push({
+      rate,
+      price: formatTrimmedFixedDecimals(price, decimalPlaces),
+      quantity: formatQuantity(qty),
+    });
+  }
+  return items;
+}
+
+function renderStrategyConcessionsHtml(items) {
+  if (!items.length) return '';
+  const rows = items.map((item) => {
+    const isBaseline = Number(item.rate) === 0;
+    return [
+      `<div class="strategy-concession${isBaseline ? ' strategy-concession--baseline' : ''}">`,
+      `<span class="strategy-concession__rate">${escapeHtml(formatConcessionPercent(item.rate))}</span>`,
+      `<span class="strategy-concession__price">${escapeHtml(item.price)}</span>`,
+      `<span class="strategy-concession__qty">${escapeHtml(item.quantity)}</span>`,
+      '</div>',
+    ].join('');
+  }).join('');
+  return [
+    '<div class="strategy-card__concessions" aria-label="让利档位">',
+    '<div class="strategy-concession strategy-concession--head">',
+    '<span class="strategy-concession__rate">让利</span>',
+    '<span class="strategy-concession__price">价格</span>',
+    '<span class="strategy-concession__qty">数量</span>',
+    '</div>',
+    rows,
+    '</div>',
+  ].join('');
+}
+
+function buildStrategyDisplayHtml({
+  side,
+  alarmName,
+  tpLabel,
+  stopLabel,
+  concessionItems,
+  timeRangeLabel,
+}) {
+  const sideMod = side === 'long' ? 'long' : (side === 'short' ? 'short' : 'flat');
+  const sideText = getStrategySideText(side);
+  return [
+    `<div class="strategy-card strategy-card--${sideMod}">`,
+    '<div class="strategy-card__head">',
+    `<span class="strategy-card__side">${escapeHtml(sideText)}</span>`,
+    `<span class="strategy-card__title">${escapeHtml(alarmName)}</span>`,
+    '</div>',
+    '<div class="strategy-card__metrics">',
+    `<div class="strategy-metric"><span class="strategy-metric__label">止盈</span><span class="strategy-metric__value">${escapeHtml(tpLabel)}</span></div>`,
+    `<div class="strategy-metric"><span class="strategy-metric__label">止损</span><span class="strategy-metric__value">${escapeHtml(stopLabel)}</span></div>`,
+    '</div>',
+    renderStrategyConcessionsHtml(concessionItems),
+    `<div class="strategy-card__time"><span class="strategy-card__time-label">时间范围</span><span class="strategy-card__time-value">${escapeHtml(timeRangeLabel)}</span></div>`,
+    '</div>',
+  ].join('');
+}
+
+function buildStrategyPlainText({
+  sideLabel,
+  tpLabel,
+  stopLabel,
+  concessionItems,
+  timeRangeLabel,
+}) {
+  return [
+    sideLabel,
+    `止盈：${tpLabel}`,
+    `止损：${stopLabel}`,
+    ...concessionItems.map((item) => `让利${formatConcessionPercent(item.rate)}：${item.price} / ${item.quantity}`),
+    `时间范围：${timeRangeLabel}`,
+  ].join('\n');
+}
+
+function renderAdminConcessionsHtml(concessions) {
+  if (!hasConcessions(concessions)) return '';
+  const items = concessions;
+  const rows = items.map((item) => {
+    const isBaseline = Number(item.rate) === 0;
+    return [
+      `<div class="admin-concession${isBaseline ? ' admin-concession--baseline' : ''}">`,
+      `<span class="admin-concession__rate">${escapeHtml(formatConcessionPercent(item.rate))}</span>`,
+      `<span class="admin-concession__price">${escapeHtml(item.price)}</span>`,
+      `<span class="admin-concession__qty">${escapeHtml(item.quantity)}</span>`,
+      '</div>',
+    ].join('');
+  }).join('');
+  return [
+    '<div class="admin-item__concessions" aria-label="让利档位">',
+    '<div class="admin-concession admin-concession--head">',
+    '<span class="admin-concession__rate">让利</span>',
+    '<span class="admin-concession__price">价格</span>',
+    '<span class="admin-concession__qty">数量</span>',
+    '</div>',
+    rows,
+    '</div>',
+  ].join('');
+}
+
 function getStartDateTime(startValue) {
   const parsed = parseStartSlotValue(startValue);
   if (parsed) return parsed;
@@ -506,9 +668,9 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
   const unitMin = getTimeframeMinutes(timeframe);
   const spanMinutes = unitMin * STRATEGY_DURATION_PERIODS;
   const adjustedOpen = calcAdjustedOpenPrice(open, stop, priceDecimalPlaces);
-  const priceAdjustment = 0;
-  const stopDiff = Math.abs(adjustedOpen - stop);
-  const quantity = openCost / stopDiff;
+  const quantity = calcQuantityByRisk(openCost, adjustedOpen, stop);
+  const primaryConcessionalPrice = calcConcessionalEntryPrice(adjustedOpen, stop, PRICE_ADJUSTMENT_RATE, priceDecimalPlaces);
+  const priceAdjustment = primaryConcessionalPrice == null ? 0 : Math.abs(adjustedOpen - primaryConcessionalPrice);
   const tp = calcTakeProfit(adjustedOpen, stop, TAKE_PROFIT_R_MULTIPLE);
   const tpDecimals = Math.max(0, priceDecimalPlaces);
 
@@ -524,19 +686,28 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
   const endDisplay = endAt ? formatFullDateTimeLabel(endAt) : '—';
   const timeRangeLabel = `${startDisplay} — ${endDisplay}`;
 
-  const qty = formatQuantity(quantity);
   const priceLabel = formatTrimmedFixedDecimals(adjustedOpen, priceDecimalPlaces);
   const tpLabel = formatTrimmedFixedDecimals(tp, tpDecimals);
   const stopLabel = formatPrice(stop);
+  const concessionItems = buildConcessionItems(adjustedOpen, stop, openCost, priceDecimalPlaces);
+  const baselineItem = concessionItems.find((item) => Number(item.rate) === 0);
+  const qty = baselineItem?.quantity ?? formatQuantity(quantity);
 
-  const lines = [
+  const plain = buildStrategyPlainText({
     sideLabel,
-    `价格：${priceLabel}`,
-    `数量：${qty}`,
-    `参考止盈：${tpLabel}`,
-    `止损：${stopLabel}`,
-    `时间范围：${timeRangeLabel}`,
-  ];
+    tpLabel,
+    stopLabel,
+    concessionItems,
+    timeRangeLabel,
+  });
+  const html = buildStrategyDisplayHtml({
+    side,
+    alarmName,
+    tpLabel,
+    stopLabel,
+    concessionItems,
+    timeRangeLabel,
+  });
 
   const copyText = buildStrategyCopyText({
     side,
@@ -558,6 +729,7 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
     openCost,
     priceAdjustmentRate: PRICE_ADJUSTMENT_RATE,
     priceAdjustment: formatTrimmedFixedDecimals(priceAdjustment, priceDecimalPlaces),
+    concessions: concessionItems,
     takeProfitRMultiple: TAKE_PROFIT_R_MULTIPLE,
     timeframe,
     timeframeMinutes: unitMin,
@@ -568,9 +740,6 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
     expiresAt: endAt ? endAt.toISOString() : null,
     outcomeStatus: 'pending',
   };
-
-  const plain = lines.join('\n');
-  const html = lines.map((line) => escapeHtml(line)).join('\n');
 
   return { plain, html, copyText, record };
 }
@@ -1171,12 +1340,6 @@ function syncAdminSelectionWithRows(rows) {
 }
 
 function updateAdminSelectionControls() {
-  const canDelete = isDevEnvironment();
-  if (!canDelete && isAdminSelectionMode) {
-    isAdminSelectionMode = false;
-    selectedStrategyIds.clear();
-  }
-
   const selectedCount = selectedStrategyIds.size;
   const selectionEl = document.getElementById('admin-selection');
   const countEl = document.getElementById('admin-selection-count');
@@ -1185,12 +1348,12 @@ function updateAdminSelectionControls() {
   const deleteSelectedBtn = document.getElementById('admin-delete-selected');
   const visibleCount = getVisibleAdminStrategyIds().length;
 
-  if (selectionEl) selectionEl.hidden = currentPage !== 'admin' || !canDelete || !isAdminSelectionMode || visibleCount === 0;
+  if (selectionEl) selectionEl.hidden = currentPage !== 'admin' || !isAdminSelectionMode || visibleCount === 0;
   if (countEl) countEl.textContent = `已选 ${selectedCount} 条`;
-  if (selectAllBtn) selectAllBtn.disabled = isDeletingStrategies || !canDelete || !isAdminSelectionMode || visibleCount === 0;
-  if (clearSelectionBtn) clearSelectionBtn.disabled = isDeletingStrategies || !canDelete || !isAdminSelectionMode;
+  if (selectAllBtn) selectAllBtn.disabled = isDeletingStrategies || !isAdminSelectionMode || visibleCount === 0;
+  if (clearSelectionBtn) clearSelectionBtn.disabled = isDeletingStrategies || !isAdminSelectionMode;
   if (deleteSelectedBtn) {
-    deleteSelectedBtn.disabled = isDeletingStrategies || !canDelete || !isAdminSelectionMode || selectedCount === 0;
+    deleteSelectedBtn.disabled = isDeletingStrategies || !isAdminSelectionMode || selectedCount === 0;
     deleteSelectedBtn.setAttribute('aria-busy', isDeletingStrategies ? 'true' : 'false');
   }
 
@@ -1201,7 +1364,7 @@ function updateAdminSelectionControls() {
     btnClear.disabled = false;
     btnClear.setAttribute('aria-busy', 'false');
   } else if (btnClear) {
-    btnClear.hidden = !canDelete;
+    btnClear.hidden = false;
     btnClear.textContent = isAdminSelectionMode
       ? (selectedCount ? `删除所选(${selectedCount})` : '取消删除')
       : '删除';
@@ -1211,7 +1374,6 @@ function updateAdminSelectionControls() {
 }
 
 function enterAdminSelectionMode() {
-  if (!isDevEnvironment()) return;
   isAdminSelectionMode = true;
   renderAdminList().catch(() => updateAdminSelectionControls());
 }
@@ -1261,7 +1423,6 @@ function showAdminDeleteError() {
 }
 
 async function deleteStrategyIdsWithConfirm(ids, options = {}) {
-  if (!isDevEnvironment()) return;
   const { exitSelectionMode = false } = options;
   const normalizedIds = normalizeStrategyIds(ids);
   if (!normalizedIds.length || isDeletingStrategies) return;
@@ -1280,7 +1441,6 @@ async function deleteStrategyIdsWithConfirm(ids, options = {}) {
 }
 
 async function deleteSelectedStrategies() {
-  if (!isDevEnvironment()) return;
   await deleteStrategyIdsWithConfirm(Array.from(selectedStrategyIds), { exitSelectionMode: true });
 }
 
@@ -1384,10 +1544,9 @@ async function renderAdminList() {
     const sideMod = isLong ? 'long' : (isShort ? 'short' : 'flat');
     const sideText = escapeHtml(isLong ? '开多' : (isShort ? '开空' : '—'));
     const name = escapeHtml(nameRaw || '未命名');
-    const price = escapeHtml(String(row?.entryPrice ?? '-'));
-    const qty = escapeHtml(String(row?.quantity ?? '-'));
     const tp = escapeHtml(String(row?.takeProfitPrice ?? '-'));
     const stop = escapeHtml(String(row?.stopLossPrice ?? '-'));
+    const concessionsHtml = renderAdminConcessionsHtml(buildAdminConcessionsForRow(row));
     const startAt = getStrategyStartAt(row);
     const endAt = getStrategyEndAt(row);
     const timeRange = escapeHtml(formatAdminTimeRange(startAt, endAt));
@@ -1438,12 +1597,11 @@ async function renderAdminList() {
       `<span class="admin-item__title">${name}</span>`,
       timeBadgeHtml,
       '</header>',
-      '<div class="admin-item__metrics">',
-      `<div class="metric metric--price"><span class="metric__label">价格</span><span class="metric__value">${price}</span></div>`,
-      `<div class="metric metric--qty"><span class="metric__label">数量</span><span class="metric__value">${qty}</span></div>`,
+      '<div class="admin-item__metrics admin-item__metrics--tp-stop">',
       `<div class="metric metric--tp"><span class="metric__label">止盈</span><span class="metric__value">${tp}</span></div>`,
       `<div class="metric metric--stop"><span class="metric__label">止损</span><span class="metric__value">${stop}</span></div>`,
       '</div>',
+      concessionsHtml,
       '<div class="admin-item__actions">',
       '<div class="admin-item__meta">',
       `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
@@ -1589,9 +1747,9 @@ function setPage(mode) {
 
   const btnClear = document.getElementById('btn-clear');
   if (btnClear) {
-    btnClear.hidden = !toAdmin || !isDevEnvironment();
+    btnClear.hidden = !toAdmin;
     btnClear.textContent = toAdmin ? '删除' : '清空';
-    btnClear.disabled = toAdmin;
+    btnClear.disabled = false;
     btnClear.setAttribute('aria-busy', 'false');
   }
 
@@ -1694,33 +1852,10 @@ async function copyStrategyOutput() {
   }
 }
 
-async function copyQtyOutput() {
-  const btn = document.getElementById('btn-copy-qty');
-  const out = document.getElementById('strategy-output');
-  const qty = String(out?.dataset.qty ?? '').trim();
-  if (!qty) {
-    flashCopyStrategyBtn(btn, '无内容');
-    return;
-  }
-  let ok = false;
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(qty);
-      ok = true;
-    }
-  } catch {
-    ok = false;
-  }
-  if (!ok) ok = copyFallback(qty);
-  flashCopyStrategyBtn(btn, ok ? '已复制' : '复制失败');
-}
-
 const btnCopyStrategy = document.getElementById('btn-copy-strategy');
 if (btnCopyStrategy) btnCopyStrategy.addEventListener('click', copyStrategyOutput);
-const btnCopyQty = document.getElementById('btn-copy-qty');
-if (btnCopyQty) btnCopyQty.addEventListener('click', copyQtyOutput);
 const clearAll = () => {
-  if (currentPage !== 'admin' || !isDevEnvironment()) return;
+  if (currentPage !== 'admin') return;
   if (!isAdminSelectionMode) {
     enterAdminSelectionMode();
     return;
