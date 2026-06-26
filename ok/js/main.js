@@ -487,15 +487,14 @@ function renderStrategyOutput(outEl, { plain, html }) {
   outEl.dataset.plainText = plain;
 }
 
-function getStrategySideText(side) {
-  if (side === 'long') return '开多';
-  if (side === 'short') return '开空';
-  return '开仓';
+function formatStrategyCardTitle(name) {
+  const base = String(name || '未命名').trim() || '未命名';
+  return /[A-Z]/.test(base) ? base.toLowerCase() : base;
 }
 
 function buildStrategyCopyText({ side, name, price, quantity, takeProfit, stopLoss }) {
   return [
-    `${getStrategySideText(side)}${String(name || '未命名').trim() || '未命名'}`,
+    formatStrategyCardTitle(name),
     `价格：${String(price ?? '').trim()}`,
     `数量：${String(quantity ?? '').trim()}`,
     `止盈：${String(takeProfit ?? '').trim()}`,
@@ -536,6 +535,11 @@ function formatConcessionPercent(rate) {
   return `${Math.round(rate * 100)}%`;
 }
 
+function getDisplayConcessionItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items.filter((item) => Number(item.rate) !== 0);
+}
+
 function buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rates = CONCESSION_RATES) {
   const items = [];
   for (const rate of rates) {
@@ -552,9 +556,10 @@ function buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rat
 }
 
 function renderStrategyConcessionsHtml(items, stopLabel) {
-  if (!items.length) return '';
+  const displayItems = getDisplayConcessionItems(items);
+  if (!displayItems.length) return '';
   const stop = escapeHtml(String(stopLabel ?? '').trim() || '—');
-  const rows = items.map((item) => [
+  const rows = displayItems.map((item) => [
     '<div class="strategy-concession">',
     `<span class="strategy-concession__rate">${escapeHtml(formatConcessionPercent(item.rate))}</span>`,
     `<span class="strategy-concession__price">${escapeHtml(item.price)}</span>`,
@@ -583,12 +588,11 @@ function buildStrategyDisplayHtml({
   timeRangeLabel,
 }) {
   const sideMod = side === 'long' ? 'long' : (side === 'short' ? 'short' : 'flat');
-  const sideText = getStrategySideText(side);
+  const title = formatStrategyCardTitle(alarmName);
   return [
     `<div class="strategy-card strategy-card--${sideMod}">`,
     '<div class="strategy-card__head">',
-    `<span class="strategy-card__side">${escapeHtml(sideText)}</span>`,
-    `<span class="strategy-card__title">${escapeHtml(alarmName)}</span>`,
+    `<span class="strategy-card__title">${escapeHtml(title)}</span>`,
     '</div>',
     renderStrategyConcessionsHtml(concessionItems, stopLabel),
     `<div class="strategy-card__time"><span class="strategy-card__time-label">时间范围</span><span class="strategy-card__time-value">${escapeHtml(timeRangeLabel)}</span></div>`,
@@ -602,9 +606,10 @@ function buildStrategyPlainText({
   concessionItems,
   timeRangeLabel,
 }) {
+  const displayItems = getDisplayConcessionItems(concessionItems);
   return [
     sideLabel,
-    ...concessionItems.map((item) => (
+    ...displayItems.map((item) => (
       `让利${formatConcessionPercent(item.rate)}：${item.price} / ${item.quantity} / ${stopLabel}`
     )),
     `时间范围：${timeRangeLabel}`,
@@ -612,8 +617,8 @@ function buildStrategyPlainText({
 }
 
 function renderAdminConcessionsHtml(concessions, stopLabel) {
-  if (!hasConcessions(concessions)) return '';
-  const items = concessions;
+  const items = getDisplayConcessionItems(concessions);
+  if (!items.length) return '';
   const stop = escapeHtml(String(stopLabel ?? '').trim() || '—');
   const rows = items.map((item) => [
     '<div class="admin-concession">',
@@ -671,9 +676,8 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
   const nameEl = document.getElementById('name-input');
   const name = String(nameEl?.value ?? '').trim();
   const side = adjustedOpen > stop ? 'long' : 'short';
-  const sideHash = side === 'long' ? '#开多' : '#开空';
   const alarmName = name || 'demo';
-  const sideLabel = `${sideHash}${alarmName}`;
+  const sideLabel = formatStrategyCardTitle(alarmName);
   const startAt = getStartDateTime(startTimeValue);
   const endAt = addPeriodToStart(startTimeValue, spanMinutes);
   const startDisplay = startAt ? formatFullDateTimeLabel(startAt) : (startTimeLabel || startTimeValue);
@@ -1534,8 +1538,7 @@ async function renderAdminList() {
     const isLong = sideRaw === 'long';
     const isShort = sideRaw === 'short';
     const sideMod = isLong ? 'long' : (isShort ? 'short' : 'flat');
-    const sideText = escapeHtml(isLong ? '开多' : (isShort ? '开空' : '—'));
-    const name = escapeHtml(nameRaw || '未命名');
+    const title = escapeHtml(formatStrategyCardTitle(nameRaw));
     const stop = escapeHtml(String(row?.stopLossPrice ?? '-'));
     const concessionsHtml = renderAdminConcessionsHtml(buildAdminConcessionsForRow(row), stop);
     const startAt = getStrategyStartAt(row);
@@ -1548,7 +1551,7 @@ async function renderAdminList() {
     const selectorDisabled = isDeletingStrategies ? ' is-disabled' : '';
     const selectHtml = rawId && isAdminSelectionMode
       ? [
-        `<label class="admin-item__selector${selectorDisabled}" aria-label="选择 ${name}">`,
+        `<label class="admin-item__selector${selectorDisabled}" aria-label="选择 ${title}">`,
         `<input type="checkbox" class="admin-item__select" data-id="${id}"${checked}${disabled}>`,
         '<span class="admin-item__checkmark" aria-hidden="true"></span>',
         '</label>',
@@ -1584,8 +1587,7 @@ async function renderAdminList() {
       `<article class="admin-item admin-item--${sideMod}">`,
       '<header class="admin-item__head">',
       selectHtml,
-      `<span class="admin-item__side">${sideText}</span>`,
-      `<span class="admin-item__title">${name}</span>`,
+      `<span class="admin-item__title">${title}</span>`,
       timeBadgeHtml,
       '</header>',
       concessionsHtml,
