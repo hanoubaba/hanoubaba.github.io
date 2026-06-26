@@ -650,7 +650,7 @@ body {
 
 .admin-concession {
   display: grid;
-  grid-template-columns: 42px 1fr 1fr;
+  grid-template-columns: 42px 1fr 1fr 1fr;
   gap: 8px;
   align-items: center;
   padding: 5px 8px;
@@ -675,12 +675,14 @@ body {
 
 .admin-concession--head .admin-concession__rate,
 .admin-concession--head .admin-concession__price,
-.admin-concession--head .admin-concession__qty {
+.admin-concession--head .admin-concession__qty,
+.admin-concession--head .admin-concession__stop {
   color: #475569;
 }
 
 .admin-concession__price,
-.admin-concession__qty {
+.admin-concession__qty,
+.admin-concession__stop {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -1096,6 +1098,7 @@ body {
 }
 
 .strategy-card__concessions {
+  margin-top: 8px;
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   overflow: hidden;
@@ -1104,7 +1107,7 @@ body {
 
 .strategy-concession {
   display: grid;
-  grid-template-columns: 42px 1fr 1fr;
+  grid-template-columns: 42px 1fr 1fr 1fr;
   gap: 8px;
   align-items: center;
   padding: 5px 8px;
@@ -1129,12 +1132,14 @@ body {
 
 .strategy-concession--head .strategy-concession__rate,
 .strategy-concession--head .strategy-concession__price,
-.strategy-concession--head .strategy-concession__qty {
+.strategy-concession--head .strategy-concession__qty,
+.strategy-concession--head .strategy-concession__stop {
   color: #475569;
 }
 
 .strategy-concession__price,
-.strategy-concession__qty {
+.strategy-concession__qty,
+.strategy-concession__stop {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -1636,14 +1641,15 @@ body {
   }
 
   .admin-concession {
-    grid-template-columns: 36px 1fr 1fr;
+    grid-template-columns: 36px 1fr 1fr 1fr;
     gap: 6px;
     padding: 4px 7px;
     font-size: 12px;
   }
 
   .admin-concession__price,
-  .admin-concession__qty {
+  .admin-concession__qty,
+  .admin-concession__stop {
     font-size: 13px;
   }
 
@@ -1776,14 +1782,15 @@ body {
   }
 
   .strategy-concession {
-    grid-template-columns: 36px 1fr 1fr;
+    grid-template-columns: 36px 1fr 1fr 1fr;
     gap: 6px;
     padding: 4px 7px;
     font-size: 12px;
   }
 
   .strategy-concession__price,
-  .strategy-concession__qty {
+  .strategy-concession__qty,
+  .strategy-concession__stop {
     font-size: 13px;
   }
 

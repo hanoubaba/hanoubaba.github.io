@@ -551,13 +551,15 @@ function buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rat
   return items;
 }
 
-function renderStrategyConcessionsHtml(items) {
+function renderStrategyConcessionsHtml(items, stopLabel) {
   if (!items.length) return '';
+  const stop = escapeHtml(String(stopLabel ?? '').trim() || '—');
   const rows = items.map((item) => [
     '<div class="strategy-concession">',
     `<span class="strategy-concession__rate">${escapeHtml(formatConcessionPercent(item.rate))}</span>`,
     `<span class="strategy-concession__price">${escapeHtml(item.price)}</span>`,
     `<span class="strategy-concession__qty">${escapeHtml(item.quantity)}</span>`,
+    `<span class="strategy-concession__stop">${stop}</span>`,
     '</div>',
   ].join('')).join('');
   return [
@@ -566,6 +568,7 @@ function renderStrategyConcessionsHtml(items) {
     '<span class="strategy-concession__rate">让利</span>',
     '<span class="strategy-concession__price">价格</span>',
     '<span class="strategy-concession__qty">数量</span>',
+    '<span class="strategy-concession__stop">止损</span>',
     '</div>',
     rows,
     '</div>',
@@ -575,7 +578,6 @@ function renderStrategyConcessionsHtml(items) {
 function buildStrategyDisplayHtml({
   side,
   alarmName,
-  tpLabel,
   stopLabel,
   concessionItems,
   timeRangeLabel,
@@ -588,11 +590,7 @@ function buildStrategyDisplayHtml({
     `<span class="strategy-card__side">${escapeHtml(sideText)}</span>`,
     `<span class="strategy-card__title">${escapeHtml(alarmName)}</span>`,
     '</div>',
-    '<div class="strategy-card__metrics">',
-    `<div class="strategy-metric"><span class="strategy-metric__label">止盈</span><span class="strategy-metric__value">${escapeHtml(tpLabel)}</span></div>`,
-    `<div class="strategy-metric"><span class="strategy-metric__label">止损</span><span class="strategy-metric__value">${escapeHtml(stopLabel)}</span></div>`,
-    '</div>',
-    renderStrategyConcessionsHtml(concessionItems),
+    renderStrategyConcessionsHtml(concessionItems, stopLabel),
     `<div class="strategy-card__time"><span class="strategy-card__time-label">时间范围</span><span class="strategy-card__time-value">${escapeHtml(timeRangeLabel)}</span></div>`,
     '</div>',
   ].join('');
@@ -600,28 +598,29 @@ function buildStrategyDisplayHtml({
 
 function buildStrategyPlainText({
   sideLabel,
-  tpLabel,
   stopLabel,
   concessionItems,
   timeRangeLabel,
 }) {
   return [
     sideLabel,
-    `止盈：${tpLabel}`,
-    `止损：${stopLabel}`,
-    ...concessionItems.map((item) => `让利${formatConcessionPercent(item.rate)}：${item.price} / ${item.quantity}`),
+    ...concessionItems.map((item) => (
+      `让利${formatConcessionPercent(item.rate)}：${item.price} / ${item.quantity} / ${stopLabel}`
+    )),
     `时间范围：${timeRangeLabel}`,
   ].join('\n');
 }
 
-function renderAdminConcessionsHtml(concessions) {
+function renderAdminConcessionsHtml(concessions, stopLabel) {
   if (!hasConcessions(concessions)) return '';
   const items = concessions;
+  const stop = escapeHtml(String(stopLabel ?? '').trim() || '—');
   const rows = items.map((item) => [
     '<div class="admin-concession">',
     `<span class="admin-concession__rate">${escapeHtml(formatConcessionPercent(item.rate))}</span>`,
     `<span class="admin-concession__price">${escapeHtml(item.price)}</span>`,
     `<span class="admin-concession__qty">${escapeHtml(item.quantity)}</span>`,
+    `<span class="admin-concession__stop">${stop}</span>`,
     '</div>',
   ].join('')).join('');
   return [
@@ -630,6 +629,7 @@ function renderAdminConcessionsHtml(concessions) {
     '<span class="admin-concession__rate">让利</span>',
     '<span class="admin-concession__price">价格</span>',
     '<span class="admin-concession__qty">数量</span>',
+    '<span class="admin-concession__stop">止损</span>',
     '</div>',
     rows,
     '</div>',
@@ -689,7 +689,6 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
 
   const plain = buildStrategyPlainText({
     sideLabel,
-    tpLabel,
     stopLabel,
     concessionItems,
     timeRangeLabel,
@@ -697,7 +696,6 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
   const html = buildStrategyDisplayHtml({
     side,
     alarmName,
-    tpLabel,
     stopLabel,
     concessionItems,
     timeRangeLabel,
@@ -1538,9 +1536,8 @@ async function renderAdminList() {
     const sideMod = isLong ? 'long' : (isShort ? 'short' : 'flat');
     const sideText = escapeHtml(isLong ? '开多' : (isShort ? '开空' : '—'));
     const name = escapeHtml(nameRaw || '未命名');
-    const tp = escapeHtml(String(row?.takeProfitPrice ?? '-'));
     const stop = escapeHtml(String(row?.stopLossPrice ?? '-'));
-    const concessionsHtml = renderAdminConcessionsHtml(buildAdminConcessionsForRow(row));
+    const concessionsHtml = renderAdminConcessionsHtml(buildAdminConcessionsForRow(row), stop);
     const startAt = getStrategyStartAt(row);
     const endAt = getStrategyEndAt(row);
     const timeRange = escapeHtml(formatAdminTimeRange(startAt, endAt));
@@ -1591,10 +1588,6 @@ async function renderAdminList() {
       `<span class="admin-item__title">${name}</span>`,
       timeBadgeHtml,
       '</header>',
-      '<div class="admin-item__metrics admin-item__metrics--tp-stop">',
-      `<div class="metric metric--tp"><span class="metric__label">止盈</span><span class="metric__value">${tp}</span></div>`,
-      `<div class="metric metric--stop"><span class="metric__label">止损</span><span class="metric__value">${stop}</span></div>`,
-      '</div>',
       concessionsHtml,
       '<div class="admin-item__actions">',
       '<div class="admin-item__meta">',
