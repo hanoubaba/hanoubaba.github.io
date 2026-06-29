@@ -85,6 +85,13 @@ function parseStartSlotValue(value) {
   return d;
 }
 
+function parseDateValue(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function isSameDate(a, b) {
   return a.getFullYear() === b.getFullYear()
     && a.getMonth() === b.getMonth()
@@ -171,6 +178,20 @@ const SUPABASE_KEY = 'sb_publishable_8B1PLTeHhtPou4lPt9cl6w_O2hipMVY';
 const STRATEGIES_ENDPOINT = `${SUPABASE_URL}/rest/v1/strategies`;
 const STRATEGY_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_strategy_stats`;
 const RECENT_10_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_recent_10_stats`;
+const SAVE_LOG_PREFIX = '[strategy-save]';
+
+function logSave(level, message, detail) {
+  const fn = level === 'error'
+    ? console.error
+    : level === 'warn'
+      ? console.warn
+      : console.log;
+  if (detail === undefined) {
+    fn(SAVE_LOG_PREFIX, message);
+    return;
+  }
+  fn(SAVE_LOG_PREFIX, message, detail);
+}
 
 function getSupabaseHeaders(extra = {}) {
   return {
@@ -226,6 +247,10 @@ function parseConcessionsFromDb(value) {
 
 function hasConcessions(concessions) {
   return Array.isArray(concessions) && concessions.length > 0;
+}
+
+function normalizeOutcomeStatus(outcomeStatus) {
+  return outcomeStatus === 'profit' || outcomeStatus === 'loss' || outcomeStatus === 'not_filled' ? outcomeStatus : 'pending';
 }
 
 function fromDbRecord(row) {
@@ -817,6 +842,12 @@ function generate() {
   if (outEl) {
     outEl.dataset.copyText = strategy.copyText;
     outEl.dataset.record = JSON.stringify(strategy.record);
+    logSave('info', '策略已生成，可保存', {
+      strategyName: strategy.record?.strategyName,
+      hasCopyText: Boolean(strategy.copyText),
+      hasRecord: Boolean(outEl.dataset.record),
+      recordPreview: strategy.record,
+    });
   }
 }
 
@@ -1070,12 +1101,32 @@ async function fetchRecent10Stats() {
 }
 
 async function createStrategy(record) {
-  const res = await fetch(STRATEGIES_ENDPOINT, {
-    method: 'POST',
-    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify(toDbRecord(record)),
+  const payload = toDbRecord(record);
+  logSave('info', '准备请求 Supabase', {
+    endpoint: STRATEGIES_ENDPOINT,
+    payload,
   });
-  if (!res.ok) throw new Error(await res.text());
+  let res;
+  try {
+    res = await fetch(STRATEGIES_ENDPOINT, {
+      method: 'POST',
+      headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    logSave('error', '网络请求失败（未到达 Supabase）', {
+      message: err?.message || String(err),
+      endpoint: STRATEGIES_ENDPOINT,
+    });
+    throw err;
+  }
+  const bodyText = res.ok ? '' : await res.text();
+  logSave(res.ok ? 'info' : 'error', 'Supabase 响应', {
+    status: res.status,
+    ok: res.ok,
+    body: bodyText || '(empty)',
+  });
+  if (!res.ok) throw new Error(bodyText || `HTTP ${res.status}`);
 }
 
 function normalizeStrategyIds(ids) {
@@ -1104,10 +1155,6 @@ async function updateStrategyOutcomeStatus(id, outcomeStatus) {
   if (!res.ok) throw new Error(await res.text());
 }
 
-function normalizeOutcomeStatus(outcomeStatus) {
-  return outcomeStatus === 'profit' || outcomeStatus === 'loss' || outcomeStatus === 'not_filled' ? outcomeStatus : 'pending';
-}
-
 function getTimeBadgeInfo(endAt, now = new Date()) {
   if (!endAt) return null;
   if (getTimeRangeStatusByEndAt(endAt) === 'ended') return null;
@@ -1124,13 +1171,6 @@ function getOutcomeStatusInfo(outcomeStatus) {
   if (normalized === 'loss') return { label: '亏损', type: 'loss' };
   if (normalized === 'not_filled') return { label: '未成交', type: 'not-filled' };
   return { label: '待定', type: 'pending' };
-}
-
-function parseDateValue(value) {
-  const raw = String(value ?? '').trim();
-  if (!raw) return null;
-  const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function getStrategyEndAt(row) {
@@ -1767,12 +1807,23 @@ function flashCopyStrategyBtn(btn, label, duration = 1200) {
 let isSavingStrategy = false;
 
 async function copyStrategyOutput() {
+  logSave('info', '点击保存');
   const btn = document.getElementById('btn-copy-strategy');
   const out = document.getElementById('strategy-output');
   const errEl = document.getElementById('error');
   const nameEl = document.getElementById('name-input');
   const name = String(nameEl?.value ?? '').trim();
+  logSave('info', '保存前状态', {
+    currentPage,
+    name,
+    hasCopyText: Boolean(out?.dataset.copyText),
+    hasRecord: Boolean(out?.dataset.record),
+    copyTextLength: String(out?.dataset.copyText ?? '').length,
+    recordLength: String(out?.dataset.record ?? '').length,
+    hasStrategyHtml: Boolean(out?.innerHTML?.trim()),
+  });
   if (!name) {
+    logSave('warn', '前端拦截：未填写名称');
     if (errEl) errEl.textContent = '保存前请填写名称。';
     flashCopyStrategyBtn(btn, '请填名称');
     return;
@@ -1780,11 +1831,15 @@ async function copyStrategyOutput() {
   if (errEl) errEl.textContent = '';
   const text = String(out?.dataset.copyText ?? '').trim();
   if (!text) {
+    logSave('warn', '前端拦截：策略未生成（copyText 为空）');
     flashCopyStrategyBtn(btn, '无内容');
     return;
   }
 
-  if (isSavingStrategy) return;
+  if (isSavingStrategy) {
+    logSave('warn', '前端拦截：正在保存中，忽略重复点击');
+    return;
+  }
   isSavingStrategy = true;
   if (btn) {
     if (!btn.dataset.defaultLabel) btn.dataset.defaultLabel = btn.textContent;
@@ -1799,16 +1854,36 @@ async function copyStrategyOutput() {
 
   let saved = false;
   try {
-    if (out?.dataset.record) {
-      try {
-        await createStrategy(JSON.parse(out.dataset.record));
-        saved = true;
-        if (currentPage === 'admin') await renderAdminList();
-      } catch {
-        if (errEl) errEl.textContent = '保存失败。请检查 Supabase 表和权限。';
-        flashCopyStrategyBtn(btn, '保存失败');
-        return;
-      }
+    if (!out?.dataset.record) {
+      logSave('warn', '前端拦截：有 copyText 但缺少 dataset.record，未发起接口');
+      flashCopyStrategyBtn(btn, '保存失败');
+      return;
+    }
+    let record;
+    try {
+      record = JSON.parse(out.dataset.record);
+      logSave('info', 'record 解析成功', record);
+    } catch (err) {
+      logSave('error', 'record 解析失败，未发起接口', {
+        message: err?.message || String(err),
+        recordRaw: out.dataset.record,
+      });
+      if (errEl) errEl.textContent = '保存失败：策略数据解析错误。';
+      flashCopyStrategyBtn(btn, '保存失败');
+      return;
+    }
+    try {
+      await createStrategy(record);
+      saved = true;
+      logSave('info', '保存成功');
+      if (currentPage === 'admin') await renderAdminList();
+    } catch (err) {
+      logSave('error', 'Supabase 保存失败', {
+        message: err?.message || String(err),
+      });
+      if (errEl) errEl.textContent = '保存失败。请检查 Supabase 表和权限。';
+      flashCopyStrategyBtn(btn, '保存失败');
+      return;
     }
     if (saved) {
       showToast('保存成功');
