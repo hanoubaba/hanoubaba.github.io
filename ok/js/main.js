@@ -820,6 +820,7 @@ function generate() {
   }
 }
 
+function initApp() {
 document.querySelectorAll('.tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     const tablist = btn.closest('[role="tablist"]');
@@ -1955,3 +1956,6 @@ document.addEventListener('keydown', (e) => {
 });
 
 setPage('admin');
+}
+
+window.AppAuth?.boot(initApp);

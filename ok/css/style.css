@@ -38,6 +38,18 @@ body {
   box-shadow: 0 10px 32px rgba(22, 101, 52, 0.12), 0 2px 8px rgba(34, 197, 94, 0.08);
 }
 
+.login-page__title {
+  margin-bottom: 0;
+}
+
+.login-form {
+  margin-top: 14px;
+}
+
+.login-form__submit {
+  margin-top: 10px;
+}
+
 .header {
   margin-bottom: 14px;
   text-align: center;
@@ -45,7 +57,7 @@ body {
 
 .header-bar {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr auto auto;
   align-items: center;
   gap: 8px;
 }
@@ -89,6 +101,11 @@ body {
   opacity: 0.48;
   cursor: not-allowed;
   transform: none;
+}
+
+.header-action--logout {
+  grid-column: 4;
+  justify-self: end;
 }
 
 .page-switch {
