@@ -38,18 +38,6 @@ body {
   box-shadow: 0 10px 32px rgba(22, 101, 52, 0.12), 0 2px 8px rgba(34, 197, 94, 0.08);
 }
 
-.login-page__title {
-  margin-bottom: 0;
-}
-
-.login-form {
-  margin-top: 14px;
-}
-
-.login-form__submit {
-  margin-top: 10px;
-}
-
 .header {
   margin-bottom: 14px;
   text-align: center;
@@ -1087,6 +1075,35 @@ body {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   word-break: break-word;
+}
+
+.strategy-card__ref-tp,
+.admin-item__ref-tp {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.strategy-card__ref-tp-label,
+.admin-item__ref-tp-label {
+  color: var(--muted);
+  font-weight: 600;
+  flex: none;
+}
+
+.strategy-card__ref-tp-value,
+.admin-item__ref-tp-value {
+  color: var(--text);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+  text-align: right;
 }
 
 .start-time-trigger {

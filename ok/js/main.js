@@ -141,6 +141,8 @@ const TIMEFRAME_LABELS = {
 const PRICE_ADJUSTMENT_RATE = 0.2;
 const CONCESSION_RATES = [0, 0.2, 0.5, 0.8];
 const TAKE_PROFIT_R_MULTIPLE = 1;
+const REF_TAKE_PROFIT_R_LOW = 3;
+const REF_TAKE_PROFIT_R_HIGH = 5;
 const STRATEGY_DURATION_PERIODS = 10;
 
 function getTimeframeMode() {
@@ -551,6 +553,37 @@ function calcTakeProfit(open, stop, multiplier = 1) {
   return open - move;
 }
 
+function getPriceDecimalPlacesFromValues(...values) {
+  return values.reduce((max, value) => {
+    const places = getDecimalPlacesFromInput(String(value ?? ''));
+    return Math.max(max, places);
+  }, 0);
+}
+
+/** 参考止盈：3R 与 5R 止盈价区间（1R 盈利 = 开仓成本） */
+function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces) {
+  const entry = toNumber(entryPrice);
+  const stop = toNumber(stopLoss);
+  if (entry == null || stop == null || entry === stop) return '—';
+  const tpLowR = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R_LOW);
+  const tpHighR = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R_HIGH);
+  if (tpLowR == null || tpHighR == null) return '—';
+  const decimals = decimalPlaces ?? getPriceDecimalPlacesFromValues(entryPrice, stopLoss);
+  const low = formatTrimmedFixedDecimals(Math.min(tpLowR, tpHighR), decimals);
+  const high = formatTrimmedFixedDecimals(Math.max(tpLowR, tpHighR), decimals);
+  return `${low}-${high}`;
+}
+
+function renderReferenceTakeProfitHtml(blockClass, label) {
+  const value = escapeHtml(String(label ?? '').trim() || '—');
+  return [
+    `<div class="${blockClass}">`,
+    `<span class="${blockClass}-label">参考止盈</span>`,
+    `<span class="${blockClass}-value">${value}</span>`,
+    '</div>',
+  ].join('');
+}
+
 function calcAdjustedOpenPrice(open, stop, decimalPlaces) {
   return Number(formatFixedDecimals(open, decimalPlaces));
 }
@@ -633,6 +666,7 @@ function buildStrategyDisplayHtml({
   side,
   alarmName,
   stopLabel,
+  refTakeProfitLabel,
   concessionItems,
   timeRangeLabel,
 }) {
@@ -644,6 +678,7 @@ function buildStrategyDisplayHtml({
     `<span class="strategy-card__title">${escapeHtml(title)}</span>`,
     '</div>',
     renderStrategyConcessionsHtml(concessionItems, stopLabel),
+    renderReferenceTakeProfitHtml('strategy-card__ref-tp', refTakeProfitLabel),
     `<div class="strategy-card__time"><span class="strategy-card__time-label">时间范围</span><span class="strategy-card__time-value">${escapeHtml(timeRangeLabel)}</span></div>`,
     '</div>',
   ].join('');
@@ -652,6 +687,7 @@ function buildStrategyDisplayHtml({
 function buildStrategyPlainText({
   sideLabel,
   stopLabel,
+  refTakeProfitLabel,
   concessionItems,
   timeRangeLabel,
 }) {
@@ -661,6 +697,7 @@ function buildStrategyPlainText({
     ...displayItems.map((item) => (
       `让利${formatConcessionPercent(item.rate)}：${item.price} / ${item.quantity} / ${stopLabel}`
     )),
+    `参考止盈：${refTakeProfitLabel}`,
     `时间范围：${timeRangeLabel}`,
   ].join('\n');
 }
@@ -709,7 +746,7 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
   const nameEl = document.getElementById('name-input');
   const name = String(nameEl?.value ?? '').trim();
   const side = adjustedOpen > stop ? 'long' : 'short';
-  const alarmName = name || 'demo';
+  const alarmName = name || 'test';
   const sideLabel = formatStrategyCardTitle(alarmName);
   const startAt = getStartDateTime(startTimeValue);
   const endAt = addPeriodToStart(startTimeValue, spanMinutes);
@@ -720,6 +757,7 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
   const priceLabel = formatTrimmedFixedDecimals(adjustedOpen, priceDecimalPlaces);
   const tpLabel = formatTrimmedFixedDecimals(tp, tpDecimals);
   const stopLabel = formatPrice(stop);
+  const refTakeProfitLabel = buildReferenceTakeProfitLabel(adjustedOpen, stop, priceDecimalPlaces);
   const concessionItems = buildConcessionItems(adjustedOpen, stop, openCost, priceDecimalPlaces);
   const baselineItem = concessionItems.find((item) => Number(item.rate) === 0);
   const qty = baselineItem?.quantity ?? formatQuantity(quantity);
@@ -727,6 +765,7 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
   const plain = buildStrategyPlainText({
     sideLabel,
     stopLabel,
+    refTakeProfitLabel,
     concessionItems,
     timeRangeLabel,
   });
@@ -734,6 +773,7 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
     side,
     alarmName,
     stopLabel,
+    refTakeProfitLabel,
     concessionItems,
     timeRangeLabel,
   });
@@ -851,7 +891,6 @@ function generate() {
   }
 }
 
-function initApp() {
 document.querySelectorAll('.tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     const tablist = btn.closest('[role="tablist"]');
@@ -1563,6 +1602,12 @@ async function renderAdminList() {
     const sideMod = getPositionSideMod(sideRaw);
     const title = escapeHtml(formatStrategyCardTitle(nameRaw));
     const stop = escapeHtml(String(row?.stopLossPrice ?? '-'));
+    const refTakeProfitLabel = buildReferenceTakeProfitLabel(
+      row?.entryPrice,
+      row?.stopLossPrice,
+      getPriceDecimalPlacesFromValues(row?.entryPrice, row?.stopLossPrice),
+    );
+    const refTakeProfitHtml = renderReferenceTakeProfitHtml('admin-item__ref-tp', refTakeProfitLabel);
     const concessionsHtml = renderAdminConcessionsHtml(buildAdminConcessionsForRow(row), stop);
     const startAt = getStrategyStartAt(row);
     const endAt = getStrategyEndAt(row);
@@ -1614,6 +1659,7 @@ async function renderAdminList() {
       timeBadgeHtml,
       '</header>',
       concessionsHtml,
+      refTakeProfitHtml,
       '<div class="admin-item__actions">',
       '<div class="admin-item__meta">',
       `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
@@ -2031,6 +2077,3 @@ document.addEventListener('keydown', (e) => {
 });
 
 setPage('admin');
-}
-
-window.AppAuth?.boot(initApp);
