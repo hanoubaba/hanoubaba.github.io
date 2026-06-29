@@ -281,6 +281,7 @@ function fromDbRecord(row) {
     startAt: row.start_at,
     expiresAt: row.expires_at,
     outcomeStatus: row.outcome_status ?? 'pending',
+    outcomeRemark: dbValueToString(row.outcome_remark),
   };
 }
 
@@ -531,6 +532,18 @@ function getPositionSideMod(side) {
 function formatStrategyCardTitle(name) {
   const base = String(name || '未命名').trim() || '未命名';
   return /[A-Z]/.test(base) ? base.toLowerCase() : base;
+}
+
+function formatAdminCardTitlePlain(name, remark) {
+  const title = formatStrategyCardTitle(name);
+  const note = String(remark ?? '').trim();
+  return note ? `${title}，备注：${note}` : title;
+}
+
+function renderAdminRemarkStampHtml(remark) {
+  const note = String(remark ?? '').trim();
+  if (!note) return '';
+  return `<div class="admin-item__remark-stamp" aria-label="备注：${escapeHtml(note)}">${escapeHtml(note)}</div>`;
 }
 
 function buildStrategyCopyText({ name, price, quantity, takeProfit, stopLoss }) {
@@ -1184,12 +1197,15 @@ async function deleteStrategies(ids) {
   if (!res.ok) throw new Error(await res.text());
 }
 
-async function updateStrategyOutcomeStatus(id, outcomeStatus) {
+async function updateStrategyOutcomeStatus(id, outcomeStatus, remark) {
   const encodedId = encodeURIComponent(id);
   const res = await fetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
     method: 'PATCH',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify({ outcome_status: outcomeStatus }),
+    body: JSON.stringify({
+      outcome_status: outcomeStatus,
+      outcome_remark: String(remark ?? '').trim(),
+    }),
   });
   if (!res.ok) throw new Error(await res.text());
 }
@@ -1505,11 +1521,14 @@ async function deleteSelectedStrategies() {
 }
 
 let pendingOutcomeStatusRecordId = '';
+let pendingOutcomeStatusSelection = '';
 
 function setOutcomeStatusPickerLoading(loading) {
   document.querySelectorAll('#status-picker button').forEach((btn) => {
     btn.disabled = loading;
   });
+  const remarkEl = document.getElementById('status-picker-remark');
+  if (remarkEl) remarkEl.disabled = loading;
 }
 
 function setOutcomeStatusPickerError(message) {
@@ -1517,12 +1536,41 @@ function setOutcomeStatusPickerError(message) {
   if (errEl) errEl.textContent = message;
 }
 
-function openOutcomeStatusPicker(id, timeStatus) {
+function resetOutcomeStatusPickerForm() {
+  pendingOutcomeStatusSelection = '';
+  const remarkEl = document.getElementById('status-picker-remark');
+  if (remarkEl) remarkEl.value = '';
+  document.querySelectorAll('#status-picker [data-outcome-status]').forEach((btn) => {
+    btn.classList.remove('is-selected');
+    btn.setAttribute('aria-pressed', 'false');
+  });
+}
+
+function selectOutcomeStatusInPicker(outcomeStatus) {
+  const next = String(outcomeStatus ?? '').trim();
+  if (!isOutcomeStatusChoice(next)) return;
+  pendingOutcomeStatusSelection = next;
+  document.querySelectorAll('#status-picker [data-outcome-status]').forEach((btn) => {
+    const selected = btn.getAttribute('data-outcome-status') === next;
+    btn.classList.toggle('is-selected', selected);
+    btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
+}
+
+function openOutcomeStatusPicker(id, currentStatus, currentRemark) {
   const picker = document.getElementById('status-picker');
   if (!picker || !id) return;
   pendingOutcomeStatusRecordId = id;
   setOutcomeStatusPickerLoading(false);
   setOutcomeStatusPickerError('');
+  resetOutcomeStatusPickerForm();
+
+  const normalized = normalizeOutcomeStatus(currentStatus);
+  if (isOutcomeStatusChoice(normalized)) {
+    selectOutcomeStatusInPicker(normalized);
+  }
+  const remarkEl = document.getElementById('status-picker-remark');
+  if (remarkEl) remarkEl.value = String(currentRemark ?? '');
 
   picker.hidden = false;
   document.body.style.overflow = 'hidden';
@@ -1535,6 +1583,7 @@ function closeOutcomeStatusPicker() {
   const picker = document.getElementById('status-picker');
   if (!picker) return;
   pendingOutcomeStatusRecordId = '';
+  resetOutcomeStatusPickerForm();
   setOutcomeStatusPickerLoading(false);
   setOutcomeStatusPickerError('');
   picker.hidden = true;
@@ -1545,14 +1594,19 @@ function isOutcomeStatusChoice(value) {
   return value === 'profit' || value === 'loss' || value === 'not_filled';
 }
 
-async function submitOutcomeStatusFromPicker(outcomeStatus) {
-  const nextOutcomeStatus = String(outcomeStatus ?? '').trim();
+async function submitOutcomeStatusFromPicker() {
   const id = pendingOutcomeStatusRecordId;
-  if (!id || !isOutcomeStatusChoice(nextOutcomeStatus)) return;
+  const nextOutcomeStatus = pendingOutcomeStatusSelection;
+  if (!id || !isOutcomeStatusChoice(nextOutcomeStatus)) {
+    setOutcomeStatusPickerError('请先选择盈利状态。');
+    return;
+  }
+  const remarkEl = document.getElementById('status-picker-remark');
+  const remark = String(remarkEl?.value ?? '').trim();
   setOutcomeStatusPickerLoading(true);
   setOutcomeStatusPickerError('');
   try {
-    await updateStrategyOutcomeStatus(id, nextOutcomeStatus);
+    await updateStrategyOutcomeStatus(id, nextOutcomeStatus, remark);
     closeOutcomeStatusPicker();
     await renderAdminList();
   } catch {
@@ -1601,6 +1655,8 @@ async function renderAdminList() {
     const nameRaw = String(row?.strategyName ?? '').trim();
     const sideMod = getPositionSideMod(sideRaw);
     const title = escapeHtml(formatStrategyCardTitle(nameRaw));
+    const titleLabel = escapeHtml(formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark));
+    const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
     const stop = escapeHtml(String(row?.stopLossPrice ?? '-'));
     const refTakeProfitLabel = buildReferenceTakeProfitLabel(
       row?.entryPrice,
@@ -1619,7 +1675,7 @@ async function renderAdminList() {
     const selectorDisabled = isDeletingStrategies ? ' is-disabled' : '';
     const selectHtml = rawId && isAdminSelectionMode
       ? [
-        `<label class="admin-item__selector${selectorDisabled}" aria-label="选择 ${title}">`,
+        `<label class="admin-item__selector${selectorDisabled}" aria-label="选择 ${titleLabel}">`,
         `<input type="checkbox" class="admin-item__select" data-id="${id}"${checked}${disabled}>`,
         '<span class="admin-item__checkmark" aria-hidden="true"></span>',
         '</label>',
@@ -1641,7 +1697,7 @@ async function renderAdminList() {
       : '';
     const outcomeStatusHtml = id
       ? [
-        `<button type="button" class="admin-outcome-status admin-outcome-status--${outcomeInfo.type} admin-outcome-status--actionable" data-id="${id}" data-time-status="${timeStatus}" aria-haspopup="dialog" aria-controls="status-picker" aria-label="修改盈利状态">`,
+        `<button type="button" class="admin-outcome-status admin-outcome-status--${outcomeInfo.type} admin-outcome-status--actionable" data-id="${id}" data-time-status="${timeStatus}" data-outcome-status="${escapeHtml(outcomeStatus)}" data-outcome-remark="${escapeHtml(String(row?.outcomeRemark ?? ''))}" aria-haspopup="dialog" aria-controls="status-picker" aria-label="修改盈利状态">`,
         `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
         '</button>',
       ].join('')
@@ -1653,6 +1709,7 @@ async function renderAdminList() {
     const buttonsHtml = `<div class="admin-item__buttons">${outcomeStatusHtml}</div>`;
     return [
       `<article class="admin-item admin-item--${sideMod}">`,
+      remarkStampHtml,
       '<header class="admin-item__head">',
       selectHtml,
       `<span class="admin-item__title">${title}</span>`,
@@ -2047,8 +2104,11 @@ if (adminListEl) {
     const outcomeStatusActionBtn = target.closest('.admin-outcome-status--actionable');
     if (outcomeStatusActionBtn) {
       const id = String(outcomeStatusActionBtn.getAttribute('data-id') ?? '').trim();
-      const timeStatus = String(outcomeStatusActionBtn.getAttribute('data-time-status') ?? '').trim();
-      openOutcomeStatusPicker(id, timeStatus);
+      openOutcomeStatusPicker(
+        id,
+        outcomeStatusActionBtn.getAttribute('data-outcome-status'),
+        outcomeStatusActionBtn.getAttribute('data-outcome-remark') ?? '',
+      );
     }
   });
 }
@@ -2063,13 +2123,19 @@ if (outcomeStatusPicker) {
       return;
     }
     const option = target.closest('[data-outcome-status]');
-    if (!option) return;
-    submitOutcomeStatusFromPicker(option.getAttribute('data-outcome-status'));
+    if (option) {
+      selectOutcomeStatusInPicker(option.getAttribute('data-outcome-status'));
+    }
   });
 }
 
 const outcomeStatusPickerCancel = document.getElementById('status-picker-cancel');
 if (outcomeStatusPickerCancel) outcomeStatusPickerCancel.addEventListener('click', closeOutcomeStatusPicker);
+
+const outcomeStatusPickerSubmit = document.getElementById('status-picker-submit');
+if (outcomeStatusPickerSubmit) outcomeStatusPickerSubmit.addEventListener('click', () => {
+  submitOutcomeStatusFromPicker().catch(() => {});
+});
 
 document.addEventListener('keydown', (e) => {
   const picker = document.getElementById('status-picker');

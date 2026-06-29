@@ -120,24 +120,31 @@
       <div class="status-picker__grabber" aria-hidden="true"></div>
       <div class="status-picker__header">
         <h2 id="status-picker-title" class="status-picker__title">盈利状态</h2>
-        <p id="status-picker-desc" class="status-picker__desc">选择后会同步更新后台统计数据。</p>
+        <p id="status-picker-desc" class="status-picker__desc">选择状态并填写备注，点击提交后生效。</p>
       </div>
       <div class="status-picker__options">
-        <button id="status-picker-profit" type="button" class="status-picker__option status-picker__option--profit" data-outcome-status="profit">
+        <button id="status-picker-profit" type="button" class="status-picker__option status-picker__option--profit" data-outcome-status="profit" aria-pressed="false">
           <span class="status-picker__option-title">盈利</span>
           <span class="status-picker__option-note">本单已开单并盈利</span>
         </button>
-        <button id="status-picker-loss" type="button" class="status-picker__option status-picker__option--loss" data-outcome-status="loss">
+        <button id="status-picker-loss" type="button" class="status-picker__option status-picker__option--loss" data-outcome-status="loss" aria-pressed="false">
           <span class="status-picker__option-title">亏损</span>
           <span class="status-picker__option-note">本单已开单并亏损</span>
         </button>
-        <button id="status-picker-not-filled" type="button" class="status-picker__option status-picker__option--not-filled" data-outcome-status="not_filled">
+        <button id="status-picker-not-filled" type="button" class="status-picker__option status-picker__option--not-filled" data-outcome-status="not_filled" aria-pressed="false">
           <span class="status-picker__option-title">未成交</span>
           <span class="status-picker__option-note">本单未能成交</span>
         </button>
       </div>
+      <label class="status-picker__remark">
+        <span class="status-picker__remark-label">备注</span>
+        <textarea id="status-picker-remark" class="status-picker__remark-input" rows="2" placeholder="选填"></textarea>
+      </label>
       <p id="status-picker-error" class="status-picker__error" role="alert" aria-live="polite"></p>
-      <button id="status-picker-cancel" type="button" class="status-picker__cancel">取消</button>
+      <div class="status-picker__actions">
+        <button id="status-picker-cancel" type="button" class="status-picker__cancel">取消</button>
+        <button id="status-picker-submit" type="button" class="status-picker__submit">提交</button>
+      </div>
     </div>
   </div>
 

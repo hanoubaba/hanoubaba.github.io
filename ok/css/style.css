@@ -323,6 +323,29 @@ body {
   border-radius: 10px;
   background: #fff;
   padding: 11px 13px 10px 15px;
+  overflow: hidden;
+}
+
+.admin-item__remark-stamp {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  max-width: min(74%, 240px);
+  padding: 7px 14px;
+  border: 2px solid #94a3b8;
+  border-radius: 8px;
+  background: #fff;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: 0.2px;
+  text-align: center;
+  transform: translate(-50%, -50%) rotate(-12deg);
+  transform-origin: center center;
+  pointer-events: none;
+  word-break: break-word;
 }
 
 .admin-item::before {
@@ -647,9 +670,9 @@ body {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-top: 9px;
-  padding-top: 9px;
+  gap: 6px;
+  margin-top: 5px;
+  padding-top: 5px;
   border-top: 1px solid var(--border-soft);
 }
 
@@ -657,12 +680,12 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 0;
+  gap: 2px 0;
   min-width: 0;
-  min-height: 32px;
+  min-height: 0;
   color: var(--text);
   font-size: 12px;
-  line-height: 1.35;
+  line-height: 1.25;
 }
 
 .admin-item__meta > span {
@@ -682,6 +705,7 @@ body {
   color: var(--text);
   font-weight: 600;
   font-size: 12px;
+  line-height: 1.25;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1106,6 +1130,12 @@ body {
   text-align: right;
 }
 
+.admin-item__ref-tp {
+  margin-top: 5px;
+  padding-top: 5px;
+  line-height: 1.25;
+}
+
 .start-time-trigger {
   text-align: left;
   font-family: inherit;
@@ -1271,16 +1301,74 @@ body {
   background: #fff7f7;
 }
 
+.status-picker__option.is-selected {
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.45);
+}
+
+.status-picker__option--profit.is-selected {
+  border-color: var(--long);
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.28);
+}
+
+.status-picker__option--loss.is-selected {
+  border-color: var(--short);
+  box-shadow: 0 0 0 2px rgba(225, 29, 72, 0.22);
+}
+
+.status-picker__option--not-filled.is-selected {
+  border-color: #94a3b8;
+  box-shadow: 0 0 0 2px rgba(100, 116, 139, 0.24);
+}
+
 .status-picker__option:active {
   transform: translateY(1px);
 }
 
 .status-picker__option:disabled,
 .status-picker__cancel:disabled,
+.status-picker__submit:disabled,
 .status-picker__option.is-disabled {
   opacity: 0.58;
   cursor: not-allowed;
   pointer-events: none;
+}
+
+.status-picker__remark {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.status-picker__remark-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.status-picker__remark-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 10px;
+  font-size: 14px;
+  line-height: 1.4;
+  font-family: inherit;
+  color: var(--text);
+  background: #fff;
+  resize: vertical;
+  min-height: 64px;
+  outline: none;
+}
+
+.status-picker__remark-input:focus {
+  border-color: #4ade80;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+}
+
+.status-picker__remark-input:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+  background: #f8fafc;
 }
 
 .status-picker__option-title {
@@ -1314,17 +1402,40 @@ body {
   line-height: 1.4;
 }
 
-.status-picker__cancel {
+.status-picker__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.status-picker__cancel,
+.status-picker__submit {
   width: 100%;
-  border: 1px solid var(--border);
   border-radius: 11px;
-  background: #fff;
-  color: var(--primary-strong);
   padding: 11px 10px;
   font-size: 14px;
   font-weight: 800;
   line-height: 1.2;
   cursor: pointer;
+}
+
+.status-picker__cancel {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--primary-strong);
+}
+
+.status-picker__submit {
+  border: none;
+  background: linear-gradient(180deg, #4ade80, var(--primary));
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(22, 163, 74, 0.28);
+}
+
+.status-picker__cancel:active,
+.status-picker__submit:active {
+  transform: translateY(1px);
 }
 
 .app-toast[hidden] {
@@ -1572,6 +1683,13 @@ body {
     font-size: 16px;
   }
 
+  .admin-item__remark-stamp {
+    max-width: min(78%, 200px);
+    padding: 5px 10px;
+    font-size: 12px;
+    transform: translate(-50%, -50%) rotate(-10deg);
+  }
+
   .admin-concession {
     grid-template-columns: 36px 1fr 1fr 1fr;
     gap: 6px;
@@ -1589,9 +1707,9 @@ body {
     align-items: center;
     flex-direction: row;
     flex-wrap: nowrap;
-    gap: 8px;
-    margin-top: 8px;
-    padding-top: 8px;
+    gap: 6px;
+    margin-top: 4px;
+    padding-top: 4px;
   }
 
   .admin-item__meta {

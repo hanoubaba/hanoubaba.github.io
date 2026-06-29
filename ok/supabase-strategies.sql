@@ -30,6 +30,7 @@ create table if not exists public.strategies (
   expires_at timestamptz not null,
 
   outcome_status text not null default 'pending',
+  outcome_remark text not null default '',
 
   constraint strategies_position_side_check
     check (position_side in ('long', 'short')),
@@ -308,3 +309,6 @@ check (outcome_status in ('pending', 'profit', 'loss', 'not_filled'));
 
 alter table public.strategies
 add column if not exists concessions jsonb not null default '[]'::jsonb;
+
+alter table public.strategies
+add column if not exists outcome_remark text not null default '';
