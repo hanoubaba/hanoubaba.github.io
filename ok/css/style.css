@@ -431,21 +431,6 @@ body {
   box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.18);
 }
 
-.admin-item__side {
-  flex: none;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  color: var(--muted);
-}
-
-.admin-item--long .admin-item__side,
-.admin-item--short .admin-item__side { color: var(--text); }
-
-.admin-item--short .admin-item__side {
-  color: var(--short);
-}
-
 .admin-item__title {
   flex: 1;
   min-width: 0;
@@ -605,40 +590,6 @@ body {
   outline-offset: 2px;
   border-radius: 6px;
 }
-
-.admin-item__metrics {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 16px;
-}
-
-.admin-item__metrics--tp-stop {
-  margin-bottom: 0;
-}
-
-.metric {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.metric__label {
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.metric__value {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-  word-break: break-all;
-  text-align: right;
-}
-
-.metric--tp .metric__value,
-.metric--stop .metric__value { color: var(--text); }
 
 .admin-item__concessions {
   margin-top: 6px;
@@ -1041,22 +992,6 @@ body {
   margin-bottom: 9px;
 }
 
-.strategy-card__side {
-  flex: none;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--muted);
-}
-
-.strategy-card--long .strategy-card__side,
-.strategy-card--short .strategy-card__side {
-  color: var(--text);
-}
-
-.strategy-card--short .strategy-card__side {
-  color: var(--short);
-}
-
 .strategy-card__title {
   flex: 1;
   min-width: 0;
@@ -1067,34 +1002,6 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.strategy-card__metrics {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 16px;
-  margin-bottom: 8px;
-}
-
-.strategy-metric {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.strategy-metric__label {
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.strategy-metric__value {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-  word-break: break-all;
-  text-align: right;
 }
 
 .strategy-card__concessions {
@@ -1636,10 +1543,6 @@ body {
     font-size: 16px;
   }
 
-  .admin-item__metrics {
-    gap: 5px 12px;
-  }
-
   .admin-concession {
     grid-template-columns: 36px 1fr 1fr 1fr;
     gap: 6px;
@@ -1693,10 +1596,6 @@ body {
     padding: 4px 9px;
     font-size: 12px;
     border-radius: 6px;
-  }
-
-  .metric__value {
-    font-size: 15px;
   }
 
   .panel[aria-label="策略输出"] > .field {
@@ -1771,14 +1670,6 @@ body {
 
   .strategy-card__title {
     font-size: 16px;
-  }
-
-  .strategy-metric__label {
-    font-size: 13px;
-  }
-
-  .strategy-metric__value {
-    font-size: 15px;
   }
 
   .strategy-concession {

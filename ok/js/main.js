@@ -156,6 +156,16 @@ function getOpenCost() {
   return n !== null && n > 0 ? n : null;
 }
 
+const OPEN_COST_TRIPLE_MULTIPLIER = 3;
+
+function updateOpenCostNote() {
+  const labelEl = document.getElementById('open-cost-label');
+  if (!labelEl) return;
+  const openCost = getOpenCost();
+  const tripleCost = openCost == null ? '—' : openCost * OPEN_COST_TRIPLE_MULTIPLIER;
+  labelEl.textContent = `开仓成本（${tripleCost}）`;
+}
+
 const SUPABASE_URL = 'https://rxggjijrfafcrmtkqkuv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_8B1PLTeHhtPou4lPt9cl6w_O2hipMVY';
 const STRATEGIES_ENDPOINT = `${SUPABASE_URL}/rest/v1/strategies`;
@@ -194,7 +204,7 @@ function enrichConcessionsWithBaseline(concessions, entryPrice, quantity) {
     const qty = String(quantity ?? '').trim();
     if (price && qty) items.unshift({ rate: 0, price, quantity: qty });
   }
-  return items.slice().sort((a, b) => Number(a.rate) - Number(b.rate));
+  return items.sort((a, b) => Number(a.rate) - Number(b.rate));
 }
 
 function buildAdminConcessionsForRow(row) {
@@ -487,12 +497,16 @@ function renderStrategyOutput(outEl, { plain, html }) {
   outEl.dataset.plainText = plain;
 }
 
+function getPositionSideMod(side) {
+  return side === 'long' || side === 'short' ? side : 'flat';
+}
+
 function formatStrategyCardTitle(name) {
   const base = String(name || '未命名').trim() || '未命名';
   return /[A-Z]/.test(base) ? base.toLowerCase() : base;
 }
 
-function buildStrategyCopyText({ side, name, price, quantity, takeProfit, stopLoss }) {
+function buildStrategyCopyText({ name, price, quantity, takeProfit, stopLoss }) {
   return [
     formatStrategyCardTitle(name),
     `价格：${String(price ?? '').trim()}`,
@@ -555,29 +569,39 @@ function buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rat
   return items;
 }
 
-function renderStrategyConcessionsHtml(items, stopLabel) {
+function renderConcessionsHtml({ prefix, items, stopLabel, wrapperClass }) {
   const displayItems = getDisplayConcessionItems(items);
   if (!displayItems.length) return '';
   const stop = escapeHtml(String(stopLabel ?? '').trim() || '—');
+  const rowClass = `${prefix}-concession`;
   const rows = displayItems.map((item) => [
-    '<div class="strategy-concession">',
-    `<span class="strategy-concession__rate">${escapeHtml(formatConcessionPercent(item.rate))}</span>`,
-    `<span class="strategy-concession__price">${escapeHtml(item.price)}</span>`,
-    `<span class="strategy-concession__qty">${escapeHtml(item.quantity)}</span>`,
-    `<span class="strategy-concession__stop">${stop}</span>`,
+    `<div class="${rowClass}">`,
+    `<span class="${rowClass}__rate">${escapeHtml(formatConcessionPercent(item.rate))}</span>`,
+    `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`,
+    `<span class="${rowClass}__qty">${escapeHtml(item.quantity)}</span>`,
+    `<span class="${rowClass}__stop">${stop}</span>`,
     '</div>',
   ].join('')).join('');
   return [
-    '<div class="strategy-card__concessions" aria-label="让利档位">',
-    '<div class="strategy-concession strategy-concession--head">',
-    '<span class="strategy-concession__rate">让利</span>',
-    '<span class="strategy-concession__price">价格</span>',
-    '<span class="strategy-concession__qty">数量</span>',
-    '<span class="strategy-concession__stop">止损</span>',
+    `<div class="${wrapperClass}" aria-label="让利档位">`,
+    `<div class="${rowClass} ${rowClass}--head">`,
+    `<span class="${rowClass}__rate">让利</span>`,
+    `<span class="${rowClass}__price">价格</span>`,
+    `<span class="${rowClass}__qty">数量</span>`,
+    `<span class="${rowClass}__stop">止损</span>`,
     '</div>',
     rows,
     '</div>',
   ].join('');
+}
+
+function renderStrategyConcessionsHtml(items, stopLabel) {
+  return renderConcessionsHtml({
+    prefix: 'strategy',
+    items,
+    stopLabel,
+    wrapperClass: 'strategy-card__concessions',
+  });
 }
 
 function buildStrategyDisplayHtml({
@@ -587,7 +611,7 @@ function buildStrategyDisplayHtml({
   concessionItems,
   timeRangeLabel,
 }) {
-  const sideMod = side === 'long' ? 'long' : (side === 'short' ? 'short' : 'flat');
+  const sideMod = getPositionSideMod(side);
   const title = formatStrategyCardTitle(alarmName);
   return [
     `<div class="strategy-card strategy-card--${sideMod}">`,
@@ -617,28 +641,12 @@ function buildStrategyPlainText({
 }
 
 function renderAdminConcessionsHtml(concessions, stopLabel) {
-  const items = getDisplayConcessionItems(concessions);
-  if (!items.length) return '';
-  const stop = escapeHtml(String(stopLabel ?? '').trim() || '—');
-  const rows = items.map((item) => [
-    '<div class="admin-concession">',
-    `<span class="admin-concession__rate">${escapeHtml(formatConcessionPercent(item.rate))}</span>`,
-    `<span class="admin-concession__price">${escapeHtml(item.price)}</span>`,
-    `<span class="admin-concession__qty">${escapeHtml(item.quantity)}</span>`,
-    `<span class="admin-concession__stop">${stop}</span>`,
-    '</div>',
-  ].join('')).join('');
-  return [
-    '<div class="admin-item__concessions" aria-label="让利档位">',
-    '<div class="admin-concession admin-concession--head">',
-    '<span class="admin-concession__rate">让利</span>',
-    '<span class="admin-concession__price">价格</span>',
-    '<span class="admin-concession__qty">数量</span>',
-    '<span class="admin-concession__stop">止损</span>',
-    '</div>',
-    rows,
-    '</div>',
-  ].join('');
+  return renderConcessionsHtml({
+    prefix: 'admin',
+    items: concessions,
+    stopLabel,
+    wrapperClass: 'admin-item__concessions',
+  });
 }
 
 function getStartDateTime(startValue) {
@@ -706,7 +714,6 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
   });
 
   const copyText = buildStrategyCopyText({
-    side,
     name: alarmName,
     price: priceLabel,
     quantity: qty,
@@ -840,16 +847,26 @@ costBtns.forEach((btn) => {
     });
     btn.classList.add('is-active');
     btn.setAttribute('aria-selected', 'true');
+    updateOpenCostNote();
     autoGenerateIfReady();
   });
 });
+
+updateOpenCostNote();
 
 function onEnter(e) {
   if (e.key === 'Enter') generate();
 }
 if (openInput) openInput.addEventListener('keydown', onEnter);
 if (stopInput) stopInput.addEventListener('keydown', onEnter);
-if (startTimeSelect) startTimeSelect.addEventListener('keydown', onEnter);
+if (startTimeSelect) {
+  startTimeSelect.addEventListener('keydown', onEnter);
+  startTimeSelect.addEventListener('change', () => {
+    updateStartTimeTriggerLabel();
+    startTimeUserPicked = true;
+    autoGenerateIfReady();
+  });
+}
 
 function autoGenerateIfReady() {
   const openVal = String(openInput?.value ?? '').trim();
@@ -866,9 +883,6 @@ function autoGenerateIfReady() {
 
 if (openInput) openInput.addEventListener('input', autoGenerateIfReady);
 if (stopInput) stopInput.addEventListener('input', autoGenerateIfReady);
-if (startTimeSelect) startTimeSelect.addEventListener('change', autoGenerateIfReady);
-if (startTimeSelect) startTimeSelect.addEventListener('change', updateStartTimeTriggerLabel);
-if (startTimeSelect) startTimeSelect.addEventListener('change', () => { startTimeUserPicked = true; });
 
 function setTablistValue(tablistName, value) {
   const tablist = document.querySelector(`[data-tablist="${tablistName}"]`);
@@ -893,6 +907,7 @@ function resetFrontPage() {
     btn.classList.toggle('is-active', isDefault);
     btn.setAttribute('aria-selected', isDefault ? 'true' : 'false');
   });
+  updateOpenCostNote();
   if (nameInput) nameInput.value = '';
   const errEl = document.getElementById('error');
   const outEl = document.getElementById('strategy-output');
@@ -926,21 +941,6 @@ window.addEventListener('focus', syncStartTimeToNow);
 
 const nameInput = document.getElementById('name-input');
 if (nameInput) nameInput.addEventListener('input', autoGenerateIfReady);
-
-function copyFallback(text) {
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.setAttribute('readonly', '');
-  ta.style.position = 'fixed';
-  ta.style.left = '-9999px';
-  document.body.appendChild(ta);
-  ta.select();
-  try {
-    return document.execCommand('copy');
-  } finally {
-    document.body.removeChild(ta);
-  }
-}
 
 function getLocalDayRange(date = new Date()) {
   const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
@@ -1107,13 +1107,6 @@ function normalizeOutcomeStatus(outcomeStatus) {
   return outcomeStatus === 'profit' || outcomeStatus === 'loss' || outcomeStatus === 'not_filled' ? outcomeStatus : 'pending';
 }
 
-function getOutcomeStatusLabel(outcomeStatus) {
-  if (outcomeStatus === 'profit') return '盈利';
-  if (outcomeStatus === 'loss') return '亏损';
-  if (outcomeStatus === 'not_filled') return '未成交';
-  return '待定';
-}
-
 function getTimeBadgeInfo(endAt, now = new Date()) {
   if (!endAt) return null;
   if (getTimeRangeStatusByEndAt(endAt) === 'ended') return null;
@@ -1161,15 +1154,6 @@ function formatAdminTimeRange(startAt, endAt) {
   return `${start} — ${end}`;
 }
 
-function formatDurationLabel(totalMinutes) {
-  const days = Math.floor(totalMinutes / (24 * 60));
-  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
-  const minutes = totalMinutes % 60;
-  if (days > 0) return `${days}天${hours}小时${minutes}分钟`;
-  if (hours > 0) return `${hours}小时${minutes}分钟`;
-  return `${minutes}分钟`;
-}
-
 function formatCountdownTo(endAt, now = new Date()) {
   if (!endAt) return '—';
   const diffMs = endAt.getTime() - now.getTime();
@@ -1202,10 +1186,6 @@ function getTimeRangeStatusByEndAt(endAt) {
   return nowTs >= endTs ? 'ended' : 'active';
 }
 
-function getTimeRangeStatusLabel(timeStatus) {
-  return timeStatus === 'ended' ? '已结束' : '进行中';
-}
-
 const ADMIN_TIME_FILTER_LABELS = {
   all: '全部',
   active: '进行中',
@@ -1235,16 +1215,20 @@ let adminOutcomeFilter = 'all';
 let adminNameSearch = '';
 let adminSearchTimer = null;
 
+function normalizeAdminFilter(value, labels, fallback = 'all') {
+  return Object.prototype.hasOwnProperty.call(labels, value) ? value : fallback;
+}
+
 function normalizeAdminTimeFilter(value) {
-  return Object.prototype.hasOwnProperty.call(ADMIN_TIME_FILTER_LABELS, value) ? value : 'all';
+  return normalizeAdminFilter(value, ADMIN_TIME_FILTER_LABELS);
 }
 
 function normalizeAdminTimeframeFilter(value) {
-  return Object.prototype.hasOwnProperty.call(ADMIN_TIMEFRAME_FILTER_LABELS, value) ? value : 'all';
+  return normalizeAdminFilter(value, ADMIN_TIMEFRAME_FILTER_LABELS);
 }
 
 function normalizeAdminOutcomeFilter(value) {
-  return Object.prototype.hasOwnProperty.call(ADMIN_OUTCOME_FILTER_LABELS, value) ? value : 'all';
+  return normalizeAdminFilter(value, ADMIN_OUTCOME_FILTER_LABELS);
 }
 
 function normalizeAdminNameSearch(value) {
@@ -1535,9 +1519,7 @@ async function renderAdminList() {
     const rawId = String(row?.id ?? '').trim();
     const sideRaw = String(row?.positionSide ?? '').trim();
     const nameRaw = String(row?.strategyName ?? '').trim();
-    const isLong = sideRaw === 'long';
-    const isShort = sideRaw === 'short';
-    const sideMod = isLong ? 'long' : (isShort ? 'short' : 'flat');
+    const sideMod = getPositionSideMod(sideRaw);
     const title = escapeHtml(formatStrategyCardTitle(nameRaw));
     const stop = escapeHtml(String(row?.stopLossPrice ?? '-'));
     const concessionsHtml = renderAdminConcessionsHtml(buildAdminConcessionsForRow(row), stop);
