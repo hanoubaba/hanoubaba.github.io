@@ -57,7 +57,7 @@ body {
 
 .header-bar {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 8px;
 }
@@ -101,11 +101,6 @@ body {
   opacity: 0.48;
   cursor: not-allowed;
   transform: none;
-}
-
-.header-action--logout {
-  grid-column: 4;
-  justify-self: end;
 }
 
 .page-switch {

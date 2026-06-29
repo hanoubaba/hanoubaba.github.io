@@ -15,11 +15,6 @@
     localStorage.setItem('ok-app-user', AUTH_USERNAME);
   }
 
-  function clearLogin() {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    localStorage.removeItem('ok-app-user');
-  }
-
   function updateView() {
     const loginPage = document.getElementById('login-page');
     const appRoot = document.getElementById('app-root');
@@ -65,30 +60,15 @@
     form.addEventListener('submit', handleLoginSubmit);
   }
 
-  function bindLogout() {
-    const btn = document.getElementById('btn-logout');
-    if (!btn || btn.dataset.bound === 'true') return;
-    btn.dataset.bound = 'true';
-    btn.addEventListener('click', () => {
-      clearLogin();
-      window.location.reload();
-    });
-  }
-
   function boot(appInit) {
     appInitCallback = appInit;
     updateView();
     bindLoginForm();
-    bindLogout();
     if (isLoggedIn()) runAppInit();
   }
 
   window.AppAuth = {
     boot,
     isLoggedIn,
-    logout() {
-      clearLogin();
-      window.location.reload();
-    },
   };
 })();
