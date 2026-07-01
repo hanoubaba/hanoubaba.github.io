@@ -1538,8 +1538,11 @@ body {
     border-radius: 6px;
   }
 
-  .panel {
+  .panel:not(.admin-page):not(.stats-page) {
     flex-shrink: 0;
+  }
+
+  .panel {
     padding: 8px 10px;
     margin-top: 5px;
     border-radius: 10px;
@@ -1593,16 +1596,25 @@ body {
     flex-direction: column;
     justify-content: flex-start;
     align-items: stretch;
+    overflow: hidden;
+  }
+
+  .admin-page > .admin-controls,
+  .admin-page > .admin-filter-tabs,
+  .admin-page > .admin-selection {
+    flex-shrink: 0;
   }
 
   .admin-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
     flex: 1;
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
     padding-right: 1px;
-    align-content: start;
   }
 
   .admin-stats {
@@ -1676,11 +1688,29 @@ body {
   }
 
   .admin-item {
+    flex-shrink: 0;
     padding: 10px 11px 9px 13px;
   }
 
+  .admin-item__head {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
   .admin-item__title {
+    flex: 1 1 calc(100% - 34px);
+    min-width: 0;
     font-size: 16px;
+  }
+
+  .admin-time-status {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .admin-item__concessions {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .admin-item__remark-stamp {
@@ -1691,10 +1721,11 @@ body {
   }
 
   .admin-concession {
-    grid-template-columns: 36px 1fr 1fr 1fr;
+    grid-template-columns: 36px minmax(54px, 1fr) minmax(42px, 1fr) minmax(54px, 1fr);
     gap: 6px;
     padding: 4px 7px;
     font-size: 12px;
+    min-width: 268px;
   }
 
   .admin-concession__price,
@@ -1704,36 +1735,38 @@ body {
   }
 
   .admin-item__actions {
-    align-items: center;
-    flex-direction: row;
-    flex-wrap: nowrap;
-    gap: 6px;
+    align-items: stretch;
+    flex-direction: column;
+    flex-wrap: wrap;
+    gap: 8px;
     margin-top: 4px;
     padding-top: 4px;
   }
 
   .admin-item__meta {
-    flex: 1;
+    flex: none;
+    width: 100%;
     min-width: 0;
-    min-height: 0;
+    min-height: auto;
     font-size: 12px;
   }
 
   .admin-item__time-range {
     display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow: visible;
+    text-overflow: unset;
+    white-space: normal;
+    word-break: break-word;
     font-size: 12px;
   }
 
   .admin-item__buttons {
     flex: none;
-    width: auto;
-    margin-left: auto;
+    width: 100%;
+    margin-left: 0;
     display: inline-flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: flex-start;
     gap: 7px;
   }
 
