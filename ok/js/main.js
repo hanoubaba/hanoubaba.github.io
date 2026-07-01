@@ -1838,20 +1838,25 @@ function setPage(mode) {
   const front = document.getElementById('front-page');
   const admin = document.getElementById('admin-page');
   const stats = document.getElementById('stats-page');
+  const methodology = document.getElementById('methodology-page');
   const btnFront = document.getElementById('btn-tab-front');
   const btnAdmin = document.getElementById('btn-tab-admin');
   const btnStats = document.getElementById('btn-tab-stats');
-  if (!front || !admin || !stats || !btnFront || !btnAdmin || !btnStats) return;
+  const btnMethodology = document.getElementById('btn-tab-methodology');
+  if (!front || !admin || !stats || !methodology || !btnFront || !btnAdmin || !btnStats || !btnMethodology) return;
 
-  const toAdmin = mode === 'admin';
-  const toStats = mode === 'stats';
-  const toFront = !toAdmin && !toStats;
+  const normalizedMode = ['admin', 'stats', 'methodology'].includes(mode) ? mode : 'front';
+  const toAdmin = normalizedMode === 'admin';
+  const toStats = normalizedMode === 'stats';
+  const toMethodology = normalizedMode === 'methodology';
+  const toFront = normalizedMode === 'front';
 
-  currentPage = toAdmin ? 'admin' : (toStats ? 'stats' : 'front');
+  currentPage = normalizedMode;
 
   front.hidden = !toFront;
   admin.hidden = !toAdmin;
   stats.hidden = !toStats;
+  methodology.hidden = !toMethodology;
 
   btnFront.classList.toggle('is-active', toFront);
   btnFront.setAttribute('aria-selected', toFront ? 'true' : 'false');
@@ -1859,6 +1864,8 @@ function setPage(mode) {
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   btnStats.classList.toggle('is-active', toStats);
   btnStats.setAttribute('aria-selected', toStats ? 'true' : 'false');
+  btnMethodology.classList.toggle('is-active', toMethodology);
+  btnMethodology.setAttribute('aria-selected', toMethodology ? 'true' : 'false');
 
   const btnClear = document.getElementById('btn-clear');
   if (btnClear) {
@@ -1876,6 +1883,9 @@ function setPage(mode) {
     resetFrontPage();
     resetAdminPageState();
     renderStatsPage().catch(() => {});
+  } else if (toMethodology) {
+    resetFrontPage();
+    resetAdminPageState();
   } else {
     resetAdminPageState();
     resetFrontPage();
@@ -2025,6 +2035,8 @@ const btnTabAdmin = document.getElementById('btn-tab-admin');
 if (btnTabAdmin) btnTabAdmin.addEventListener('click', () => setPage('admin'));
 const btnTabStats = document.getElementById('btn-tab-stats');
 if (btnTabStats) btnTabStats.addEventListener('click', () => setPage('stats'));
+const btnTabMethodology = document.getElementById('btn-tab-methodology');
+if (btnTabMethodology) btnTabMethodology.addEventListener('click', () => setPage('methodology'));
 
 const adminFilterTabsEl = document.getElementById('admin-filter-tabs');
 if (adminFilterTabsEl) {

@@ -1533,12 +1533,12 @@ body {
   }
 
   .page-switch__btn {
-    padding: 4px 6px;
-    font-size: 11px;
+    padding: 4px 5px;
+    font-size: 10px;
     border-radius: 6px;
   }
 
-  .panel:not(.admin-page):not(.stats-page) {
+  .panel:not(.admin-page):not(.stats-page):not(.methodology-page) {
     flex-shrink: 0;
   }
 
@@ -2066,5 +2066,107 @@ body {
 
   .stats-rate__value {
     font-size: 32px;
+  }
+}
+
+/* 方法论页面 */
+.methodology-page {
+  padding: 16px;
+}
+
+.methodology-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.methodology-section {
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.methodology-section__title {
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--primary-deep);
+  line-height: 1.35;
+  letter-spacing: 0.2px;
+  background: linear-gradient(180deg, var(--surface-tint), #f8fffb);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.methodology-section__body {
+  padding: 12px 14px 14px;
+  background: #fff;
+}
+
+.methodology-section__text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.methodology-section__list {
+  margin: 0;
+  padding-left: 1.15em;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.methodology-section__list li {
+  padding-left: 2px;
+}
+
+.methodology-section__list li::marker {
+  color: var(--primary-strong);
+}
+
+.methodology-section__list li + li {
+  margin-top: 8px;
+}
+
+@media (max-width: 480px) {
+  .stats-page,
+  .methodology-page {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 8px 10px;
+  }
+
+  .methodology-content {
+    gap: 8px;
+  }
+
+  .methodology-section {
+    border-radius: 10px;
+  }
+
+  .methodology-section__title {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  .methodology-section__body {
+    padding: 10px 12px 12px;
+  }
+
+  .methodology-section__text,
+  .methodology-section__list {
+    font-size: 13px;
+    line-height: 1.65;
+  }
+
+  .methodology-section__list li + li {
+    margin-top: 6px;
   }
 }
