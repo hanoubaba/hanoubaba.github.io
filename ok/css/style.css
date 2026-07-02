@@ -121,7 +121,10 @@ body {
 }
 
 #front-page[hidden],
-#admin-page[hidden] {
+#admin-page[hidden],
+#stats-page[hidden],
+#methodology-page[hidden],
+#cases-page[hidden] {
   display: none !important;
 }
 
@@ -1538,7 +1541,7 @@ body {
     border-radius: 6px;
   }
 
-  .panel:not(.admin-page):not(.stats-page):not(.methodology-page) {
+  .panel:not(.admin-page):not(.stats-page):not(.methodology-page):not(.cases-page) {
     flex-shrink: 0;
   }
 
@@ -2168,5 +2171,115 @@ body {
 
   .methodology-section__list li + li {
     margin-top: 6px;
+  }
+}
+
+/* 典型案例页面 */
+.cases-page {
+  flex: 1;
+  min-height: 0;
+  height: calc(100dvh - 100px);
+  display: flex;
+  flex-direction: column;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  background: #0f1412;
+  overflow: hidden;
+}
+
+.cases-carousel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cases-carousel__viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  background: #0f1412;
+  touch-action: pan-x;
+  cursor: grab;
+  user-select: none;
+}
+
+.cases-carousel__viewport.is-dragging {
+  cursor: grabbing;
+}
+
+.cases-carousel__track {
+  display: flex;
+  height: 100%;
+  will-change: transform;
+}
+
+.cases-carousel__slide {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.cases-carousel__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.cases-loading,
+.cases-empty {
+  margin: 0;
+  padding: 24px 16px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #a8c4b4;
+  font-weight: 500;
+}
+
+.cases-loading {
+  flex: 0 0 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #a8c4b4;
+}
+
+@media (max-width: 480px) {
+  .page-switch {
+    overflow-x: auto;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .page-switch::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cases-page {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+    overflow: hidden;
+    padding: 0 !important;
+  }
+
+  .cases-empty,
+  .cases-loading {
+    font-size: 13px;
+    padding: 20px 12px;
   }
 }

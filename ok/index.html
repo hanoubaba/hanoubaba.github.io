@@ -17,6 +17,7 @@
           <button id="btn-tab-admin" type="button" class="page-switch__btn is-active" role="tab" aria-selected="true">后台管理</button>
           <button id="btn-tab-stats" type="button" class="page-switch__btn" role="tab" aria-selected="false">数据统计</button>
           <button id="btn-tab-methodology" type="button" class="page-switch__btn" role="tab" aria-selected="false">方法论</button>
+          <button id="btn-tab-cases" type="button" class="page-switch__btn" role="tab" aria-selected="false">典型案例</button>
         </div>
       </div>
     </header>
@@ -107,6 +108,12 @@
     <section id="methodology-page" class="panel methodology-page" aria-label="方法论" hidden>
       <div class="methodology-content">
         <article class="methodology-section">
+          <h3 class="methodology-section__title">0、核心理念</h3>
+          <div class="methodology-section__body">
+            <p class="methodology-section__text">右侧交易，趋势跟随，见好就收。</p>
+          </div>
+        </article>
+        <article class="methodology-section">
           <h3 class="methodology-section__title">1、选择标准</h3>
           <div class="methodology-section__body">
             <ul class="methodology-section__list">
@@ -183,6 +190,15 @@
           </div>
         </article>
       </div>
+    </section>
+
+    <section id="cases-page" class="panel cases-page" aria-label="典型案例" hidden>
+      <div id="cases-carousel" class="cases-carousel">
+        <div class="cases-carousel__viewport">
+          <div id="cases-track" class="cases-carousel__track"></div>
+        </div>
+      </div>
+      <p id="cases-empty" class="cases-empty" hidden>暂无案例图片。请将图片放入 cases 文件夹，按序号命名：01.jpg、02.png、03.webp …（两位序号，连续编号）。</p>
     </section>
   </main>
 

@@ -1834,21 +1834,173 @@ async function renderStatsPage() {
   }
 }
 
+const CASES_DIR = './cases/';
+const CASE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+const CASE_MAX_COUNT = 99;
+
+let casesSlideIndex = 0;
+let casesImages = [];
+
+function checkCaseImageExists(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = url;
+  });
+}
+
+async function findCaseImageByIndex(index) {
+  const base = String(index).padStart(2, '0');
+  const results = await Promise.all(
+    CASE_EXTENSIONS.map(async (ext) => {
+      const file = `${base}.${ext}`;
+      const exists = await checkCaseImageExists(`${CASES_DIR}${file}`);
+      return exists ? file : null;
+    }),
+  );
+  return results.find(Boolean) ?? null;
+}
+
+/** 按 01、02 … 序号自动扫描 cases 文件夹内的图片 */
+async function discoverCaseImages() {
+  const images = [];
+  for (let i = 1; i <= CASE_MAX_COUNT; i += 1) {
+    const found = await findCaseImageByIndex(i);
+    if (found) {
+      images.push(found);
+    } else if (images.length > 0) {
+      break;
+    }
+  }
+  return images;
+}
+
+function getCasesViewport() {
+  return document.querySelector('.cases-carousel__viewport');
+}
+
+function goToCaseSlide(index, { animate = true } = {}) {
+  const track = document.getElementById('cases-track');
+  const viewport = getCasesViewport();
+  if (!track || !viewport || casesImages.length === 0) return;
+  casesSlideIndex = Math.max(0, Math.min(index, casesImages.length - 1));
+  track.style.transition = animate ? 'transform 0.32s ease' : 'none';
+  track.style.transform = `translateX(-${casesSlideIndex * viewport.clientWidth}px)`;
+}
+
+function setupCasesSwipe(viewport, track) {
+  let startX = 0;
+  let startTranslate = 0;
+  let dragging = false;
+  let pointerId = null;
+
+  const getWidth = () => viewport.clientWidth;
+
+  const finishDrag = (clientX) => {
+    if (!dragging) return;
+    dragging = false;
+    viewport.classList.remove('is-dragging');
+    const dx = clientX - startX;
+    const threshold = getWidth() * 0.18;
+    if (dx < -threshold) goToCaseSlide(casesSlideIndex + 1);
+    else if (dx > threshold) goToCaseSlide(casesSlideIndex - 1);
+    else goToCaseSlide(casesSlideIndex);
+  };
+
+  viewport.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    pointerId = e.pointerId;
+    viewport.setPointerCapture(pointerId);
+    dragging = true;
+    startX = e.clientX;
+    startTranslate = -casesSlideIndex * getWidth();
+    track.style.transition = 'none';
+    viewport.classList.add('is-dragging');
+  });
+
+  viewport.addEventListener('pointermove', (e) => {
+    if (!dragging || e.pointerId !== pointerId) return;
+    const dx = e.clientX - startX;
+    const min = -(casesImages.length - 1) * getWidth();
+    const max = 0;
+    const rubber = getWidth() * 0.25;
+    let next = startTranslate + dx;
+    next = Math.max(min - rubber, Math.min(max + rubber, next));
+    track.style.transform = `translateX(${next}px)`;
+  });
+
+  viewport.addEventListener('pointerup', (e) => {
+    if (e.pointerId !== pointerId) return;
+    viewport.releasePointerCapture(pointerId);
+    pointerId = null;
+    finishDrag(e.clientX);
+  });
+
+  viewport.addEventListener('pointercancel', (e) => {
+    if (e.pointerId !== pointerId) return;
+    pointerId = null;
+    finishDrag(e.clientX);
+  });
+
+  window.addEventListener('resize', () => {
+    if (currentPage === 'cases') goToCaseSlide(casesSlideIndex, { animate: false });
+  });
+}
+
+async function renderCasesPage() {
+  const track = document.getElementById('cases-track');
+  const emptyEl = document.getElementById('cases-empty');
+  const carouselEl = document.getElementById('cases-carousel');
+  if (!track || !emptyEl) return;
+
+  track.innerHTML = '<div class="cases-loading">加载中...</div>';
+  emptyEl.hidden = true;
+  if (carouselEl) carouselEl.hidden = false;
+
+  casesImages = await discoverCaseImages();
+
+  if (casesImages.length === 0) {
+    track.innerHTML = '';
+    if (carouselEl) carouselEl.hidden = true;
+    emptyEl.hidden = false;
+    return;
+  }
+
+  track.innerHTML = casesImages.map((file, i) => {
+    const src = `${CASES_DIR}${encodeURIComponent(file)}`;
+    const alt = file.replace(/\.[^.]+$/, '');
+    return `<figure class="cases-carousel__slide"><img class="cases-carousel__img" src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" loading="${i === 0 ? 'eager' : 'lazy'}" draggable="false" /></figure>`;
+  }).join('');
+
+  const viewport = getCasesViewport();
+  if (viewport && !viewport.dataset.swipeBound) {
+    setupCasesSwipe(viewport, track);
+    viewport.dataset.swipeBound = 'true';
+  }
+
+  casesSlideIndex = 0;
+  requestAnimationFrame(() => goToCaseSlide(0, { animate: false }));
+}
+
 function setPage(mode) {
   const front = document.getElementById('front-page');
   const admin = document.getElementById('admin-page');
   const stats = document.getElementById('stats-page');
   const methodology = document.getElementById('methodology-page');
+  const cases = document.getElementById('cases-page');
   const btnFront = document.getElementById('btn-tab-front');
   const btnAdmin = document.getElementById('btn-tab-admin');
   const btnStats = document.getElementById('btn-tab-stats');
   const btnMethodology = document.getElementById('btn-tab-methodology');
-  if (!front || !admin || !stats || !methodology || !btnFront || !btnAdmin || !btnStats || !btnMethodology) return;
+  const btnCases = document.getElementById('btn-tab-cases');
+  if (!front || !admin || !stats || !methodology || !cases || !btnFront || !btnAdmin || !btnStats || !btnMethodology || !btnCases) return;
 
-  const normalizedMode = ['admin', 'stats', 'methodology'].includes(mode) ? mode : 'front';
+  const normalizedMode = ['admin', 'stats', 'methodology', 'cases'].includes(mode) ? mode : 'front';
   const toAdmin = normalizedMode === 'admin';
   const toStats = normalizedMode === 'stats';
   const toMethodology = normalizedMode === 'methodology';
+  const toCases = normalizedMode === 'cases';
   const toFront = normalizedMode === 'front';
 
   currentPage = normalizedMode;
@@ -1857,6 +2009,7 @@ function setPage(mode) {
   admin.hidden = !toAdmin;
   stats.hidden = !toStats;
   methodology.hidden = !toMethodology;
+  cases.hidden = !toCases;
 
   btnFront.classList.toggle('is-active', toFront);
   btnFront.setAttribute('aria-selected', toFront ? 'true' : 'false');
@@ -1866,6 +2019,8 @@ function setPage(mode) {
   btnStats.setAttribute('aria-selected', toStats ? 'true' : 'false');
   btnMethodology.classList.toggle('is-active', toMethodology);
   btnMethodology.setAttribute('aria-selected', toMethodology ? 'true' : 'false');
+  btnCases.classList.toggle('is-active', toCases);
+  btnCases.setAttribute('aria-selected', toCases ? 'true' : 'false');
 
   const btnClear = document.getElementById('btn-clear');
   if (btnClear) {
@@ -1886,6 +2041,10 @@ function setPage(mode) {
   } else if (toMethodology) {
     resetFrontPage();
     resetAdminPageState();
+  } else if (toCases) {
+    resetFrontPage();
+    resetAdminPageState();
+    renderCasesPage().catch(() => {});
   } else {
     resetAdminPageState();
     resetFrontPage();
@@ -2037,6 +2196,8 @@ const btnTabStats = document.getElementById('btn-tab-stats');
 if (btnTabStats) btnTabStats.addEventListener('click', () => setPage('stats'));
 const btnTabMethodology = document.getElementById('btn-tab-methodology');
 if (btnTabMethodology) btnTabMethodology.addEventListener('click', () => setPage('methodology'));
+const btnTabCases = document.getElementById('btn-tab-cases');
+if (btnTabCases) btnTabCases.addEventListener('click', () => setPage('cases'));
 
 const adminFilterTabsEl = document.getElementById('admin-filter-tabs');
 if (adminFilterTabsEl) {
