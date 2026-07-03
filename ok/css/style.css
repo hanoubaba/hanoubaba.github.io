@@ -1748,19 +1748,25 @@ body {
   }
 
   .admin-item__head {
-    flex-wrap: wrap;
-    row-gap: 6px;
+    flex-wrap: nowrap;
+    gap: 6px;
+    margin-bottom: 8px;
   }
 
   .admin-item__title {
-    flex: 1 1 calc(100% - 34px);
+    flex: 1;
     min-width: 0;
-    font-size: 16px;
+    font-size: 15px;
   }
 
   .admin-time-status {
-    margin-left: 0;
-    width: 100%;
+    flex: none;
+    margin-left: auto;
+  }
+
+  .admin-time-status__tag {
+    padding: 3px 8px;
+    font-size: 11px;
   }
 
   .admin-item__concessions {
@@ -1790,38 +1796,38 @@ body {
   }
 
   .admin-item__actions {
-    align-items: stretch;
-    flex-direction: column;
-    flex-wrap: wrap;
-    gap: 8px;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
     margin-top: 4px;
     padding-top: 4px;
   }
 
   .admin-item__meta {
-    flex: none;
-    width: 100%;
+    flex: 1;
     min-width: 0;
     min-height: auto;
-    font-size: 12px;
+    font-size: 11px;
   }
 
   .admin-item__time-range {
     display: block;
-    overflow: visible;
-    text-overflow: unset;
-    white-space: normal;
-    word-break: break-word;
-    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
   }
 
   .admin-item__buttons {
     flex: none;
-    width: 100%;
-    margin-left: 0;
+    width: auto;
+    margin-left: auto;
     display: inline-flex;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: flex-end;
     gap: 7px;
   }
 
