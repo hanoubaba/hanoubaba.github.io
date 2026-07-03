@@ -185,6 +185,39 @@ const STRATEGY_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_strategy_stats`
 const RECENT_10_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_recent_10_stats`;
 const OBSERVATIONS_ENDPOINT = `${SUPABASE_URL}/rest/v1/observation_records`;
 const SAVE_LOG_PREFIX = '[strategy-save]';
+const METHODOLOGY_SECTIONS = [
+  { title: '1、核心理念', paragraphs: ['右侧交易，趋势跟随，见好就收。'] },
+  { title: '2、选择标准', items: ['形态上三线齐飞，交叉在同一个时间维度。', '交易量过亿。'] },
+  { title: '3、档位', paragraphs: ['三档挂单，兼顾风险和收益。'] },
+  { title: '4、仓位', paragraphs: ['3目标 x 3档位 = 9仓位'] },
+  { title: '5、平仓', items: ['时间参考：九尾和十尾', '空间参考：3倍和5倍'] },
+  {
+    title: '6、心态建设',
+    items: [
+      '遵守规则是为了全局收益更大，践踏规则最多只能赢几次无法实现最终的目标。',
+      '我的目标是星辰大海。整体战略高于单次的战术胜利。',
+      '坚持好难，但这是修正的必要代价。',
+    ],
+  },
+  {
+    title: '7、观测',
+    items: [
+      '盯盘会调动主观情绪，影响客观判断。',
+      '挂测开单列表，按照时间进行操作更佳。',
+      '8小时节点观测，全天候覆盖无遗漏。',
+    ],
+  },
+  { title: '8、无悖论', paragraphs: ['相邻时间维度趋势不冲突，有冲突不做。'] },
+  { title: '9、目标', paragraphs: ['目标35岁之前退休，计划不变。'] },
+  {
+    title: '10、理性和感性冲突的终极解法',
+    items: ['固定策略选一边覆盖。', '统一标准量化分析。', '1个单位0.5倍，超出预期可做T，预期内则坚持到底。'],
+  },
+  {
+    title: '11、让每一个操作都有意义',
+    items: ['做好开仓记录。', '做好观测日志。', '8小时定点操作。', '不做任何无效操作。'],
+  },
+];
 
 let authSession = null;
 let isLoggingIn = false;
@@ -283,6 +316,7 @@ function showLoginPage(message = '') {
   if (appRoot) appRoot.hidden = true;
   if (errorEl) errorEl.textContent = message;
   isAuthReady = false;
+  clearMethodologyPage();
   requestAnimationFrame(() => accountEl?.focus());
 }
 
@@ -304,11 +338,6 @@ async function loginWithPassword(email, password) {
   if (!session.access_token) throw new Error('登录失败');
   saveAuthSession(session);
   return session;
-}
-
-async function logout() {
-  clearAuthSession();
-  showLoginPage();
 }
 
 function getSupabaseHeaders(extra = {}) {
@@ -712,6 +741,30 @@ function escapeHtml(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function clearMethodologyPage() {
+  const container = document.querySelector('#methodology-page .methodology-content');
+  if (container) container.innerHTML = '';
+}
+
+function renderMethodologyPage() {
+  if (!isAuthReady) return;
+  const container = document.querySelector('#methodology-page .methodology-content');
+  if (!container) return;
+  container.innerHTML = METHODOLOGY_SECTIONS.map((section) => {
+    let body = '';
+    if (section.paragraphs?.length) {
+      body = section.paragraphs
+        .map((p) => `<p class="methodology-section__text">${escapeHtml(p)}</p>`)
+        .join('');
+    } else if (section.items?.length) {
+      body = `<ul class="methodology-section__list">${section.items
+        .map((item) => `<li>${escapeHtml(item)}</li>`)
+        .join('')}</ul>`;
+    }
+    return `<article class="methodology-section"><h3 class="methodology-section__title">${escapeHtml(section.title)}</h3><div class="methodology-section__body">${body}</div></article>`;
+  }).join('');
 }
 
 function clearStrategyOutput(outEl) {
@@ -2434,6 +2487,10 @@ async function submitObservationForm() {
 }
 
 function setPage(mode) {
+  if (!isAuthReady) {
+    showLoginPage();
+    return;
+  }
   const front = document.getElementById('front-page');
   const admin = document.getElementById('admin-page');
   const stats = document.getElementById('stats-page');
@@ -2493,6 +2550,7 @@ function setPage(mode) {
   } else if (toMethodology) {
     resetFrontPage();
     resetAdminPageState();
+    renderMethodologyPage();
   } else if (toCases) {
     resetFrontPage();
     resetAdminPageState();
@@ -2826,11 +2884,6 @@ document.addEventListener('keydown', (e) => {
 const loginForm = document.getElementById('login-form');
 if (loginForm) loginForm.addEventListener('submit', (e) => {
   handleLoginSubmit(e).catch(() => {});
-});
-
-const btnLogout = document.getElementById('btn-logout');
-if (btnLogout) btnLogout.addEventListener('click', () => {
-  logout().catch(() => {});
 });
 
 initApp().catch(() => showLoginPage());
