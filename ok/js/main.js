@@ -1943,11 +1943,15 @@ async function renderCasesPage() {
   requestAnimationFrame(() => goToCaseSlide(0, { animate: false }));
 }
 
+function normalizeObservationContent(content) {
+  return String(content ?? '').trim().toLowerCase();
+}
+
 function fromObservationRecord(row) {
   return {
     id: String(row?.id ?? '').trim(),
     createdAt: row?.created_at ?? null,
-    content: String(row?.content ?? '').trim(),
+    content: normalizeObservationContent(row?.content),
   };
 }
 
@@ -1962,12 +1966,12 @@ async function fetchObservationRecords() {
 }
 
 async function createObservationRecord(content) {
-  const trimmed = String(content ?? '').trim();
-  if (!trimmed) throw new Error('记录内容不能为空');
+  const normalized = normalizeObservationContent(content);
+  if (!normalized) throw new Error('记录内容不能为空');
   const res = await fetch(OBSERVATIONS_ENDPOINT, {
     method: 'POST',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify({ content: trimmed }),
+    body: JSON.stringify({ content: normalized }),
   });
   if (!res.ok) throw new Error(await res.text());
 }
@@ -2196,7 +2200,8 @@ async function submitObservationForm() {
   const submitBtn = document.getElementById('obs-form-submit');
   if (!contentEl) return;
 
-  const content = String(contentEl.value ?? '').trim();
+  const content = normalizeObservationContent(contentEl.value);
+  if (contentEl.value !== content) contentEl.value = content;
   if (!content) {
     if (errorEl) errorEl.textContent = '请填写记录内容。';
     return;
