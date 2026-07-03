@@ -18,6 +18,7 @@
           <button id="btn-tab-stats" type="button" class="page-switch__btn" role="tab" aria-selected="false">数据统计</button>
           <button id="btn-tab-methodology" type="button" class="page-switch__btn" role="tab" aria-selected="false">方法论</button>
           <button id="btn-tab-cases" type="button" class="page-switch__btn" role="tab" aria-selected="false">典型案例</button>
+          <button id="btn-tab-observations" type="button" class="page-switch__btn" role="tab" aria-selected="false">观测记录</button>
         </div>
       </div>
     </header>
@@ -163,29 +164,33 @@
           </div>
         </article>
         <article class="methodology-section">
-          <h3 class="methodology-section__title">7、重复性</h3>
-          <div class="methodology-section__body">
-            <p class="methodology-section__text">限定的时间和空间内，可以重复操作。</p>
-          </div>
-        </article>
-        <article class="methodology-section">
-          <h3 class="methodology-section__title">8、无悖论</h3>
+          <h3 class="methodology-section__title">7、无悖论</h3>
           <div class="methodology-section__body">
             <p class="methodology-section__text">相邻时间维度趋势不冲突，有冲突不做。</p>
           </div>
         </article>
         <article class="methodology-section">
-          <h3 class="methodology-section__title">9、目标</h3>
+          <h3 class="methodology-section__title">8、目标</h3>
           <div class="methodology-section__body">
             <p class="methodology-section__text">目标35岁之前退休，计划不变。</p>
           </div>
         </article>
         <article class="methodology-section">
-          <h3 class="methodology-section__title">10、变通</h3>
+          <h3 class="methodology-section__title">9、变通</h3>
           <div class="methodology-section__body">
             <ul class="methodology-section__list">
               <li>前半段可调整，后半段要坚持。</li>
               <li>三档位平仓，给自己点主观能动性激励。</li>
+            </ul>
+          </div>
+        </article>
+        <article class="methodology-section">
+          <h3 class="methodology-section__title">10、理性和感性冲突的终极解法</h3>
+          <div class="methodology-section__body">
+            <ul class="methodology-section__list">
+              <li>固定策略选一边覆盖。</li>
+              <li>统一标准量化分析。</li>
+              <li>1个单位0.5倍，超出预期可做T，预期内则坚持到底。</li>
             </ul>
           </div>
         </article>
@@ -199,6 +204,21 @@
         </div>
       </div>
       <p id="cases-empty" class="cases-empty" hidden>暂无案例图片。请将图片放入 cases 文件夹，按序号命名：01.jpg、02.png、03.webp …（两位序号，连续编号）。</p>
+    </section>
+
+    <section id="observations-page" class="panel obs-page" aria-label="观测记录" hidden>
+      <div id="obs-selection" class="admin-selection" hidden>
+        <span id="obs-selection-count" class="admin-selection__count">已选 0 条</span>
+        <div class="admin-selection__buttons">
+          <button id="obs-select-all" type="button" class="admin-selection__btn">全选</button>
+          <button id="obs-clear-selection" type="button" class="admin-selection__btn">取消</button>
+          <button id="obs-delete-selected" type="button" class="admin-selection__btn admin-selection__btn--danger">删除所选</button>
+        </div>
+      </div>
+      <div id="obs-list" class="obs-list" aria-live="polite"></div>
+      <div class="obs-footer">
+        <button id="obs-add-btn" type="button" class="obs-footer__btn">新增记录</button>
+      </div>
     </section>
   </main>
 
@@ -242,6 +262,19 @@
       <div class="status-picker__actions">
         <button id="status-picker-cancel" type="button" class="status-picker__cancel">取消</button>
         <button id="status-picker-submit" type="button" class="status-picker__submit">提交</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="obs-form-picker" class="status-picker obs-form-picker" hidden>
+    <div class="status-picker__backdrop" data-obs-form-dismiss="true"></div>
+    <div class="status-picker__sheet obs-form-picker__sheet" role="dialog" aria-modal="true" aria-label="新增观测记录">
+      <div class="obs-form-picker__grabber" aria-hidden="true"></div>
+      <textarea id="obs-form-content" class="obs-form-picker__textarea" rows="5" placeholder="请输入观测内容"></textarea>
+      <p id="obs-form-error" class="status-picker__error" role="alert" aria-live="polite"></p>
+      <div class="status-picker__actions">
+        <button id="obs-form-cancel" type="button" class="status-picker__cancel">取消</button>
+        <button id="obs-form-submit" type="button" class="status-picker__submit">保存</button>
       </div>
     </div>
   </div>

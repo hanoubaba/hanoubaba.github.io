@@ -180,6 +180,7 @@ const SUPABASE_KEY = 'sb_publishable_8B1PLTeHhtPou4lPt9cl6w_O2hipMVY';
 const STRATEGIES_ENDPOINT = `${SUPABASE_URL}/rest/v1/strategies`;
 const STRATEGY_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_strategy_stats`;
 const RECENT_10_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_recent_10_stats`;
+const OBSERVATIONS_ENDPOINT = `${SUPABASE_URL}/rest/v1/observation_records`;
 const SAVE_LOG_PREFIX = '[strategy-save]';
 
 function logSave(level, message, detail) {
@@ -1433,20 +1434,41 @@ function updateAdminSelectionControls() {
     deleteSelectedBtn.setAttribute('aria-busy', isDeletingStrategies ? 'true' : 'false');
   }
 
+  updateHeaderClearButton();
+}
+
+function updateHeaderClearButton() {
   const btnClear = document.getElementById('btn-clear');
-  if (btnClear && currentPage !== 'admin') {
-    btnClear.hidden = true;
-    btnClear.textContent = '清空';
-    btnClear.disabled = false;
-    btnClear.setAttribute('aria-busy', 'false');
-  } else if (btnClear) {
+  if (!btnClear) return;
+
+  if (currentPage === 'admin') {
     btnClear.hidden = false;
+    const visibleCount = getVisibleAdminStrategyIds().length;
+    const selectedCount = selectedStrategyIds.size;
     btnClear.textContent = isAdminSelectionMode
       ? (selectedCount ? `删除所选(${selectedCount})` : '取消删除')
       : '删除';
     btnClear.disabled = isDeletingStrategies || (!isAdminSelectionMode && visibleCount === 0);
     btnClear.setAttribute('aria-busy', isDeletingStrategies ? 'true' : 'false');
+    return;
   }
+
+  if (currentPage === 'observations') {
+    btnClear.hidden = false;
+    const visibleCount = getVisibleObservationIds().length;
+    const selectedCount = selectedObservationIds.size;
+    btnClear.textContent = isObsSelectionMode
+      ? (selectedCount ? `删除所选(${selectedCount})` : '取消删除')
+      : '删除';
+    btnClear.disabled = isDeletingObservations || (!isObsSelectionMode && visibleCount === 0);
+    btnClear.setAttribute('aria-busy', isDeletingObservations ? 'true' : 'false');
+    return;
+  }
+
+  btnClear.hidden = true;
+  btnClear.textContent = '删除';
+  btnClear.disabled = false;
+  btnClear.setAttribute('aria-busy', 'false');
 }
 
 function enterAdminSelectionMode() {
@@ -1983,24 +2005,310 @@ async function renderCasesPage() {
   requestAnimationFrame(() => goToCaseSlide(0, { animate: false }));
 }
 
+function fromObservationRecord(row) {
+  return {
+    id: String(row?.id ?? '').trim(),
+    createdAt: row?.created_at ?? null,
+    content: String(row?.content ?? '').trim(),
+  };
+}
+
+async function fetchObservationRecords() {
+  const params = 'select=id,created_at,content&order=created_at.desc';
+  const res = await fetch(`${OBSERVATIONS_ENDPOINT}?${params}`, {
+    headers: getSupabaseHeaders(),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows.map(fromObservationRecord) : [];
+}
+
+async function createObservationRecord(content) {
+  const trimmed = String(content ?? '').trim();
+  if (!trimmed) throw new Error('记录内容不能为空');
+  const res = await fetch(OBSERVATIONS_ENDPOINT, {
+    method: 'POST',
+    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+    body: JSON.stringify({ content: trimmed }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+async function deleteObservationRecords(ids) {
+  const normalizedIds = Array.from(new Set(
+    (Array.isArray(ids) ? ids : [ids])
+      .map((id) => String(id ?? '').trim())
+      .filter(Boolean),
+  ));
+  if (!normalizedIds.length) return;
+  const idFilter = encodeURIComponent(`(${normalizedIds.join(',')})`);
+  const res = await fetch(`${OBSERVATIONS_ENDPOINT}?id=in.${idFilter}`, {
+    method: 'DELETE',
+    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+function formatObservationRecordDate(isoString) {
+  const d = parseDateValue(isoString);
+  if (!d) return '—';
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function renderObservationRecordItem(record) {
+  const rawId = String(record?.id ?? '').trim();
+  const id = escapeHtml(rawId);
+  const date = escapeHtml(formatObservationRecordDate(record.createdAt));
+  const content = escapeHtml(record.content || '—');
+  const checked = rawId && selectedObservationIds.has(rawId) ? ' checked' : '';
+  const disabled = isDeletingObservations ? ' disabled' : '';
+  const selectorDisabled = isDeletingObservations ? ' is-disabled' : '';
+  const selectHtml = rawId && isObsSelectionMode
+    ? [
+      `<label class="admin-item__selector${selectorDisabled}" aria-label="选择观测记录">`,
+      `<input type="checkbox" class="admin-item__select" data-id="${id}"${checked}${disabled}>`,
+      '<span class="admin-item__checkmark" aria-hidden="true"></span>',
+      '</label>',
+    ].join('')
+    : '';
+  return [
+    '<article class="obs-item">',
+    '<div class="obs-item__head">',
+    selectHtml,
+    `<span class="obs-item__date">创建时间 ${date}</span>`,
+    '</div>',
+    `<p class="obs-item__content">${content}</p>`,
+    '</article>',
+  ].join('');
+}
+
+let selectedObservationIds = new Set();
+let isDeletingObservations = false;
+let isObsSelectionMode = false;
+let visibleObservationIds = [];
+
+function getVisibleObservationIds() {
+  const domIds = Array.from(document.querySelectorAll('#obs-list .admin-item__select'))
+    .map((el) => String(el.getAttribute('data-id') ?? '').trim())
+    .filter(Boolean);
+  return domIds.length ? domIds : visibleObservationIds;
+}
+
+function syncObsSelectionWithRows(records) {
+  visibleObservationIds = records.map((row) => String(row?.id ?? '').trim()).filter(Boolean);
+  const visibleIds = new Set(visibleObservationIds);
+  selectedObservationIds = new Set(Array.from(selectedObservationIds).filter((id) => visibleIds.has(id)));
+  updateObsSelectionControls();
+}
+
+function updateObsSelectionControls() {
+  const selectedCount = selectedObservationIds.size;
+  const selectionEl = document.getElementById('obs-selection');
+  const countEl = document.getElementById('obs-selection-count');
+  const selectAllBtn = document.getElementById('obs-select-all');
+  const clearSelectionBtn = document.getElementById('obs-clear-selection');
+  const deleteSelectedBtn = document.getElementById('obs-delete-selected');
+  const visibleCount = getVisibleObservationIds().length;
+
+  if (selectionEl) selectionEl.hidden = currentPage !== 'observations' || !isObsSelectionMode || visibleCount === 0;
+  if (countEl) countEl.textContent = `已选 ${selectedCount} 条`;
+  if (selectAllBtn) selectAllBtn.disabled = isDeletingObservations || !isObsSelectionMode || visibleCount === 0;
+  if (clearSelectionBtn) clearSelectionBtn.disabled = isDeletingObservations || !isObsSelectionMode;
+  if (deleteSelectedBtn) {
+    deleteSelectedBtn.disabled = isDeletingObservations || !isObsSelectionMode || selectedCount === 0;
+    deleteSelectedBtn.setAttribute('aria-busy', isDeletingObservations ? 'true' : 'false');
+  }
+
+  updateHeaderClearButton();
+}
+
+function enterObsSelectionMode() {
+  isObsSelectionMode = true;
+  renderObservationsPage().catch(() => updateObsSelectionControls());
+}
+
+function resetObsSelectionMode() {
+  isObsSelectionMode = false;
+  selectedObservationIds.clear();
+  updateObsSelectionControls();
+}
+
+function exitObsSelectionMode() {
+  resetObsSelectionMode();
+  renderObservationsPage().catch(() => updateObsSelectionControls());
+}
+
+function resetObsPageState() {
+  isObsSelectionMode = false;
+  selectedObservationIds.clear();
+  visibleObservationIds = [];
+  isDeletingObservations = false;
+  updateObsSelectionControls();
+}
+
+function setObsDeleteLoading(loading) {
+  isDeletingObservations = loading;
+  document.querySelectorAll('#obs-list .admin-item__select').forEach((el) => {
+    el.disabled = loading;
+  });
+  document.querySelectorAll('#obs-list .admin-item__selector').forEach((el) => {
+    el.classList.toggle('is-disabled', loading);
+  });
+  updateObsSelectionControls();
+}
+
+function setVisibleObsSelection(selected) {
+  document.querySelectorAll('#obs-list .admin-item__select').forEach((el) => {
+    const id = String(el.getAttribute('data-id') ?? '').trim();
+    if (!id) return;
+    if (selected) selectedObservationIds.add(id);
+    else selectedObservationIds.delete(id);
+    el.checked = selected;
+  });
+  updateObsSelectionControls();
+}
+
+function confirmDeleteObservations(count) {
+  if (typeof window.confirm !== 'function') return true;
+  return window.confirm(count > 1 ? `确认删除选中的 ${count} 条观测记录？` : '确认删除这条观测记录？');
+}
+
+function showObsDeleteError() {
+  if (typeof window.alert === 'function') {
+    window.alert('删除失败，请检查网络或 Supabase 权限。');
+  }
+}
+
+async function deleteObservationIdsWithConfirm(ids, options = {}) {
+  const { exitSelectionMode = false } = options;
+  const normalizedIds = Array.from(new Set(
+    (Array.isArray(ids) ? ids : [ids])
+      .map((id) => String(id ?? '').trim())
+      .filter(Boolean),
+  ));
+  if (!normalizedIds.length || isDeletingObservations) return;
+  if (!confirmDeleteObservations(normalizedIds.length)) return;
+  setObsDeleteLoading(true);
+  try {
+    await deleteObservationRecords(normalizedIds);
+    normalizedIds.forEach((id) => selectedObservationIds.delete(id));
+    if (exitSelectionMode) isObsSelectionMode = false;
+    await renderObservationsPage();
+  } catch {
+    showObsDeleteError();
+  } finally {
+    setObsDeleteLoading(false);
+  }
+}
+
+async function deleteSelectedObservations() {
+  await deleteObservationIdsWithConfirm(Array.from(selectedObservationIds), { exitSelectionMode: true });
+}
+
+async function renderObservationsPage() {
+  const listEl = document.getElementById('obs-list');
+  if (!listEl) return;
+
+  listEl.innerHTML = '<p class="obs-loading">加载中...</p>';
+
+  try {
+    const records = await fetchObservationRecords();
+    if (records.length === 0) {
+      visibleObservationIds = [];
+      selectedObservationIds.clear();
+      listEl.innerHTML = '<p class="obs-empty">暂无观测记录，点击下方按钮新增。</p>';
+      updateObsSelectionControls();
+      return;
+    }
+    syncObsSelectionWithRows(records);
+    listEl.innerHTML = records.map(renderObservationRecordItem).join('');
+    updateObsSelectionControls();
+  } catch (err) {
+    visibleObservationIds = [];
+    selectedObservationIds.clear();
+    listEl.innerHTML = `<p class="obs-error">加载失败：${escapeHtml(String(err?.message || '未知错误'))}</p>`;
+    updateObsSelectionControls();
+  }
+}
+
+function openObservationFormPicker() {
+  const picker = document.getElementById('obs-form-picker');
+  const contentEl = document.getElementById('obs-form-content');
+  const errorEl = document.getElementById('obs-form-error');
+  if (!picker || !contentEl) return;
+  contentEl.value = '';
+  if (errorEl) errorEl.textContent = '';
+  picker.hidden = false;
+  contentEl.focus();
+}
+
+function closeObservationFormPicker() {
+  const picker = document.getElementById('obs-form-picker');
+  const errorEl = document.getElementById('obs-form-error');
+  if (!picker) return;
+  picker.hidden = true;
+  if (errorEl) errorEl.textContent = '';
+}
+
+let isSavingObservation = false;
+
+async function submitObservationForm() {
+  const contentEl = document.getElementById('obs-form-content');
+  const errorEl = document.getElementById('obs-form-error');
+  const submitBtn = document.getElementById('obs-form-submit');
+  if (!contentEl) return;
+
+  const content = String(contentEl.value ?? '').trim();
+  if (!content) {
+    if (errorEl) errorEl.textContent = '请填写记录内容。';
+    return;
+  }
+  if (errorEl) errorEl.textContent = '';
+  if (isSavingObservation) return;
+
+  isSavingObservation = true;
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = '保存中';
+  }
+
+  try {
+    await createObservationRecord(content);
+    closeObservationFormPicker();
+    showToast('记录已保存');
+    if (currentPage === 'observations') await renderObservationsPage();
+  } catch (err) {
+    if (errorEl) errorEl.textContent = `保存失败：${String(err?.message || '未知错误')}`;
+  } finally {
+    isSavingObservation = false;
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '保存';
+    }
+  }
+}
+
 function setPage(mode) {
   const front = document.getElementById('front-page');
   const admin = document.getElementById('admin-page');
   const stats = document.getElementById('stats-page');
   const methodology = document.getElementById('methodology-page');
   const cases = document.getElementById('cases-page');
+  const observations = document.getElementById('observations-page');
   const btnFront = document.getElementById('btn-tab-front');
   const btnAdmin = document.getElementById('btn-tab-admin');
   const btnStats = document.getElementById('btn-tab-stats');
   const btnMethodology = document.getElementById('btn-tab-methodology');
   const btnCases = document.getElementById('btn-tab-cases');
-  if (!front || !admin || !stats || !methodology || !cases || !btnFront || !btnAdmin || !btnStats || !btnMethodology || !btnCases) return;
+  const btnObservations = document.getElementById('btn-tab-observations');
+  if (!front || !admin || !stats || !methodology || !cases || !observations || !btnFront || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations) return;
 
-  const normalizedMode = ['admin', 'stats', 'methodology', 'cases'].includes(mode) ? mode : 'front';
+  const normalizedMode = ['admin', 'stats', 'methodology', 'cases', 'observations'].includes(mode) ? mode : 'front';
   const toAdmin = normalizedMode === 'admin';
   const toStats = normalizedMode === 'stats';
   const toMethodology = normalizedMode === 'methodology';
   const toCases = normalizedMode === 'cases';
+  const toObservations = normalizedMode === 'observations';
   const toFront = normalizedMode === 'front';
 
   currentPage = normalizedMode;
@@ -2010,6 +2318,7 @@ function setPage(mode) {
   stats.hidden = !toStats;
   methodology.hidden = !toMethodology;
   cases.hidden = !toCases;
+  observations.hidden = !toObservations;
 
   btnFront.classList.toggle('is-active', toFront);
   btnFront.setAttribute('aria-selected', toFront ? 'true' : 'false');
@@ -2021,14 +2330,12 @@ function setPage(mode) {
   btnMethodology.setAttribute('aria-selected', toMethodology ? 'true' : 'false');
   btnCases.classList.toggle('is-active', toCases);
   btnCases.setAttribute('aria-selected', toCases ? 'true' : 'false');
+  btnObservations.classList.toggle('is-active', toObservations);
+  btnObservations.setAttribute('aria-selected', toObservations ? 'true' : 'false');
 
-  const btnClear = document.getElementById('btn-clear');
-  if (btnClear) {
-    btnClear.hidden = !toAdmin;
-    btnClear.textContent = toAdmin ? '删除' : '清空';
-    btnClear.disabled = false;
-    btnClear.setAttribute('aria-busy', 'false');
-  }
+  if (!toObservations) resetObsPageState();
+
+  updateHeaderClearButton();
 
   if (toAdmin) {
     resetFrontPage();
@@ -2045,6 +2352,11 @@ function setPage(mode) {
     resetFrontPage();
     resetAdminPageState();
     renderCasesPage().catch(() => {});
+  } else if (toObservations) {
+    resetFrontPage();
+    resetAdminPageState();
+    resetObsPageState();
+    renderObservationsPage().catch(() => {});
   } else {
     resetAdminPageState();
     resetFrontPage();
@@ -2174,16 +2486,29 @@ async function copyStrategyOutput() {
 const btnCopyStrategy = document.getElementById('btn-copy-strategy');
 if (btnCopyStrategy) btnCopyStrategy.addEventListener('click', copyStrategyOutput);
 const clearAll = () => {
-  if (currentPage !== 'admin') return;
-  if (!isAdminSelectionMode) {
-    enterAdminSelectionMode();
+  if (currentPage === 'admin') {
+    if (!isAdminSelectionMode) {
+      enterAdminSelectionMode();
+      return;
+    }
+    if (selectedStrategyIds.size === 0) {
+      exitAdminSelectionMode();
+      return;
+    }
+    deleteSelectedStrategies().catch(() => {});
     return;
   }
-  if (selectedStrategyIds.size === 0) {
-    exitAdminSelectionMode();
-    return;
+  if (currentPage === 'observations') {
+    if (!isObsSelectionMode) {
+      enterObsSelectionMode();
+      return;
+    }
+    if (selectedObservationIds.size === 0) {
+      exitObsSelectionMode();
+      return;
+    }
+    deleteSelectedObservations().catch(() => {});
   }
-  deleteSelectedStrategies().catch(() => {});
 };
 const btnClear = document.getElementById('btn-clear');
 if (btnClear) btnClear.addEventListener('click', clearAll);
@@ -2198,6 +2523,62 @@ const btnTabMethodology = document.getElementById('btn-tab-methodology');
 if (btnTabMethodology) btnTabMethodology.addEventListener('click', () => setPage('methodology'));
 const btnTabCases = document.getElementById('btn-tab-cases');
 if (btnTabCases) btnTabCases.addEventListener('click', () => setPage('cases'));
+const btnTabObservations = document.getElementById('btn-tab-observations');
+if (btnTabObservations) btnTabObservations.addEventListener('click', () => setPage('observations'));
+
+const obsAddBtn = document.getElementById('obs-add-btn');
+if (obsAddBtn) obsAddBtn.addEventListener('click', openObservationFormPicker);
+
+const obsListEl = document.getElementById('obs-list');
+if (obsListEl) {
+  obsListEl.addEventListener('change', (e) => {
+    const checkbox = e.target instanceof HTMLElement ? e.target.closest('#obs-list .admin-item__select') : null;
+    if (!checkbox) return;
+    const id = String(checkbox.getAttribute('data-id') ?? '').trim();
+    if (!id) return;
+    if (checkbox.checked) selectedObservationIds.add(id);
+    else selectedObservationIds.delete(id);
+    updateObsSelectionControls();
+  });
+}
+
+const obsSelectionEl = document.getElementById('obs-selection');
+if (obsSelectionEl) {
+  obsSelectionEl.addEventListener('click', (e) => {
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    if (!target) return;
+    if (target.closest('#obs-select-all')) {
+      setVisibleObsSelection(true);
+      return;
+    }
+    if (target.closest('#obs-clear-selection')) {
+      exitObsSelectionMode();
+      return;
+    }
+    if (target.closest('#obs-delete-selected')) {
+      deleteSelectedObservations().catch(() => {});
+    }
+  });
+}
+
+const obsFormPicker = document.getElementById('obs-form-picker');
+if (obsFormPicker) {
+  obsFormPicker.addEventListener('click', (e) => {
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    if (!target) return;
+    if (target.getAttribute('data-obs-form-dismiss') === 'true') {
+      closeObservationFormPicker();
+    }
+  });
+}
+
+const obsFormCancel = document.getElementById('obs-form-cancel');
+if (obsFormCancel) obsFormCancel.addEventListener('click', closeObservationFormPicker);
+
+const obsFormSubmit = document.getElementById('obs-form-submit');
+if (obsFormSubmit) obsFormSubmit.addEventListener('click', () => {
+  submitObservationForm().catch(() => {});
+});
 
 const adminFilterTabsEl = document.getElementById('admin-filter-tabs');
 if (adminFilterTabsEl) {
@@ -2313,6 +2694,8 @@ if (outcomeStatusPickerSubmit) outcomeStatusPickerSubmit.addEventListener('click
 document.addEventListener('keydown', (e) => {
   const picker = document.getElementById('status-picker');
   if (e.key === 'Escape' && picker && !picker.hidden) closeOutcomeStatusPicker();
+  const obsPicker = document.getElementById('obs-form-picker');
+  if (e.key === 'Escape' && obsPicker && !obsPicker.hidden) closeObservationFormPicker();
 });
 
 setPage('admin');
