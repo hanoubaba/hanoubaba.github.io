@@ -1,5 +1,15 @@
+-- ============================================================
+-- 无限拟合模型 · Supabase 数据库脚本（唯一维护文件）
+--
+-- 用法：Supabase 控制台 → SQL Editor → 全选复制本文件 → Run
+-- 可重复执行，不会清空已有数据
+
 create extension if not exists pgcrypto;
 create extension if not exists pg_trgm;
+
+-- ------------------------------------------------------------
+-- 1. 策略表（前台保存 / 后台管理 / 数据统计）
+-- ------------------------------------------------------------
 
 create table if not exists public.strategies (
   id uuid primary key default gen_random_uuid(),
@@ -182,16 +192,6 @@ as $$
   from counted;
 $$;
 
-grant execute on function public.get_strategy_stats(
-  text,
-  text,
-  text,
-  text,
-  timestamptz,
-  timestamptz,
-  timestamptz
-) to anon;
-
 create or replace function public.get_recent_10_stats()
 returns table (
   total_count bigint,
@@ -242,7 +242,27 @@ as $$
   from counted;
 $$;
 
-grant execute on function public.get_recent_10_stats() to anon;
+-- ------------------------------------------------------------
+-- 2. 观测日志表
+-- ------------------------------------------------------------
+
+create table if not exists public.observation_records (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  content text not null,
+
+  constraint observation_records_content_not_blank_check
+    check (length(trim(content)) > 0)
+);
+
+create index if not exists observation_records_created_at_idx
+on public.observation_records (created_at desc);
+
+-- ------------------------------------------------------------
+-- 3. 公共触发器
+-- ------------------------------------------------------------
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -255,51 +275,78 @@ end;
 $$;
 
 drop trigger if exists strategies_set_updated_at on public.strategies;
-
 create trigger strategies_set_updated_at
 before update on public.strategies
 for each row
 execute function public.set_updated_at();
 
+drop trigger if exists observation_records_set_updated_at on public.observation_records;
+create trigger observation_records_set_updated_at
+before update on public.observation_records
+for each row
+execute function public.set_updated_at();
+
+drop function if exists public.set_observation_records_updated_at();
+
+-- ------------------------------------------------------------
+-- 4. 登录权限（仅登录用户可读写，未登录无法调用接口）
+-- ------------------------------------------------------------
+
 alter table public.strategies enable row level security;
+alter table public.observation_records enable row level security;
 
 drop policy if exists "allow anon select strategies" on public.strategies;
-create policy "allow anon select strategies"
-on public.strategies
-for select
-to anon
-using (true);
-
 drop policy if exists "allow anon insert strategies" on public.strategies;
-create policy "allow anon insert strategies"
-on public.strategies
-for insert
-to anon
-with check (true);
-
 drop policy if exists "allow anon update strategies" on public.strategies;
-create policy "allow anon update strategies"
+drop policy if exists "allow anon delete strategies" on public.strategies;
+
+drop policy if exists "allow authenticated all strategies" on public.strategies;
+create policy "allow authenticated all strategies"
 on public.strategies
-for update
-to anon
+for all
+to authenticated
 using (true)
 with check (true);
 
-drop policy if exists "allow anon delete strategies" on public.strategies;
-create policy "allow anon delete strategies"
-on public.strategies
-for delete
-to anon
-using (true);
+drop policy if exists "allow anon select observation_records" on public.observation_records;
+drop policy if exists "allow anon insert observation_records" on public.observation_records;
+drop policy if exists "allow anon delete observation_records" on public.observation_records;
 
-notify pgrst, 'reload schema';
+drop policy if exists "allow authenticated all observation_records" on public.observation_records;
+create policy "allow authenticated all observation_records"
+on public.observation_records
+for all
+to authenticated
+using (true)
+with check (true);
 
--- ============================================================
--- 以下是约束更新语句，每次执行都会更新到最新版本
--- 即使表已存在，也会正确更新约束（不会删数据）
--- ============================================================
+revoke execute on function public.get_strategy_stats(
+  text,
+  text,
+  text,
+  text,
+  timestamptz,
+  timestamptz,
+  timestamptz
+) from anon;
 
--- 更新盈利状态约束（添加新状态值）
+grant execute on function public.get_strategy_stats(
+  text,
+  text,
+  text,
+  text,
+  timestamptz,
+  timestamptz,
+  timestamptz
+) to authenticated;
+
+revoke execute on function public.get_recent_10_stats() from anon;
+grant execute on function public.get_recent_10_stats() to authenticated;
+
+-- ------------------------------------------------------------
+-- 5. 结构升级（表已存在时补字段/约束，不删数据）
+-- ------------------------------------------------------------
+
 alter table public.strategies
 drop constraint if exists strategies_outcome_status_check;
 
@@ -312,3 +359,5 @@ add column if not exists concessions jsonb not null default '[]'::jsonb;
 
 alter table public.strategies
 add column if not exists outcome_remark text not null default '';
+
+notify pgrst, 'reload schema';

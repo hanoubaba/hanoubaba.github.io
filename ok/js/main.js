@@ -177,11 +177,222 @@ function updateOpenCostNote() {
 
 const SUPABASE_URL = 'https://rxggjijrfafcrmtkqkuv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_8B1PLTeHhtPou4lPt9cl6w_O2hipMVY';
+const AUTH_STORAGE_KEY = 'ok_supabase_session';
+const LOGIN_EMAIL_SUFFIX = '@ok.local';
+const AUTH_ENDPOINT = `${SUPABASE_URL}/auth/v1/token`;
 const STRATEGIES_ENDPOINT = `${SUPABASE_URL}/rest/v1/strategies`;
 const STRATEGY_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_strategy_stats`;
 const RECENT_10_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_recent_10_stats`;
 const OBSERVATIONS_ENDPOINT = `${SUPABASE_URL}/rest/v1/observation_records`;
 const SAVE_LOG_PREFIX = '[strategy-save]';
+
+let authSession = null;
+let isLoggingIn = false;
+let isAuthReady = false;
+
+function loadAuthSession() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) {
+      authSession = null;
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    authSession = parsed && parsed.access_token ? parsed : null;
+  } catch {
+    authSession = null;
+  }
+}
+
+function saveAuthSession(session) {
+  authSession = session;
+  if (!session) {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    return;
+  }
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+}
+
+function clearAuthSession() {
+  saveAuthSession(null);
+}
+
+function isAccessTokenValid() {
+  if (!authSession?.access_token || !authSession?.expires_at) return false;
+  return Date.now() < authSession.expires_at - 60_000;
+}
+
+function buildAuthSessionFromTokenResponse(data) {
+  const expiresIn = Number(data?.expires_in);
+  return {
+    access_token: String(data?.access_token ?? ''),
+    refresh_token: String(data?.refresh_token ?? ''),
+    expires_at: Date.now() + (Number.isFinite(expiresIn) ? expiresIn : 3600) * 1000,
+    email: String(data?.user?.email ?? ''),
+  };
+}
+
+async function authTokenRequest(grantType, payload) {
+  const url = `${AUTH_ENDPOINT}?grant_type=${encodeURIComponent(grantType)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error_description || data?.msg || data?.message || '登录失败');
+  }
+  return data;
+}
+
+async function refreshAuthSession() {
+  if (!authSession?.refresh_token) throw new Error('未登录');
+  const data = await authTokenRequest('refresh_token', {
+    refresh_token: authSession.refresh_token,
+  });
+  const nextSession = buildAuthSessionFromTokenResponse(data);
+  if (!nextSession.access_token) throw new Error('刷新登录失败');
+  saveAuthSession(nextSession);
+  return nextSession;
+}
+
+async function ensureAuthSession() {
+  if (isAccessTokenValid()) return authSession;
+  if (authSession?.refresh_token) return refreshAuthSession();
+  throw new Error('未登录');
+}
+
+function normalizeLoginEmail(account) {
+  const raw = String(account ?? '').trim();
+  if (!raw) return '';
+  if (raw.includes('@')) return raw;
+  return `${raw}${LOGIN_EMAIL_SUFFIX}`;
+}
+
+function showLoginPage(message = '') {
+  const loginPage = document.getElementById('login-page');
+  const appRoot = document.getElementById('app-root');
+  const errorEl = document.getElementById('login-error');
+  const accountEl = document.getElementById('login-account');
+  document.body.classList.add('login-mode');
+  if (loginPage) loginPage.hidden = false;
+  if (appRoot) appRoot.hidden = true;
+  if (errorEl) errorEl.textContent = message;
+  isAuthReady = false;
+  requestAnimationFrame(() => accountEl?.focus());
+}
+
+function showApp() {
+  const loginPage = document.getElementById('login-page');
+  const appRoot = document.getElementById('app-root');
+  document.body.classList.remove('login-mode');
+  if (loginPage) loginPage.hidden = true;
+  if (appRoot) appRoot.hidden = false;
+  isAuthReady = true;
+}
+
+async function loginWithPassword(email, password) {
+  const data = await authTokenRequest('password', {
+    email: String(email ?? '').trim(),
+    password: String(password ?? ''),
+  });
+  const session = buildAuthSessionFromTokenResponse(data);
+  if (!session.access_token) throw new Error('登录失败');
+  saveAuthSession(session);
+  return session;
+}
+
+async function logout() {
+  clearAuthSession();
+  showLoginPage();
+}
+
+function getSupabaseHeaders(extra = {}) {
+  const token = authSession?.access_token;
+  if (!token) throw new Error('未登录');
+  return {
+    apikey: SUPABASE_KEY,
+    Authorization: `Bearer ${token}`,
+    ...extra,
+  };
+}
+
+async function supabaseFetch(input, init = {}) {
+  await ensureAuthSession();
+  const hasBody = init.body !== undefined && init.body !== null && init.body !== '';
+  const headers = {
+    ...getSupabaseHeaders(),
+    ...(init.headers || {}),
+  };
+  if (hasBody) {
+    if (!headers['Content-Type'] && !headers['content-type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+  } else {
+    delete headers['Content-Type'];
+    delete headers['content-type'];
+  }
+  const res = await fetch(input, { ...init, headers });
+  if (res.status === 401) {
+    clearAuthSession();
+    showLoginPage('登录已过期，请重新登录');
+    throw new Error('登录已过期，请重新登录');
+  }
+  return res;
+}
+
+async function handleLoginSubmit(event) {
+  event.preventDefault();
+  if (isLoggingIn) return;
+  const accountEl = document.getElementById('login-account');
+  const passwordEl = document.getElementById('login-password');
+  const errorEl = document.getElementById('login-error');
+  const submitBtn = document.getElementById('login-submit');
+  const account = String(accountEl?.value ?? '').trim();
+  const password = String(passwordEl?.value ?? '');
+  if (!account || !password) {
+    if (errorEl) errorEl.textContent = '请填写账号和密码。';
+    return;
+  }
+  if (errorEl) errorEl.textContent = '';
+  isLoggingIn = true;
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = '登录中';
+  }
+  try {
+    await loginWithPassword(normalizeLoginEmail(account), password);
+    showApp();
+    setPage('admin');
+  } catch (err) {
+    if (errorEl) errorEl.textContent = String(err?.message || '登录失败');
+  } finally {
+    isLoggingIn = false;
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '登录';
+    }
+  }
+}
+
+async function initApp() {
+  loadAuthSession();
+  if (authSession?.refresh_token) {
+    try {
+      await ensureAuthSession();
+      showApp();
+      setPage('admin');
+      return;
+    } catch {
+      clearAuthSession();
+    }
+  }
+  showLoginPage();
+}
 
 function logSave(level, message, detail) {
   const fn = level === 'error'
@@ -194,15 +405,6 @@ function logSave(level, message, detail) {
     return;
   }
   fn(SAVE_LOG_PREFIX, message, detail);
-}
-
-function getSupabaseHeaders(extra = {}) {
-  return {
-    apikey: SUPABASE_KEY,
-    Authorization: `Bearer ${SUPABASE_KEY}`,
-    'Content-Type': 'application/json',
-    ...extra,
-  };
 }
 
 function dbValueToString(value) {
@@ -1058,7 +1260,7 @@ function buildStrategiesQuery(filterValue = 'all') {
 }
 
 async function fetchStrategies(filterValue = 'all') {
-  const res = await fetch(`${STRATEGIES_ENDPOINT}?${buildStrategiesQuery(filterValue)}`, {
+  const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?${buildStrategiesQuery(filterValue)}`, {
     headers: getSupabaseHeaders(),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -1105,7 +1307,7 @@ function buildStrategyStatsPayload(filterValue = 'all', options = {}) {
 }
 
 async function fetchStrategyStats(filterValue = 'all', options = {}) {
-  const res = await fetch(STRATEGY_STATS_ENDPOINT, {
+  const res = await supabaseFetch(STRATEGY_STATS_ENDPOINT, {
     method: 'POST',
     headers: getSupabaseHeaders(),
     body: JSON.stringify(buildStrategyStatsPayload(filterValue, options)),
@@ -1117,7 +1319,7 @@ async function fetchStrategyStats(filterValue = 'all', options = {}) {
 }
 
 async function fetchRecent10Stats() {
-  const res = await fetch(RECENT_10_STATS_ENDPOINT, {
+  const res = await supabaseFetch(RECENT_10_STATS_ENDPOINT, {
     method: 'POST',
     headers: getSupabaseHeaders(),
     body: JSON.stringify({}),
@@ -1145,7 +1347,7 @@ async function createStrategy(record) {
   });
   let res;
   try {
-    res = await fetch(STRATEGIES_ENDPOINT, {
+    res = await supabaseFetch(STRATEGIES_ENDPOINT, {
       method: 'POST',
       headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
       body: JSON.stringify(payload),
@@ -1175,7 +1377,7 @@ async function deleteStrategies(ids) {
   const normalizedIds = normalizeStrategyIds(ids);
   if (!normalizedIds.length) return;
   const idFilter = encodeURIComponent(`(${normalizedIds.join(',')})`);
-  const res = await fetch(`${STRATEGIES_ENDPOINT}?id=in.${idFilter}`, {
+  const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=in.${idFilter}`, {
     method: 'DELETE',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
   });
@@ -1184,7 +1386,7 @@ async function deleteStrategies(ids) {
 
 async function updateStrategyOutcomeStatus(id, outcomeStatus, remark) {
   const encodedId = encodeURIComponent(id);
-  const res = await fetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
+  const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
     method: 'PATCH',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
     body: JSON.stringify({
@@ -1957,7 +2159,7 @@ function fromObservationRecord(row) {
 
 async function fetchObservationRecords() {
   const params = 'select=id,created_at,content&order=created_at.desc';
-  const res = await fetch(`${OBSERVATIONS_ENDPOINT}?${params}`, {
+  const res = await supabaseFetch(`${OBSERVATIONS_ENDPOINT}?${params}`, {
     headers: getSupabaseHeaders(),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -1968,7 +2170,7 @@ async function fetchObservationRecords() {
 async function createObservationRecord(content) {
   const normalized = normalizeObservationContent(content);
   if (!normalized) throw new Error('记录内容不能为空');
-  const res = await fetch(OBSERVATIONS_ENDPOINT, {
+  const res = await supabaseFetch(OBSERVATIONS_ENDPOINT, {
     method: 'POST',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
     body: JSON.stringify({ content: normalized }),
@@ -1984,7 +2186,7 @@ async function deleteObservationRecords(ids) {
   ));
   if (!normalizedIds.length) return;
   const idFilter = encodeURIComponent(`(${normalizedIds.join(',')})`);
-  const res = await fetch(`${OBSERVATIONS_ENDPOINT}?id=in.${idFilter}`, {
+  const res = await supabaseFetch(`${OBSERVATIONS_ENDPOINT}?id=in.${idFilter}`, {
     method: 'DELETE',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
   });
@@ -2621,4 +2823,14 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && obsPicker && !obsPicker.hidden) closeObservationFormPicker();
 });
 
-setPage('admin');
+const loginForm = document.getElementById('login-form');
+if (loginForm) loginForm.addEventListener('submit', (e) => {
+  handleLoginSubmit(e).catch(() => {});
+});
+
+const btnLogout = document.getElementById('btn-logout');
+if (btnLogout) btnLogout.addEventListener('click', () => {
+  logout().catch(() => {});
+});
+
+initApp().catch(() => showLoginPage());

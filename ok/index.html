@@ -6,16 +6,38 @@
   <title>无限拟合模型</title>
   <link rel="stylesheet" href="./css/style.css" />
 </head>
-<body>
-  <main class="container">
+<body class="login-mode">
+  <section id="login-page" class="login-page" aria-label="登录">
+    <div class="login-card">
+      <h2 class="login-card__title">无限拟合模型</h2>
+      <p class="login-card__desc">请输入账号和密码</p>
+      <form id="login-form" class="login-form">
+        <label class="login-field">
+          <span class="login-field__label">账号</span>
+          <input id="login-account" class="login-field__input" type="text" name="account" autocomplete="username" autocapitalize="none" spellcheck="false" required />
+        </label>
+        <label class="login-field">
+          <span class="login-field__label">密码</span>
+          <input id="login-password" class="login-field__input" type="password" name="password" autocomplete="current-password" enterkeyhint="go" required />
+        </label>
+        <p id="login-error" class="login-error" role="alert" aria-live="polite"></p>
+        <button id="login-submit" type="submit" class="login-submit">登录</button>
+      </form>
+    </div>
+  </section>
+
+  <main id="app-root" class="container" hidden>
     <header class="header">
       <div class="header-bar">
         <button id="btn-clear" type="button" class="header-action" hidden>清空</button>
         <h1 class="title"></h1>
-        <div class="page-switch" role="tablist" aria-label="页面切换">
+        <div class="header-actions">
+          <button id="btn-logout" type="button" class="header-action">退出</button>
+          <div class="page-switch" role="tablist" aria-label="页面切换">
           <button id="btn-tab-front" type="button" class="page-switch__btn" role="tab" aria-selected="false">前台</button>
           <button id="btn-tab-admin" type="button" class="page-switch__btn is-active" role="tab" aria-selected="true">后台管理</button>
           <button id="btn-tab-observations" type="button" class="page-switch__btn" role="tab" aria-selected="false">观测日志</button>
+          </div>
         </div>
       </div>
     </header>
@@ -283,6 +305,7 @@
   </div>
 
   <div id="app-toast" class="app-toast" role="status" aria-live="polite" hidden></div>
+  </main>
 
   <script src="./js/main.js"></script>
 </body>
