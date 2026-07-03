@@ -2256,6 +2256,7 @@ function renderObservationRecordItem(record) {
   const rawId = String(record?.id ?? '').trim();
   const id = escapeHtml(rawId);
   const date = escapeHtml(formatObservationRecordDate(record.createdAt));
+  const dateTime = escapeHtml(String(record?.createdAt ?? ''));
   const content = escapeHtml(record.content || '—');
   const checked = rawId && selectedObservationIds.has(rawId) ? ' checked' : '';
   const disabled = isDeletingObservations ? ' disabled' : '';
@@ -2270,10 +2271,8 @@ function renderObservationRecordItem(record) {
     : '';
   return [
     '<article class="obs-item">',
-    '<div class="obs-item__head">',
     selectHtml,
-    `<span class="obs-item__date">创建时间 ${date}</span>`,
-    '</div>',
+    `<time class="obs-item__date" datetime="${dateTime}">${date}</time>`,
     `<p class="obs-item__content">${content}</p>`,
     '</article>',
   ].join('');
