@@ -122,12 +122,25 @@ body {
   display: none !important;
 }
 
+body.login-mode #app-root {
+  display: none !important;
+}
+
+body:not(.login-mode) #login-page {
+  display: none !important;
+}
+
 .login-page {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
   min-height: 100vh;
   min-height: 100dvh;
   display: grid;
   place-items: center;
   align-content: center;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding:
     max(20px, env(safe-area-inset-top))
     max(20px, env(safe-area-inset-right))
@@ -1702,20 +1715,20 @@ body.login-mode {
   body.login-mode .login-page {
     width: 100%;
     min-height: 100dvh;
-    max-height: 100dvh;
+    max-height: none;
     padding:
       max(12px, env(safe-area-inset-top))
       max(12px, env(safe-area-inset-right))
       max(12px, env(safe-area-inset-bottom))
       max(12px, env(safe-area-inset-left));
-    place-items: stretch;
+    place-items: center;
     align-content: center;
   }
 
   body.login-mode .login-card {
     width: 100%;
     max-width: none;
-    margin: auto 0;
+    margin: auto;
     padding: 24px 18px 22px;
     border-radius: 14px;
     box-shadow: 0 8px 24px rgba(22, 101, 52, 0.1), 0 1px 6px rgba(34, 197, 94, 0.08);
