@@ -16,9 +16,6 @@
           <button id="btn-tab-front" type="button" class="page-switch__btn" role="tab" aria-selected="false">前台</button>
           <button id="btn-tab-admin" type="button" class="page-switch__btn is-active" role="tab" aria-selected="true">后台管理</button>
           <button id="btn-tab-observations" type="button" class="page-switch__btn" role="tab" aria-selected="false">观测日志</button>
-          <button id="btn-tab-stats" type="button" class="page-switch__btn" role="tab" aria-selected="false">数据统计</button>
-          <button id="btn-tab-methodology" type="button" class="page-switch__btn" role="tab" aria-selected="false">方法论</button>
-          <button id="btn-tab-cases" type="button" class="page-switch__btn" role="tab" aria-selected="false">典型案例</button>
         </div>
       </div>
     </header>
@@ -75,13 +72,16 @@
     </section>
 
     <section id="admin-page" class="panel admin-page" aria-label="后台管理">
+      <nav class="admin-shortcuts" aria-label="快捷入口">
+        <button id="btn-tab-stats" type="button" class="admin-shortcut">数据统计</button>
+        <button id="btn-tab-methodology" type="button" class="admin-shortcut">方法论</button>
+        <button id="btn-tab-cases" type="button" class="admin-shortcut">典型案例</button>
+      </nav>
       <div class="admin-controls">
         <div class="admin-control-row">
           <label class="admin-search">
             <input id="admin-name-search" class="admin-search__input" type="search" autocomplete="off" placeholder="搜索名称" />
           </label>
-          <select id="admin-timeframe-filter-select" class="admin-filter-select" aria-label="时间维度筛选"></select>
-          <select id="admin-outcome-filter-select" class="admin-filter-select" aria-label="盈利状态筛选"></select>
         </div>
       </div>
       <div id="admin-filter-tabs" class="admin-filter-tabs" role="tablist" aria-label="时间状态筛选"></div>
@@ -183,6 +183,17 @@
               <li>固定策略选一边覆盖。</li>
               <li>统一标准量化分析。</li>
               <li>1个单位0.5倍，超出预期可做T，预期内则坚持到底。</li>
+            </ul>
+          </div>
+        </article>
+        <article class="methodology-section">
+          <h3 class="methodology-section__title">11、让每一个操作都有意义</h3>
+          <div class="methodology-section__body">
+            <ul class="methodology-section__list">
+              <li>做好开仓记录。</li>
+              <li>做好观测日志。</li>
+              <li>8小时定点操作。</li>
+              <li>不做任何无效操作。</li>
             </ul>
           </div>
         </article>

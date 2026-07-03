@@ -1037,32 +1037,18 @@ function buildStrategiesQuery(filterValue = 'all') {
   const filter = normalizeAdminTimeFilter(filterValue);
   const params = ['select=*', 'order=created_at.desc'];
   const nameSearch = normalizeAdminNameSearch(adminNameSearch);
-  const timeframeFilter = normalizeAdminTimeframeFilter(adminTimeframeFilter);
-  const outcomeFilter = normalizeAdminOutcomeFilter(adminOutcomeFilter);
 
   if (nameSearch) {
     params.push(`strategy_name=ilike.${encodeURIComponent(`*${nameSearch}*`)}`);
   }
-  if (timeframeFilter !== 'all') {
-    params.push(`timeframe=eq.${encodeURIComponent(timeframeFilter)}`);
-  }
-  if (outcomeFilter !== 'all') {
-    params.push(`outcome_status=eq.${encodeURIComponent(outcomeFilter)}`);
-  }
   if (filter === 'active') {
     params.push(`expires_at=gt.${encodeURIComponent(new Date().toISOString())}`);
-    // 进行中只显示未操作的（待定状态）
-    if (outcomeFilter === 'all') {
-      params.push('outcome_status=eq.pending');
-    }
+    params.push('outcome_status=eq.pending');
   } else if (filter === 'dueToday') {
     const { start, end } = getLocalDayRange();
     params.push(`expires_at=gte.${encodeURIComponent(start.toISOString())}`);
     params.push(`expires_at=lt.${encodeURIComponent(end.toISOString())}`);
-    // 今日到期只显示未操作的（待定状态）
-    if (outcomeFilter === 'all') {
-      params.push('outcome_status=eq.pending');
-    }
+    params.push('outcome_status=eq.pending');
   } else if (filter === 'createdToday') {
     const { start, end } = getLocalDayRange();
     params.push(`created_at=gte.${encodeURIComponent(start.toISOString())}`);
@@ -1099,12 +1085,10 @@ function fromStatsRecord(row) {
 function buildStrategyStatsPayload(filterValue = 'all', options = {}) {
   const { ignoreAdminFilters = false } = options;
   const timeFilter = normalizeAdminTimeFilter(filterValue);
-  const timeframeFilter = ignoreAdminFilters ? 'all' : normalizeAdminTimeframeFilter(adminTimeframeFilter);
-  const outcomeFilter = ignoreAdminFilters ? 'all' : normalizeAdminOutcomeFilter(adminOutcomeFilter);
   const payload = {
     p_name_search: ignoreAdminFilters ? null : normalizeAdminNameSearch(adminNameSearch) || null,
-    p_timeframe: timeframeFilter === 'all' ? null : timeframeFilter,
-    p_outcome_status: outcomeFilter === 'all' ? null : outcomeFilter,
+    p_timeframe: null,
+    p_outcome_status: null,
     p_time_filter: timeFilter,
     p_today_start: null,
     p_today_end: null,
@@ -1290,25 +1274,9 @@ const ADMIN_TIME_FILTER_LABELS = {
   dueToday: '今日到期',
 };
 
-const ADMIN_TIMEFRAME_FILTER_LABELS = {
-  all: '全部',
-  '1h': '1小时',
-  '4h': '4小时',
-};
-
-const ADMIN_OUTCOME_FILTER_LABELS = {
-  all: '全部',
-  pending: '待定',
-  profit: '盈利',
-  loss: '亏损',
-  not_filled: '未成交',
-};
-
 const DEFAULT_ADMIN_TIME_FILTER = 'active';
 
 let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
-let adminTimeframeFilter = 'all';
-let adminOutcomeFilter = 'all';
 let adminNameSearch = '';
 let adminSearchTimer = null;
 
@@ -1320,14 +1288,6 @@ function normalizeAdminTimeFilter(value) {
   return normalizeAdminFilter(value, ADMIN_TIME_FILTER_LABELS);
 }
 
-function normalizeAdminTimeframeFilter(value) {
-  return normalizeAdminFilter(value, ADMIN_TIMEFRAME_FILTER_LABELS);
-}
-
-function normalizeAdminOutcomeFilter(value) {
-  return normalizeAdminFilter(value, ADMIN_OUTCOME_FILTER_LABELS);
-}
-
 function normalizeAdminNameSearch(value) {
   return String(value ?? '').trim().replace(/\s+/g, ' ');
 }
@@ -1335,16 +1295,6 @@ function normalizeAdminNameSearch(value) {
 function renderAdminFilterTabs() {
   const tabsEl = document.getElementById('admin-filter-tabs');
   renderAdminTabGroup(tabsEl, ADMIN_TIME_FILTER_LABELS, normalizeAdminTimeFilter(adminTimeFilter), 'admin-time-filter');
-}
-
-function renderAdminTimeframeFilterSelect() {
-  const selectEl = document.getElementById('admin-timeframe-filter-select');
-  renderAdminSelect(selectEl, ADMIN_TIMEFRAME_FILTER_LABELS, normalizeAdminTimeframeFilter(adminTimeframeFilter));
-}
-
-function renderAdminOutcomeFilterSelect() {
-  const selectEl = document.getElementById('admin-outcome-filter-select');
-  renderAdminSelect(selectEl, ADMIN_OUTCOME_FILTER_LABELS, normalizeAdminOutcomeFilter(adminOutcomeFilter));
 }
 
 function renderAdminTabGroup(tabsEl, labels, activeValue, dataAttr) {
@@ -1355,18 +1305,8 @@ function renderAdminTabGroup(tabsEl, labels, activeValue, dataAttr) {
   }).join('');
 }
 
-function renderAdminSelect(selectEl, labels, activeValue) {
-  if (!selectEl) return;
-  selectEl.innerHTML = Object.entries(labels).map(([value, label]) => {
-    const selected = activeValue === value ? ' selected' : '';
-    return `<option value="${escapeHtml(value)}"${selected}>${escapeHtml(label)}</option>`;
-  }).join('');
-}
-
 function renderAdminControls() {
   renderAdminFilterTabs();
-  renderAdminTimeframeFilterSelect();
-  renderAdminOutcomeFilterSelect();
   const searchEl = document.getElementById('admin-name-search');
   if (searchEl && searchEl.value !== adminNameSearch) searchEl.value = adminNameSearch;
 }
@@ -1378,8 +1318,6 @@ function resetAdminPageState() {
     adminSearchTimer = null;
   }
   adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
-  adminTimeframeFilter = 'all';
-  adminOutcomeFilter = 'all';
   adminNameSearch = '';
   isAdminSelectionMode = false;
   selectedStrategyIds.clear();
@@ -2597,26 +2535,6 @@ if (adminNameSearchEl) {
   adminNameSearchEl.addEventListener('input', () => {
     adminNameSearch = normalizeAdminNameSearch(adminNameSearchEl.value);
     scheduleRenderAdminList();
-  });
-}
-
-const adminTimeframeFilterSelectEl = document.getElementById('admin-timeframe-filter-select');
-if (adminTimeframeFilterSelectEl) {
-  adminTimeframeFilterSelectEl.addEventListener('change', () => {
-    const nextFilter = normalizeAdminTimeframeFilter(adminTimeframeFilterSelectEl.value);
-    if (adminTimeframeFilter === nextFilter) return;
-    adminTimeframeFilter = nextFilter;
-    renderAdminList().catch(() => {});
-  });
-}
-
-const adminOutcomeFilterSelectEl = document.getElementById('admin-outcome-filter-select');
-if (adminOutcomeFilterSelectEl) {
-  adminOutcomeFilterSelectEl.addEventListener('change', () => {
-    const nextFilter = normalizeAdminOutcomeFilter(adminOutcomeFilterSelectEl.value);
-    if (adminOutcomeFilter === nextFilter) return;
-    adminOutcomeFilter = nextFilter;
-    renderAdminList().catch(() => {});
   });
 }
 
