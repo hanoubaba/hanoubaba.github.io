@@ -186,7 +186,10 @@ const RECENT_10_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_recent_10_stat
 const OBSERVATIONS_ENDPOINT = `${SUPABASE_URL}/rest/v1/observation_records`;
 const SAVE_LOG_PREFIX = '[strategy-save]';
 const METHODOLOGY_SECTIONS = [
-  { title: '1、核心理念', paragraphs: ['右侧交易，趋势跟随，见好就收。'] },
+  {
+    title: '1、核心理念',
+    paragraphs: ['右侧交易，趋势跟随，见好就收。', '风控第一，收益第二，策略唯一。'],
+  },
   { title: '2、选择标准', items: ['形态上三线齐飞，交叉在同一个时间维度。', '交易量过亿。'] },
   { title: '3、档位', paragraphs: ['三档挂单，兼顾风险和收益。'] },
   { title: '4、仓位', paragraphs: ['3目标 x 3档位 = 9仓位'] },
