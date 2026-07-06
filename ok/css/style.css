@@ -2166,11 +2166,17 @@ body.login-mode {
 
   .field-heading {
     gap: 8px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
 
-  .copy-actions {
-    width: 100%;
+  .panel[aria-label="策略输出"] .field-heading .field-label {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .panel[aria-label="策略输出"] .copy-actions {
+    width: auto;
+    flex-shrink: 0;
     justify-content: flex-end;
   }
 
@@ -2641,47 +2647,45 @@ body.login-mode {
   -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
   padding: 12px 14px 8px;
 }
 
-.obs-item {
-  position: relative;
+.obs-record {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   flex-shrink: 0;
-  border: 1px solid var(--border-soft);
-  border-radius: 12px;
-  background: #fff;
-  padding: 12px 14px;
 }
 
-.obs-item .admin-item__selector {
-  position: absolute;
-  top: 8px;
-  left: 10px;
-  z-index: 2;
+.obs-record__meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-height: 18px;
+  padding: 0 2px;
 }
 
-.obs-item__date {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  z-index: 1;
-  max-width: calc(100% - 24px);
+.obs-record__meta .admin-item__selector {
+  margin-right: auto;
+}
+
+.obs-record__date {
   font-size: 12px;
   font-weight: 600;
   color: var(--muted);
   line-height: 1.35;
   text-align: right;
   white-space: nowrap;
-  pointer-events: none;
 }
 
-.obs-item:has(.admin-item__selector) .obs-item__content {
-  padding-left: 28px;
-}
-
-.obs-item:has(.admin-item__selector) .obs-item__date {
-  max-width: calc(100% - 52px);
+.obs-item {
+  flex-shrink: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px 14px;
 }
 
 .obs-item__content {
@@ -2818,32 +2822,27 @@ body.login-mode {
   }
 
   .obs-list {
-    gap: 8px;
+    gap: 12px;
     padding: 8px 10px 6px;
+  }
+
+  .obs-record {
+    gap: 3px;
+  }
+
+  .obs-record__meta {
+    gap: 6px;
+    min-height: 16px;
+    padding: 0 1px;
+  }
+
+  .obs-record__date {
+    font-size: 11px;
   }
 
   .obs-item {
     padding: 10px 12px;
     border-radius: 10px;
-  }
-
-  .obs-item .admin-item__selector {
-    top: 6px;
-    left: 8px;
-  }
-
-  .obs-item__date {
-    top: 8px;
-    right: 10px;
-    font-size: 11px;
-  }
-
-  .obs-item:has(.admin-item__selector) .obs-item__content {
-    padding-left: 26px;
-  }
-
-  .obs-item:has(.admin-item__selector) .obs-item__date {
-    max-width: calc(100% - 48px);
   }
 
   .obs-item__content {

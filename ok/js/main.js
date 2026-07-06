@@ -2270,10 +2270,14 @@ function renderObservationRecordItem(record) {
     ].join('')
     : '';
   return [
-    '<article class="obs-item">',
+    '<article class="obs-record">',
+    '<div class="obs-record__meta">',
     selectHtml,
-    `<time class="obs-item__date" datetime="${dateTime}">${date}</time>`,
+    `<time class="obs-record__date" datetime="${dateTime}">${date}</time>`,
+    '</div>',
+    '<div class="obs-item">',
     `<p class="obs-item__content">${content}</p>`,
+    '</div>',
     '</article>',
   ].join('');
 }
