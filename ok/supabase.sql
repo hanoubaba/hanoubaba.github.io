@@ -251,10 +251,10 @@ create table if not exists public.observation_records (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
 
-  content text not null,
+  items jsonb not null default '[]'::jsonb,
 
-  constraint observation_records_content_not_blank_check
-    check (length(trim(content)) > 0)
+  constraint observation_records_items_not_empty_check
+    check (jsonb_array_length(items) > 0)
 );
 
 create index if not exists observation_records_created_at_idx
@@ -359,5 +359,51 @@ add column if not exists concessions jsonb not null default '[]'::jsonb;
 
 alter table public.strategies
 add column if not exists outcome_remark text not null default '';
+
+alter table public.observation_records
+add column if not exists items jsonb not null default '[]'::jsonb;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'observation_records'
+      and column_name = 'content'
+  ) then
+    update public.observation_records
+    set items = jsonb_build_array(
+      jsonb_build_object('name', trim(content), 'grade', '待观测')
+    )
+    where jsonb_array_length(items) = 0
+      and content is not null
+      and length(trim(content)) > 0;
+  end if;
+end $$;
+
+alter table public.observation_records
+drop constraint if exists observation_records_content_not_blank_check;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'observation_records'
+      and column_name = 'content'
+  ) then
+    alter table public.observation_records
+    alter column content drop not null;
+  end if;
+end $$;
+
+alter table public.observation_records
+drop constraint if exists observation_records_items_not_empty_check;
+
+alter table public.observation_records
+add constraint observation_records_items_not_empty_check
+check (jsonb_array_length(items) > 0);
 
 notify pgrst, 'reload schema';

@@ -78,18 +78,7 @@
 
       <p id="error" class="error" role="alert" aria-live="polite"></p>
     </section>
-
-    <section class="panel" aria-label="策略输出">
-      <div class="field">
-        <div class="field-heading">
-          <span class="field-label">策略内容</span>
-          <div class="copy-actions">
-            <button id="btn-copy-strategy" type="button" class="btn-copy-strategy" aria-label="保存策略">保存</button>
-          </div>
-        </div>
-        <div id="strategy-output" class="strategy-output" aria-live="polite"></div>
-      </div>
-    </section>
+    <button id="btn-copy-strategy" type="button" class="btn-save-strategy" aria-label="保存策略">保存</button>
     </section>
 
     <section id="admin-page" class="panel admin-page" aria-label="后台管理">
@@ -204,7 +193,13 @@
     <div class="status-picker__backdrop" data-obs-form-dismiss="true"></div>
     <div class="status-picker__sheet obs-form-picker__sheet" role="dialog" aria-modal="true" aria-label="新增观测记录">
       <div class="obs-form-picker__grabber" aria-hidden="true"></div>
-      <textarea id="obs-form-content" class="obs-form-picker__textarea" rows="5" placeholder="请输入观测内容"></textarea>
+      <div class="obs-form-list__head">
+        <span>名称</span>
+        <span>等级</span>
+        <span class="obs-form-list__head-spacer" aria-hidden="true"></span>
+      </div>
+      <div id="obs-form-list" class="obs-form-list"></div>
+      <button id="obs-form-add-row" type="button" class="obs-form-add-row">新增</button>
       <p id="obs-form-error" class="status-picker__error" role="alert" aria-live="polite"></p>
       <div class="status-picker__actions">
         <button id="obs-form-cancel" type="button" class="status-picker__cancel">取消</button>

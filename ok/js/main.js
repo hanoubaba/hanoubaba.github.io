@@ -184,6 +184,9 @@ const STRATEGIES_ENDPOINT = `${SUPABASE_URL}/rest/v1/strategies`;
 const STRATEGY_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_strategy_stats`;
 const RECENT_10_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_recent_10_stats`;
 const OBSERVATIONS_ENDPOINT = `${SUPABASE_URL}/rest/v1/observation_records`;
+const OBS_GRADE_OPTIONS = ['待观测', '及格', '良好', '优秀'];
+const OBS_DEFAULT_GRADE = '待观测';
+const OBS_FORM_DEFAULT_ROWS = 3;
 const SAVE_LOG_PREFIX = '[strategy-save]';
 const METHODOLOGY_SECTIONS = [
   {
@@ -770,18 +773,21 @@ function renderMethodologyPage() {
   }).join('');
 }
 
-function clearStrategyOutput(outEl) {
-  if (!outEl) return;
-  outEl.textContent = '';
-  delete outEl.dataset.plainText;
-  delete outEl.dataset.copyText;
-  delete outEl.dataset.record;
+let currentStrategyCopyText = '';
+let currentStrategyRecord = null;
+
+function clearStrategyState() {
+  currentStrategyCopyText = '';
+  currentStrategyRecord = null;
 }
 
-function renderStrategyOutput(outEl, { plain, html }) {
-  if (!outEl) return;
-  outEl.innerHTML = html;
-  outEl.dataset.plainText = plain;
+function setStrategyState(strategy) {
+  if (!strategy) {
+    clearStrategyState();
+    return;
+  }
+  currentStrategyCopyText = String(strategy.copyText ?? '').trim();
+  currentStrategyRecord = strategy.record ?? null;
 }
 
 function getPositionSideMod(side) {
@@ -1099,7 +1105,6 @@ function generate() {
   const stopEl = document.getElementById('stop-price-input');
   const timeEl = document.getElementById('start-time');
   const errEl = document.getElementById('error');
-  const outEl = document.getElementById('strategy-output');
 
   const open = toNumber(openEl && 'value' in openEl ? openEl.value : '');
   const stop = toNumber(stopEl && 'value' in stopEl ? stopEl.value : '');
@@ -1111,31 +1116,31 @@ function generate() {
 
   if (open === null || stop === null) {
     if (errEl) errEl.textContent = '请输入有效的价格与止损（数字）。';
-    clearStrategyOutput(outEl);
+    clearStrategyState();
     return;
   }
 
   if (open <= 0) {
     if (errEl) errEl.textContent = '价格须为大于 0 的数字。';
-    clearStrategyOutput(outEl);
+    clearStrategyState();
     return;
   }
 
   if (openCost === null) {
     if (errEl) errEl.textContent = '请输入有效的开仓成本（大于 0 的数字）。';
-    clearStrategyOutput(outEl);
+    clearStrategyState();
     return;
   }
 
   if (!startTime) {
     if (errEl) errEl.textContent = '请选择开始时间。';
-    clearStrategyOutput(outEl);
+    clearStrategyState();
     return;
   }
 
   if (open === stop) {
     if (errEl) errEl.textContent = '价格与止损不能相同，无法计算数量与方向。';
-    clearStrategyOutput(outEl);
+    clearStrategyState();
     return;
   }
 
@@ -1146,21 +1151,17 @@ function generate() {
   const takeProfit = calcTakeProfit(adjustedOpen, stop, TAKE_PROFIT_R_MULTIPLE);
   if (!Number.isFinite(adjustedOpen) || adjustedOpen <= 0 || !Number.isFinite(takeProfit) || takeProfit <= 0) {
     if (errEl) errEl.textContent = '价格或止盈价无效，请检查价格与止损。';
-    clearStrategyOutput(outEl);
+    clearStrategyState();
     return;
   }
   const strategy = buildStrategy(open, stop, startTime, startTimeLabel, openCost, priceDecimals);
-  renderStrategyOutput(outEl, strategy);
-  if (outEl) {
-    outEl.dataset.copyText = strategy.copyText;
-    outEl.dataset.record = JSON.stringify(strategy.record);
-    logSave('info', '策略已生成，可保存', {
-      strategyName: strategy.record?.strategyName,
-      hasCopyText: Boolean(strategy.copyText),
-      hasRecord: Boolean(outEl.dataset.record),
-      recordPreview: strategy.record,
-    });
-  }
+  setStrategyState(strategy);
+  logSave('info', '策略已生成，可保存', {
+    strategyName: strategy.record?.strategyName,
+    hasCopyText: Boolean(strategy.copyText),
+    hasRecord: Boolean(strategy.record),
+    recordPreview: strategy.record,
+  });
 }
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -1219,9 +1220,8 @@ function autoGenerateIfReady() {
     return;
   }
   const errEl = document.getElementById('error');
-  const outEl = document.getElementById('strategy-output');
   if (errEl) errEl.textContent = '';
-  clearStrategyOutput(outEl);
+  clearStrategyState();
 }
 
 if (openInput) openInput.addEventListener('input', autoGenerateIfReady);
@@ -1253,9 +1253,8 @@ function resetFrontPage() {
   updateOpenCostNote();
   if (nameInput) nameInput.value = '';
   const errEl = document.getElementById('error');
-  const outEl = document.getElementById('strategy-output');
   if (errEl) errEl.textContent = '';
-  clearStrategyOutput(outEl);
+  clearStrategyState();
 }
 
 /**
@@ -2201,20 +2200,42 @@ async function renderCasesPage() {
   requestAnimationFrame(() => goToCaseSlide(0, { animate: false }));
 }
 
-function normalizeObservationContent(content) {
-  return String(content ?? '').trim().toLowerCase();
+function getObsGradeClass(grade) {
+  const map = {
+    待观测: 'pending',
+    及格: 'pass',
+    良好: 'good',
+    优秀: 'excellent',
+  };
+  return map[grade] || 'pending';
+}
+
+function normalizeObservationItems(items) {
+  const source = Array.isArray(items) ? items : [];
+  return source
+    .map((item) => ({
+      name: String(item?.name ?? '').trim(),
+      grade: normalizeObservationGrade(item?.grade),
+    }))
+    .filter((item) => item.name);
 }
 
 function fromObservationRecord(row) {
+  let items = [];
+  if (Array.isArray(row?.items)) {
+    items = row.items;
+  } else if (typeof row?.content === 'string' && row.content.trim()) {
+    items = [{ name: row.content.trim(), grade: OBS_DEFAULT_GRADE }];
+  }
   return {
     id: String(row?.id ?? '').trim(),
     createdAt: row?.created_at ?? null,
-    content: normalizeObservationContent(row?.content),
+    items: normalizeObservationItems(items),
   };
 }
 
 async function fetchObservationRecords() {
-  const params = 'select=id,created_at,content&order=created_at.desc';
+  const params = 'select=id,created_at,items&order=created_at.desc';
   const res = await supabaseFetch(`${OBSERVATIONS_ENDPOINT}?${params}`, {
     headers: getSupabaseHeaders(),
   });
@@ -2223,13 +2244,17 @@ async function fetchObservationRecords() {
   return Array.isArray(rows) ? rows.map(fromObservationRecord) : [];
 }
 
-async function createObservationRecord(content) {
-  const normalized = normalizeObservationContent(content);
-  if (!normalized) throw new Error('记录内容不能为空');
+async function createObservationRecord(items) {
+  const normalizedItems = normalizeObservationItems(items);
+  if (!normalizedItems.length) throw new Error('记录内容不能为空');
+  const payload = {
+    items: normalizedItems,
+    content: normalizedItems.map((item) => `${item.name}:${item.grade}`).join('\n'),
+  };
   const res = await supabaseFetch(OBSERVATIONS_ENDPOINT, {
     method: 'POST',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify({ content: normalized }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(await res.text());
 }
@@ -2255,12 +2280,112 @@ function formatObservationRecordDate(isoString) {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+function renderObsGradeBadge(grade) {
+  const cls = getObsGradeClass(grade);
+  return `<span class="obs-grade obs-grade--${cls}">${escapeHtml(grade)}</span>`;
+}
+
+function normalizeObservationGrade(grade) {
+  const raw = String(grade ?? '').trim();
+  return OBS_GRADE_OPTIONS.includes(raw) ? raw : OBS_DEFAULT_GRADE;
+}
+
+function renderObservationTemplateDisplay(items) {
+  const normalizedItems = normalizeObservationItems(items);
+  if (!normalizedItems.length) {
+    return '<p class="obs-template-empty">暂无币种记录</p>';
+  }
+  const rows = normalizedItems
+    .map((item) => [
+      '<div class="obs-template__row">',
+      `<span class="obs-template__name">${escapeHtml(item.name)}</span>`,
+      renderObsGradeBadge(item.grade),
+      '</div>',
+    ].join(''))
+    .join('');
+  return [
+    '<div class="obs-template">',
+    '<div class="obs-template__row obs-template__head">',
+    '<span>名称</span>',
+    '<span>等级</span>',
+    '</div>',
+    rows,
+    '</div>',
+  ].join('');
+}
+
+function renderObservationFormRow(item = {}) {
+  const name = escapeHtml(String(item?.name ?? ''));
+  const grade = normalizeObservationGrade(item?.grade);
+  const options = OBS_GRADE_OPTIONS.map((option) => {
+    const selected = option === grade ? ' selected' : '';
+    return `<option value="${escapeHtml(option)}"${selected}>${escapeHtml(option)}</option>`;
+  }).join('');
+  return [
+    '<div class="obs-form-row">',
+    `<input class="obs-form-row__name" type="text" value="${name}" placeholder="请输入名称" autocomplete="off" autocapitalize="characters" spellcheck="false" />`,
+    `<select class="obs-form-row__grade" aria-label="等级">${options}</select>`,
+    '<button type="button" class="obs-form-row__remove" aria-label="删除">×</button>',
+    '</div>',
+  ].join('');
+}
+
+function renderObservationFormEmptyHint() {
+  return '<p class="obs-form-empty">点击「新增」添加币种记录。</p>';
+}
+
+function renderObservationFormList() {
+  const listEl = document.getElementById('obs-form-list');
+  if (!listEl) return;
+  listEl.innerHTML = Array.from({ length: OBS_FORM_DEFAULT_ROWS }, () => (
+    renderObservationFormRow({ grade: OBS_DEFAULT_GRADE })
+  )).join('');
+}
+
+function syncObservationFormEmptyHint() {
+  const listEl = document.getElementById('obs-form-list');
+  if (!listEl) return;
+  const hasRows = listEl.querySelector('.obs-form-row');
+  const emptyEl = listEl.querySelector('.obs-form-empty');
+  if (hasRows) {
+    emptyEl?.remove();
+    return;
+  }
+  if (!emptyEl) listEl.innerHTML = renderObservationFormEmptyHint();
+}
+
+function addObservationFormRow(focusName = true) {
+  const listEl = document.getElementById('obs-form-list');
+  if (!listEl) return;
+  listEl.querySelector('.obs-form-empty')?.remove();
+  listEl.insertAdjacentHTML('beforeend', renderObservationFormRow({ grade: OBS_DEFAULT_GRADE }));
+  if (focusName) {
+    const rows = listEl.querySelectorAll('.obs-form-row__name');
+    rows[rows.length - 1]?.focus();
+  }
+}
+
+function removeObservationFormRow(rowEl) {
+  if (!(rowEl instanceof HTMLElement)) return;
+  rowEl.remove();
+  syncObservationFormEmptyHint();
+}
+
+function collectObservationFormItems() {
+  return Array.from(document.querySelectorAll('#obs-form-list .obs-form-row'))
+    .map((row) => ({
+      name: String(row.querySelector('.obs-form-row__name')?.value ?? '').trim(),
+      grade: normalizeObservationGrade(row.querySelector('.obs-form-row__grade')?.value),
+    }))
+    .filter((item) => item.name);
+}
+
 function renderObservationRecordItem(record) {
   const rawId = String(record?.id ?? '').trim();
   const id = escapeHtml(rawId);
   const date = escapeHtml(formatObservationRecordDate(record.createdAt));
   const dateTime = escapeHtml(String(record?.createdAt ?? ''));
-  const content = escapeHtml(record.content || '—');
+  const templateHtml = renderObservationTemplateDisplay(record.items);
   const checked = rawId && selectedObservationIds.has(rawId) ? ' checked' : '';
   const disabled = isDeletingObservations ? ' disabled' : '';
   const selectorDisabled = isDeletingObservations ? ' is-disabled' : '';
@@ -2279,7 +2404,7 @@ function renderObservationRecordItem(record) {
     `<time class="obs-record__date" datetime="${dateTime}">${date}</time>`,
     '</div>',
     '<div class="obs-item">',
-    `<p class="obs-item__content">${content}</p>`,
+    templateHtml,
     '</div>',
     '</article>',
   ].join('');
@@ -2436,35 +2561,31 @@ async function renderObservationsPage() {
 
 function openObservationFormPicker() {
   const picker = document.getElementById('obs-form-picker');
-  const contentEl = document.getElementById('obs-form-content');
   const errorEl = document.getElementById('obs-form-error');
-  if (!picker || !contentEl) return;
-  contentEl.value = '';
+  if (!picker) return;
+  renderObservationFormList();
   if (errorEl) errorEl.textContent = '';
   picker.hidden = false;
-  contentEl.focus();
 }
 
 function closeObservationFormPicker() {
   const picker = document.getElementById('obs-form-picker');
+  const listEl = document.getElementById('obs-form-list');
   const errorEl = document.getElementById('obs-form-error');
   if (!picker) return;
   picker.hidden = true;
+  if (listEl) listEl.innerHTML = '';
   if (errorEl) errorEl.textContent = '';
 }
 
 let isSavingObservation = false;
 
 async function submitObservationForm() {
-  const contentEl = document.getElementById('obs-form-content');
   const errorEl = document.getElementById('obs-form-error');
   const submitBtn = document.getElementById('obs-form-submit');
-  if (!contentEl) return;
-
-  const content = normalizeObservationContent(contentEl.value);
-  if (contentEl.value !== content) contentEl.value = content;
-  if (!content) {
-    if (errorEl) errorEl.textContent = '请填写记录内容。';
+  const items = collectObservationFormItems();
+  if (!items.length) {
+    if (errorEl) errorEl.textContent = '请至少新增一条币种记录。';
     return;
   }
   if (errorEl) errorEl.textContent = '';
@@ -2477,7 +2598,7 @@ async function submitObservationForm() {
   }
 
   try {
-    await createObservationRecord(content);
+    await createObservationRecord(items);
     closeObservationFormPicker();
     showToast('记录已保存');
     if (currentPage === 'observations') await renderObservationsPage();
@@ -2602,18 +2723,15 @@ let isSavingStrategy = false;
 async function copyStrategyOutput() {
   logSave('info', '点击保存');
   const btn = document.getElementById('btn-copy-strategy');
-  const out = document.getElementById('strategy-output');
   const errEl = document.getElementById('error');
   const nameEl = document.getElementById('name-input');
   const name = String(nameEl?.value ?? '').trim();
   logSave('info', '保存前状态', {
     currentPage,
     name,
-    hasCopyText: Boolean(out?.dataset.copyText),
-    hasRecord: Boolean(out?.dataset.record),
-    copyTextLength: String(out?.dataset.copyText ?? '').length,
-    recordLength: String(out?.dataset.record ?? '').length,
-    hasStrategyHtml: Boolean(out?.innerHTML?.trim()),
+    hasCopyText: Boolean(currentStrategyCopyText),
+    hasRecord: Boolean(currentStrategyRecord),
+    copyTextLength: currentStrategyCopyText.length,
   });
   if (!name) {
     logSave('warn', '前端拦截：未填写名称');
@@ -2622,7 +2740,7 @@ async function copyStrategyOutput() {
     return;
   }
   if (errEl) errEl.textContent = '';
-  const text = String(out?.dataset.copyText ?? '').trim();
+  const text = currentStrategyCopyText;
   if (!text) {
     logSave('warn', '前端拦截：策略未生成（copyText 为空）');
     flashCopyStrategyBtn(btn, '无内容');
@@ -2647,24 +2765,13 @@ async function copyStrategyOutput() {
 
   let saved = false;
   try {
-    if (!out?.dataset.record) {
-      logSave('warn', '前端拦截：有 copyText 但缺少 dataset.record，未发起接口');
+    if (!currentStrategyRecord) {
+      logSave('warn', '前端拦截：有 copyText 但缺少 record，未发起接口');
       flashCopyStrategyBtn(btn, '保存失败');
       return;
     }
-    let record;
-    try {
-      record = JSON.parse(out.dataset.record);
-      logSave('info', 'record 解析成功', record);
-    } catch (err) {
-      logSave('error', 'record 解析失败，未发起接口', {
-        message: err?.message || String(err),
-        recordRaw: out.dataset.record,
-      });
-      if (errEl) errEl.textContent = '保存失败：策略数据解析错误。';
-      flashCopyStrategyBtn(btn, '保存失败');
-      return;
-    }
+    const record = currentStrategyRecord;
+    logSave('info', 'record 已就绪', record);
     try {
       await createStrategy(record);
       saved = true;
@@ -2777,9 +2884,17 @@ if (obsFormPicker) {
     if (!target) return;
     if (target.getAttribute('data-obs-form-dismiss') === 'true') {
       closeObservationFormPicker();
+      return;
+    }
+    const removeBtn = target.closest('.obs-form-row__remove');
+    if (removeBtn) {
+      removeObservationFormRow(removeBtn.closest('.obs-form-row'));
     }
   });
 }
+
+const obsFormAddRow = document.getElementById('obs-form-add-row');
+if (obsFormAddRow) obsFormAddRow.addEventListener('click', () => addObservationFormRow(true));
 
 const obsFormCancel = document.getElementById('obs-form-cancel');
 if (obsFormCancel) obsFormCancel.addEventListener('click', closeObservationFormPicker);
