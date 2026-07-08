@@ -184,8 +184,20 @@ const STRATEGIES_ENDPOINT = `${SUPABASE_URL}/rest/v1/strategies`;
 const STRATEGY_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_strategy_stats`;
 const RECENT_10_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_recent_10_stats`;
 const OBSERVATIONS_ENDPOINT = `${SUPABASE_URL}/rest/v1/observation_records`;
-const OBS_GRADE_OPTIONS = ['优秀', '良好', '及格', '待观测'];
-const OBS_DEFAULT_GRADE = '待观测';
+const OBS_GRADE_OPTIONS = ['优质', '普通', '观测中'];
+const OBS_DEFAULT_GRADE = '普通';
+const STRATEGY_GRADE_PREMIUM = '优质';
+const STRATEGY_GRADE_NORMAL = '普通';
+function getStrategyGradeFromOpenCost(openCost) {
+  return Number(openCost) === 150 ? STRATEGY_GRADE_PREMIUM : STRATEGY_GRADE_NORMAL;
+}
+
+function normalizeStrategyGrade(grade) {
+  const raw = String(grade ?? '').trim();
+  if (raw === STRATEGY_GRADE_PREMIUM) return STRATEGY_GRADE_PREMIUM;
+  return STRATEGY_GRADE_NORMAL;
+}
+
 const OBS_FORM_DEFAULT_ROWS = 3;
 const SAVE_LOG_PREFIX = '[strategy-save]';
 const METHODOLOGY_SECTIONS = [
@@ -222,6 +234,17 @@ const METHODOLOGY_SECTIONS = [
   {
     title: '11、让每一个操作都有意义',
     items: ['做好开仓记录。', '做好观测日志。', '8小时定点操作。', '不做任何无效操作。'],
+  },
+  {
+    title: '12、操作手法',
+    items: [
+      '观测变为4小时，范围扩展到0.5亿交易量。',
+      '只要前三，分清主次。',
+      '风险厌恶，浮亏影响判断。时机比点位更重要。',
+      '优质股必上车。大仓位挂着，小仓位跑着，进度有度。',
+      '4小时为主。1小时和1天维度为辅。多维度兼容思维分析行情。',
+      '等待就是最快的前行。',
+    ],
   },
 ];
 
@@ -507,6 +530,7 @@ function fromDbRecord(row) {
     takeProfitPrice: dbValueToString(row.take_profit_price),
     stopLossPrice: dbValueToString(row.stop_loss_price),
     openCost: row.open_cost,
+    grade: normalizeStrategyGrade(row.grade ?? getStrategyGradeFromOpenCost(row.open_cost)),
     priceAdjustmentRate: row.price_adjustment_rate,
     priceAdjustment: row.price_adjustment,
     concessions: parseConcessionsFromDb(row.concessions),
@@ -536,6 +560,7 @@ function toDbRecord(record) {
     take_profit_price: toNumber(record.takeProfitPrice),
     stop_loss_price: toNumber(record.stopLossPrice),
     open_cost: Number(record.openCost),
+    grade: normalizeStrategyGrade(record.grade ?? getStrategyGradeFromOpenCost(record.openCost)),
     price_adjustment_rate: Number(record.priceAdjustmentRate),
     price_adjustment: toNumber(record.priceAdjustment),
     concessions: hasConcessions(record.concessions)
@@ -1073,6 +1098,7 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
     takeProfitPrice: tpLabel,
     stopLossPrice: stopLabel,
     openCost,
+    grade: getStrategyGradeFromOpenCost(openCost),
     priceAdjustmentRate: PRICE_ADJUSTMENT_RATE,
     priceAdjustment: formatTrimmedFixedDecimals(priceAdjustment, priceDecimalPlaces),
     concessions: concessionItems,
@@ -1873,6 +1899,15 @@ async function renderAdminList() {
     const sideMod = getPositionSideMod(sideRaw);
     const title = escapeHtml(formatStrategyCardTitle(nameRaw));
     const titleLabel = escapeHtml(formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark));
+    const gradeBadgeHtml = normalizeStrategyGrade(row?.grade) === STRATEGY_GRADE_PREMIUM
+      ? '<span class="admin-item__grade admin-item__grade--premium">优质</span>'
+      : '';
+    const titleGroupHtml = [
+      '<div class="admin-item__title-wrap">',
+      `<span class="admin-item__title">${title}</span>`,
+      gradeBadgeHtml,
+      '</div>',
+    ].join('');
     const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
     const stop = escapeHtml(String(row?.stopLossPrice ?? '-'));
     const refTakeProfitLabel = buildReferenceTakeProfitLabel(
@@ -1929,7 +1964,7 @@ async function renderAdminList() {
       remarkStampHtml,
       '<header class="admin-item__head">',
       selectHtml,
-      `<span class="admin-item__title">${title}</span>`,
+      titleGroupHtml,
       timeBadgeHtml,
       '</header>',
       concessionsHtml,
@@ -2202,12 +2237,11 @@ async function renderCasesPage() {
 
 function getObsGradeClass(grade) {
   const map = {
-    待观测: 'pending',
-    及格: 'pass',
-    良好: 'good',
-    优秀: 'excellent',
+    观测中: 'pending',
+    普通: 'normal',
+    优质: 'premium',
   };
-  return map[grade] || 'pending';
+  return map[grade] || 'normal';
 }
 
 function normalizeObservationItems(items) {
@@ -2287,7 +2321,14 @@ function renderObsGradeBadge(grade) {
 
 function normalizeObservationGrade(grade) {
   const raw = String(grade ?? '').trim();
-  return OBS_GRADE_OPTIONS.includes(raw) ? raw : OBS_DEFAULT_GRADE;
+  const legacyMap = {
+    优秀: '优质',
+    良好: '普通',
+    及格: '普通',
+    待观测: '观测中',
+  };
+  const normalized = legacyMap[raw] || raw;
+  return OBS_GRADE_OPTIONS.includes(normalized) ? normalized : OBS_DEFAULT_GRADE;
 }
 
 function renderObservationTemplateDisplay(items) {

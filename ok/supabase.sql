@@ -41,6 +41,7 @@ create table if not exists public.strategies (
 
   outcome_status text not null default 'pending',
   outcome_remark text not null default '',
+  grade text not null default '普通',
 
   constraint strategies_position_side_check
     check (position_side in ('long', 'short')),
@@ -80,7 +81,9 @@ create table if not exists public.strategies (
     check (
       expires_at > start_at
       and expires_at = start_at + duration_minutes * interval '1 minute'
-    )
+    ),
+  constraint strategies_grade_check
+    check (grade in ('优质', '普通'))
 );
 
 create index if not exists strategies_created_at_idx
@@ -360,6 +363,22 @@ add column if not exists concessions jsonb not null default '[]'::jsonb;
 alter table public.strategies
 add column if not exists outcome_remark text not null default '';
 
+alter table public.strategies
+add column if not exists grade text not null default '普通';
+
+update public.strategies
+set grade = case
+  when open_cost = 150 then '优质'
+  else '普通'
+end;
+
+alter table public.strategies
+drop constraint if exists strategies_grade_check;
+
+alter table public.strategies
+add constraint strategies_grade_check
+check (grade in ('优质', '普通'));
+
 alter table public.observation_records
 add column if not exists items jsonb not null default '[]'::jsonb;
 
@@ -374,7 +393,7 @@ begin
   ) then
     update public.observation_records
     set items = jsonb_build_array(
-      jsonb_build_object('name', trim(content), 'grade', '待观测')
+      jsonb_build_object('name', trim(content), 'grade', '观测中')
     )
     where jsonb_array_length(items) = 0
       and content is not null
