@@ -368,7 +368,7 @@ add column if not exists grade text not null default '普通';
 
 update public.strategies
 set grade = case
-  when open_cost = 150 then '优质'
+  when open_cost = 150 or round(open_cost * 3) in (500, 1000) then '优质'
   else '普通'
 end;
 

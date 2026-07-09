@@ -140,6 +140,11 @@ const TIMEFRAME_LABELS = {
 
 const PRICE_ADJUSTMENT_RATE = 0.2;
 const CONCESSION_RATES = [0, 0.2, 0.5, 0.8];
+const TRADE_MODE_NORMAL = 'normal';
+const TRADE_MODE_REVERSE = 'reverse';
+const OPEN_COST_TIER_DIVISOR = 3;
+const OPEN_COST_TOTAL_DEFAULT = 200;
+const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R_LOW = 3;
 const REF_TAKE_PROFIT_R_HIGH = 5;
@@ -158,21 +163,26 @@ function getTimeframeLabel(mode) {
   return TIMEFRAME_LABELS[value] || value;
 }
 
-function getOpenCost() {
-  const activeBtn = document.querySelector('.cost-switch__btn.is-active');
+function getTradeMode() {
+  const activeBtn = document.querySelector('.mode-switch .cost-switch__btn.is-active');
+  return activeBtn?.getAttribute('data-mode') || TRADE_MODE_NORMAL;
+}
+
+function isReverseTradeMode(mode = getTradeMode()) {
+  return mode === TRADE_MODE_REVERSE;
+}
+
+function getOpenCostTotal() {
+  const activeBtn = document.querySelector('#cost-switch .cost-switch__btn.is-active');
   if (!activeBtn) return null;
   const n = toNumber(activeBtn.getAttribute('data-cost'));
   return n !== null && n > 0 ? n : null;
 }
 
-const OPEN_COST_TRIPLE_MULTIPLIER = 3;
-
-function updateOpenCostNote() {
-  const labelEl = document.getElementById('open-cost-label');
-  if (!labelEl) return;
-  const openCost = getOpenCost();
-  const tripleCost = openCost == null ? '—' : openCost * OPEN_COST_TRIPLE_MULTIPLIER;
-  labelEl.textContent = `开仓成本（${tripleCost}）`;
+function getOpenCost() {
+  const total = getOpenCostTotal();
+  if (total == null) return null;
+  return total / OPEN_COST_TIER_DIVISOR;
 }
 
 const SUPABASE_URL = 'https://rxggjijrfafcrmtkqkuv.supabase.co';
@@ -188,8 +198,13 @@ const OBS_GRADE_OPTIONS = ['优质', '普通', '观测中'];
 const OBS_DEFAULT_GRADE = '普通';
 const STRATEGY_GRADE_PREMIUM = '优质';
 const STRATEGY_GRADE_NORMAL = '普通';
-function getStrategyGradeFromOpenCost(openCost) {
-  return Number(openCost) === 150 ? STRATEGY_GRADE_PREMIUM : STRATEGY_GRADE_NORMAL;
+function getStrategyGradeFromOpenCost(openCost, openCostTotal) {
+  const total = openCostTotal != null
+    ? Number(openCostTotal)
+    : Math.round(Number(openCost) * OPEN_COST_TIER_DIVISOR);
+  if (OPEN_COST_TOTAL_PREMIUM_LEVELS.includes(total)) return STRATEGY_GRADE_PREMIUM;
+  if (Number(openCost) === 150) return STRATEGY_GRADE_PREMIUM;
+  return STRATEGY_GRADE_NORMAL;
 }
 
 function normalizeStrategyGrade(grade) {
@@ -245,6 +260,14 @@ const METHODOLOGY_SECTIONS = [
       '4小时为主。1小时和1天维度为辅。多维度兼容思维分析行情。',
       '等待就是最快的前行。',
       '让利润飞腾，无需太大的仓位。关键是时间和空间。',
+    ],
+  },
+  {
+    title: '13、基本定律',
+    items: [
+      '博弈中盈亏比与确定性互斥。盈亏比高的情况往往是还没走向确定，等确定性很高了往往也没有多少盈亏比。',
+      '做多赢得多，做空盈利快。',
+      '盈亏同源。',
     ],
   },
 ];
@@ -561,7 +584,7 @@ function toDbRecord(record) {
     take_profit_price: toNumber(record.takeProfitPrice),
     stop_loss_price: toNumber(record.stopLossPrice),
     open_cost: Number(record.openCost),
-    grade: normalizeStrategyGrade(record.grade ?? getStrategyGradeFromOpenCost(record.openCost)),
+    grade: normalizeStrategyGrade(record.grade ?? getStrategyGradeFromOpenCost(record.openCost, record.openCostTotal)),
     price_adjustment_rate: Number(record.priceAdjustmentRate),
     price_adjustment: toNumber(record.priceAdjustment),
     concessions: hasConcessions(record.concessions)
@@ -892,12 +915,13 @@ function calcAdjustedOpenPrice(open, stop, decimalPlaces) {
   return Number(formatFixedDecimals(open, decimalPlaces));
 }
 
-/** 让利价：在开仓价基础上，沿远离止损方向移动 rate×|价格-止损|（开多上调、开空下调） */
-function calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces) {
+/** 让利价：正常模式沿远离止损方向移动；反向模式沿靠近止损方向移动 */
+function calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces, reverse = false) {
   const stopDiff = Math.abs(entryPrice - stopLoss);
   if (!(stopDiff > 0) || !Number.isFinite(rate) || rate < 0) return null;
   const awayFromStop = entryPrice > stopLoss ? 1 : -1;
-  const price = entryPrice + awayFromStop * rate * stopDiff;
+  const direction = reverse ? -awayFromStop : awayFromStop;
+  const price = entryPrice + direction * rate * stopDiff;
   return Number(formatFixedDecimals(price, decimalPlaces));
 }
 
@@ -916,10 +940,10 @@ function getDisplayConcessionItems(items) {
   return items.filter((item) => Number(item.rate) !== 0);
 }
 
-function buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rates = CONCESSION_RATES) {
+function buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rates = CONCESSION_RATES, reverse = false) {
   const items = [];
   for (const rate of rates) {
-    const price = calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces);
+    const price = calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces, reverse);
     const qty = price == null ? null : calcQuantityByRisk(openCost, price, stopLoss);
     if (price == null || qty == null) continue;
     items.push({
@@ -1036,13 +1060,14 @@ function getStartDateTime(startValue) {
   return startAt;
 }
 
-function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces) {
+function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces, tradeMode = getTradeMode()) {
   const timeframe = getTimeframeMode();
   const unitMin = getTimeframeMinutes(timeframe);
   const spanMinutes = unitMin * STRATEGY_DURATION_PERIODS;
+  const reverse = isReverseTradeMode(tradeMode);
   const adjustedOpen = calcAdjustedOpenPrice(open, stop, priceDecimalPlaces);
   const quantity = calcQuantityByRisk(openCost, adjustedOpen, stop);
-  const primaryConcessionalPrice = calcConcessionalEntryPrice(adjustedOpen, stop, PRICE_ADJUSTMENT_RATE, priceDecimalPlaces);
+  const primaryConcessionalPrice = calcConcessionalEntryPrice(adjustedOpen, stop, PRICE_ADJUSTMENT_RATE, priceDecimalPlaces, reverse);
   const priceAdjustment = primaryConcessionalPrice == null ? 0 : Math.abs(adjustedOpen - primaryConcessionalPrice);
   const tp = calcTakeProfit(adjustedOpen, stop, TAKE_PROFIT_R_MULTIPLE);
   const tpDecimals = Math.max(0, priceDecimalPlaces);
@@ -1062,7 +1087,7 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
   const tpLabel = formatTrimmedFixedDecimals(tp, tpDecimals);
   const stopLabel = formatPrice(stop);
   const refTakeProfitLabel = buildReferenceTakeProfitLabel(adjustedOpen, stop, priceDecimalPlaces);
-  const concessionItems = buildConcessionItems(adjustedOpen, stop, openCost, priceDecimalPlaces);
+  const concessionItems = buildConcessionItems(adjustedOpen, stop, openCost, priceDecimalPlaces, CONCESSION_RATES, reverse);
   const baselineItem = concessionItems.find((item) => Number(item.rate) === 0);
   const qty = baselineItem?.quantity ?? formatQuantity(quantity);
 
@@ -1099,7 +1124,9 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
     takeProfitPrice: tpLabel,
     stopLossPrice: stopLabel,
     openCost,
-    grade: getStrategyGradeFromOpenCost(openCost),
+    openCostTotal: getOpenCostTotal(),
+    tradeMode,
+    grade: getStrategyGradeFromOpenCost(openCost, getOpenCostTotal()),
     priceAdjustmentRate: PRICE_ADJUSTMENT_RATE,
     priceAdjustment: formatTrimmedFixedDecimals(priceAdjustment, priceDecimalPlaces),
     concessions: concessionItems,
@@ -1181,7 +1208,8 @@ function generate() {
     clearStrategyState();
     return;
   }
-  const strategy = buildStrategy(open, stop, startTime, startTimeLabel, openCost, priceDecimals);
+  const tradeMode = getTradeMode();
+  const strategy = buildStrategy(open, stop, startTime, startTimeLabel, openCost, priceDecimals, tradeMode);
   setStrategyState(strategy);
   logSave('info', '策略已生成，可保存', {
     strategyName: strategy.record?.strategyName,
@@ -1208,8 +1236,22 @@ const openInput = document.getElementById('open-price-input');
 const stopInput = document.getElementById('stop-price-input');
 const startTimeSelect = document.getElementById('start-time');
 
+// 模式切换
+const modeBtns = document.querySelectorAll('.mode-switch .cost-switch__btn');
+modeBtns.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    modeBtns.forEach((b) => {
+      b.classList.remove('is-active');
+      b.setAttribute('aria-selected', 'false');
+    });
+    btn.classList.add('is-active');
+    btn.setAttribute('aria-selected', 'true');
+    autoGenerateIfReady();
+  });
+});
+
 // 开仓成本按钮切换
-const costBtns = document.querySelectorAll('.cost-switch__btn');
+const costBtns = document.querySelectorAll('#cost-switch .cost-switch__btn');
 costBtns.forEach((btn) => {
   btn.addEventListener('click', () => {
     costBtns.forEach((b) => {
@@ -1218,12 +1260,9 @@ costBtns.forEach((btn) => {
     });
     btn.classList.add('is-active');
     btn.setAttribute('aria-selected', 'true');
-    updateOpenCostNote();
     autoGenerateIfReady();
   });
 });
-
-updateOpenCostNote();
 
 function onEnter(e) {
   if (e.key === 'Enter') generate();
@@ -1270,14 +1309,20 @@ function resetFrontPage() {
   rebuildStartTimeOptions();
   if (openInput) openInput.value = '';
   if (stopInput) stopInput.value = '';
-  // 重置开仓成本为默认值66
-  const costBtns = document.querySelectorAll('.cost-switch__btn');
-  costBtns.forEach((btn) => {
-    const isDefault = btn.getAttribute('data-cost') === '66';
+  // 重置模式为正常
+  const modeBtns = document.querySelectorAll('.mode-switch .cost-switch__btn');
+  modeBtns.forEach((btn) => {
+    const isDefault = btn.getAttribute('data-mode') === TRADE_MODE_NORMAL;
     btn.classList.toggle('is-active', isDefault);
     btn.setAttribute('aria-selected', isDefault ? 'true' : 'false');
   });
-  updateOpenCostNote();
+  // 重置开仓成本为默认值200
+  const costBtns = document.querySelectorAll('#cost-switch .cost-switch__btn');
+  costBtns.forEach((btn) => {
+    const isDefault = btn.getAttribute('data-cost') === String(OPEN_COST_TOTAL_DEFAULT);
+    btn.classList.toggle('is-active', isDefault);
+    btn.setAttribute('aria-selected', isDefault ? 'true' : 'false');
+  });
   if (nameInput) nameInput.value = '';
   const errEl = document.getElementById('error');
   if (errEl) errEl.textContent = '';
