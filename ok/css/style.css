@@ -1063,6 +1063,28 @@ body.login-mode {
   box-shadow: 0 1px 3px rgba(22, 101, 52, 0.14), 0 0 0 1px var(--border);
 }
 
+.mode-switch .cost-switch__btn.is-active[data-mode="reverse"] {
+  color: var(--short);
+  box-shadow: 0 1px 3px rgba(225, 29, 72, 0.16), 0 0 0 1px #fecaca;
+}
+
+.mode-switch .cost-switch__btn[data-mode="reverse"]:hover:not(.is-active) {
+  color: #be123c;
+}
+
+.mode-switch .cost-switch__btn[data-mode="reverse"]:focus-visible {
+  outline-color: rgba(225, 29, 72, 0.55);
+}
+
+#front-page.is-reverse-mode .field-input {
+  caret-color: var(--short);
+}
+
+#front-page.is-reverse-mode .mode-switch {
+  border-color: #fecaca;
+  background: rgba(255, 241, 242, 0.95);
+}
+
 .tabs {
   display: flex;
   gap: 3px;
@@ -2680,14 +2702,14 @@ body.login-mode {
 }
 
 .obs-template {
+  --obs-grade-r: 6px;
   display: flex;
   flex-direction: column;
   gap: 0;
 }
 
 .obs-template__row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px;
+  display: flex;
   align-items: center;
   gap: 10px;
   padding: 7px 0;
@@ -2709,15 +2731,32 @@ body.login-mode {
   letter-spacing: 0.2px;
 }
 
+.obs-template__head > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.obs-template__head > span:last-child {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-right: calc(var(--obs-grade-r) + 8px);
+  text-align: right;
+}
+
 .obs-template__name {
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 14px;
   font-weight: 700;
   color: var(--text);
   line-height: 1.35;
+  text-transform: lowercase;
 }
 
 .obs-grade {
-  justify-self: end;
+  flex-shrink: 0;
+  margin-left: auto;
+  margin-right: var(--obs-grade-r);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2814,6 +2853,13 @@ body.login-mode {
   font-size: 12px;
   font-weight: 700;
   color: var(--muted);
+  --obs-grade-r: 6px;
+}
+
+.obs-form-list__head > span:nth-child(2) {
+  justify-self: end;
+  text-align: right;
+  padding-right: calc(var(--obs-grade-r) + 8px);
 }
 
 .obs-form-list {
@@ -2870,8 +2916,10 @@ body.login-mode {
   font: inherit;
   font-size: 13px;
   font-weight: 600;
-  padding: 0 8px;
+  padding: 0 calc(8px + 6px) 0 8px;
   outline: none;
+  text-align: right;
+  text-align-last: right;
   -webkit-appearance: none;
   appearance: none;
 }
@@ -2976,7 +3024,7 @@ body.login-mode {
 
   .obs-form-row__grade {
     font-size: 12px;
-    padding: 0 6px;
+    padding: 0 calc(6px + 4px) 0 6px;
   }
 
   .obs-form-row__remove {
@@ -2998,7 +3046,6 @@ body.login-mode {
   }
 
   .obs-template__row {
-    grid-template-columns: minmax(0, 1fr) 68px;
     gap: 8px;
     padding: 6px 0;
   }
@@ -3011,6 +3058,11 @@ body.login-mode {
     min-width: 48px;
     padding: 2px 6px;
     font-size: 10px;
+    margin-right: 4px;
+  }
+
+  .obs-template__head > span:last-child {
+    padding-right: calc(4px + 6px);
   }
 }
 

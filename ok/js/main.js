@@ -172,6 +172,11 @@ function isReverseTradeMode(mode = getTradeMode()) {
   return mode === TRADE_MODE_REVERSE;
 }
 
+function updateTradeModeAppearance() {
+  const frontPage = document.getElementById('front-page');
+  if (frontPage) frontPage.classList.toggle('is-reverse-mode', isReverseTradeMode());
+}
+
 function getOpenCostTotal() {
   const activeBtn = document.querySelector('#cost-switch .cost-switch__btn.is-active');
   if (!activeBtn) return null;
@@ -1246,6 +1251,7 @@ modeBtns.forEach((btn) => {
     });
     btn.classList.add('is-active');
     btn.setAttribute('aria-selected', 'true');
+    updateTradeModeAppearance();
     autoGenerateIfReady();
   });
 });
@@ -1316,6 +1322,7 @@ function resetFrontPage() {
     btn.classList.toggle('is-active', isDefault);
     btn.setAttribute('aria-selected', isDefault ? 'true' : 'false');
   });
+  updateTradeModeAppearance();
   // 重置开仓成本为默认值200
   const costBtns = document.querySelectorAll('#cost-switch .cost-switch__btn');
   costBtns.forEach((btn) => {
@@ -1607,7 +1614,6 @@ const DEFAULT_ADMIN_TIME_FILTER = 'active';
 
 let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
 let adminNameSearch = '';
-let adminSearchTimer = null;
 
 function normalizeAdminFilter(value, labels, fallback = 'all') {
   return Object.prototype.hasOwnProperty.call(labels, value) ? value : fallback;
@@ -1636,16 +1642,10 @@ function renderAdminTabGroup(tabsEl, labels, activeValue, dataAttr) {
 
 function renderAdminControls() {
   renderAdminFilterTabs();
-  const searchEl = document.getElementById('admin-name-search');
-  if (searchEl && searchEl.value !== adminNameSearch) searchEl.value = adminNameSearch;
 }
 
 function resetAdminPageState() {
   closeOutcomeStatusPicker();
-  if (adminSearchTimer) {
-    clearTimeout(adminSearchTimer);
-    adminSearchTimer = null;
-  }
   adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
   adminNameSearch = '';
   isAdminSelectionMode = false;
@@ -1654,14 +1654,6 @@ function resetAdminPageState() {
   isDeletingStrategies = false;
   renderAdminControls();
   updateAdminSelectionControls();
-}
-
-function scheduleRenderAdminList(delay = 250) {
-  if (adminSearchTimer) clearTimeout(adminSearchTimer);
-  adminSearchTimer = setTimeout(() => {
-    adminSearchTimer = null;
-    renderAdminList().catch(() => {});
-  }, delay);
 }
 
 let selectedStrategyIds = new Set();
@@ -3000,14 +2992,6 @@ if (adminFilterTabsEl) {
     if (adminTimeFilter === nextFilter) return;
     adminTimeFilter = nextFilter;
     renderAdminList().catch(() => {});
-  });
-}
-
-const adminNameSearchEl = document.getElementById('admin-name-search');
-if (adminNameSearchEl) {
-  adminNameSearchEl.addEventListener('input', () => {
-    adminNameSearch = normalizeAdminNameSearch(adminNameSearchEl.value);
-    scheduleRenderAdminList();
   });
 }
 
