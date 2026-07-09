@@ -3139,12 +3139,8 @@ async function handleAdminTierSwitch(id, nextTierCount) {
   setAdminTierUpdateLoading(true);
   try {
     await updateStrategyTier(id, nextTierCount);
-    showToast(`已切换至${nextTierCount}档`);
     await renderAdminList();
-  } catch (err) {
-    if (typeof window.alert === 'function') {
-      window.alert(`切换档位失败：${String(err?.message || '请检查网络或 Supabase 权限。')}`);
-    }
+  } catch {
   } finally {
     setAdminTierUpdateLoading(false);
   }
