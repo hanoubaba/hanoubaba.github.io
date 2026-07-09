@@ -139,10 +139,13 @@ const TIMEFRAME_LABELS = {
 };
 
 const PRICE_ADJUSTMENT_RATE = 0.2;
-const CONCESSION_RATES = [0, 0.2, 0.5, 0.8];
+const CONCESSION_RATES_BY_TIER = {
+  3: [0, 0.2, 0.5, 0.8],
+  5: [0, 0.2, 0.4, 0.6, 0.8, 1],
+};
+const DEFAULT_TIER_COUNT = 3;
 const TRADE_MODE_NORMAL = 'normal';
 const TRADE_MODE_REVERSE = 'reverse';
-const OPEN_COST_TIER_DIVISOR = 3;
 const OPEN_COST_TOTAL_DEFAULT = 200;
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
@@ -184,10 +187,81 @@ function getOpenCostTotal() {
   return n !== null && n > 0 ? n : null;
 }
 
+function getConcessionRates(tierCount = DEFAULT_TIER_COUNT) {
+  return CONCESSION_RATES_BY_TIER[tierCount] ?? CONCESSION_RATES_BY_TIER[DEFAULT_TIER_COUNT];
+}
+
 function getOpenCost() {
   const total = getOpenCostTotal();
   if (total == null) return null;
-  return total / OPEN_COST_TIER_DIVISOR;
+  return total / DEFAULT_TIER_COUNT;
+}
+
+function getTierCountFromConcessions(concessions) {
+  const count = getDisplayConcessionItems(concessions).length;
+  return CONCESSION_RATES_BY_TIER[count] ? count : DEFAULT_TIER_COUNT;
+}
+
+function getTierCountFromRow(row) {
+  if (hasConcessions(row?.concessions)) return getTierCountFromConcessions(row.concessions);
+  return DEFAULT_TIER_COUNT;
+}
+
+function getAlternateTierCount(tierCount) {
+  return tierCount === 5 ? 3 : 5;
+}
+
+function getOpenCostTotalFromRow(row) {
+  const tierCount = getTierCountFromRow(row);
+  const openCost = toNumber(row?.openCost);
+  if (openCost != null && openCost > 0) return openCost * tierCount;
+  return null;
+}
+
+function inferReverseFromConcessions(entryPrice, stopLoss, concessions, decimalPlaces) {
+  const displayItems = getDisplayConcessionItems(concessions);
+  if (!displayItems.length) return false;
+  const first = displayItems[0];
+  const entry = toNumber(entryPrice);
+  const stop = toNumber(stopLoss);
+  const rate = Number(first.rate);
+  if (entry == null || stop == null || !Number.isFinite(rate)) return false;
+  const savedPrice = String(first.price ?? '').trim();
+  const normalPrice = calcConcessionalEntryPrice(entry, stop, rate, decimalPlaces, false);
+  const reversePrice = calcConcessionalEntryPrice(entry, stop, rate, decimalPlaces, true);
+  const normalLabel = normalPrice == null ? '' : formatTrimmedFixedDecimals(normalPrice, decimalPlaces);
+  const reverseLabel = reversePrice == null ? '' : formatTrimmedFixedDecimals(reversePrice, decimalPlaces);
+  if (savedPrice && savedPrice === reverseLabel && savedPrice !== normalLabel) return true;
+  return false;
+}
+
+function rebuildStrategyForTier(row, newTierCount) {
+  const entryPrice = toNumber(row?.entryPrice);
+  const stopLoss = toNumber(row?.stopLossPrice);
+  const openCostTotal = getOpenCostTotalFromRow(row);
+  if (entryPrice == null || stopLoss == null || !(openCostTotal > 0)) return null;
+  if (!CONCESSION_RATES_BY_TIER[newTierCount]) return null;
+
+  const decimalPlaces = getPriceDecimalPlacesFromValues(
+    row?.entryPrice,
+    row?.stopLossPrice,
+    row?.inputPrice,
+    row?.inputStopLoss,
+  );
+  const currentConcessions = buildAdminConcessionsForRow(row);
+  const reverse = inferReverseFromConcessions(entryPrice, stopLoss, currentConcessions, decimalPlaces);
+  const newOpenCost = openCostTotal / newTierCount;
+  const rates = getConcessionRates(newTierCount);
+  const concessions = buildConcessionItems(entryPrice, stopLoss, newOpenCost, decimalPlaces, rates, reverse);
+  const baselineItem = concessions.find((item) => Number(item.rate) === 0);
+  const quantity = toNumber(baselineItem?.quantity);
+  if (quantity == null || !(quantity > 0)) return null;
+
+  return {
+    open_cost: newOpenCost,
+    quantity,
+    concessions: normalizeConcessions(concessions),
+  };
 }
 
 const SUPABASE_URL = 'https://rxggjijrfafcrmtkqkuv.supabase.co';
@@ -203,10 +277,10 @@ const OBS_GRADE_OPTIONS = ['优质', '普通', '观测中'];
 const OBS_DEFAULT_GRADE = '普通';
 const STRATEGY_GRADE_PREMIUM = '优质';
 const STRATEGY_GRADE_NORMAL = '普通';
-function getStrategyGradeFromOpenCost(openCost, openCostTotal) {
+function getStrategyGradeFromOpenCost(openCost, openCostTotal, tierCount = DEFAULT_TIER_COUNT) {
   const total = openCostTotal != null
     ? Number(openCostTotal)
-    : Math.round(Number(openCost) * OPEN_COST_TIER_DIVISOR);
+    : Math.round(Number(openCost) * tierCount);
   if (OPEN_COST_TOTAL_PREMIUM_LEVELS.includes(total)) return STRATEGY_GRADE_PREMIUM;
   if (Number(openCost) === 150) return STRATEGY_GRADE_PREMIUM;
   return STRATEGY_GRADE_NORMAL;
@@ -945,7 +1019,7 @@ function getDisplayConcessionItems(items) {
   return items.filter((item) => Number(item.rate) !== 0);
 }
 
-function buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rates = CONCESSION_RATES, reverse = false) {
+function buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rates = getConcessionRates(), reverse = false) {
   const items = [];
   for (const rate of rates) {
     const price = calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces, reverse);
@@ -1092,7 +1166,8 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
   const tpLabel = formatTrimmedFixedDecimals(tp, tpDecimals);
   const stopLabel = formatPrice(stop);
   const refTakeProfitLabel = buildReferenceTakeProfitLabel(adjustedOpen, stop, priceDecimalPlaces);
-  const concessionItems = buildConcessionItems(adjustedOpen, stop, openCost, priceDecimalPlaces, CONCESSION_RATES, reverse);
+  const concessionRates = getConcessionRates(DEFAULT_TIER_COUNT);
+  const concessionItems = buildConcessionItems(adjustedOpen, stop, openCost, priceDecimalPlaces, concessionRates, reverse);
   const baselineItem = concessionItems.find((item) => Number(item.rate) === 0);
   const qty = baselineItem?.quantity ?? formatQuantity(quantity);
 
@@ -1130,8 +1205,9 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
     stopLossPrice: stopLabel,
     openCost,
     openCostTotal: getOpenCostTotal(),
+    tierCount: DEFAULT_TIER_COUNT,
     tradeMode,
-    grade: getStrategyGradeFromOpenCost(openCost, getOpenCostTotal()),
+    grade: getStrategyGradeFromOpenCost(openCost, getOpenCostTotal(), DEFAULT_TIER_COUNT),
     priceAdjustmentRate: PRICE_ADJUSTMENT_RATE,
     priceAdjustment: formatTrimmedFixedDecimals(priceAdjustment, priceDecimalPlaces),
     concessions: concessionItems,
@@ -1531,6 +1607,21 @@ async function updateStrategyOutcomeStatus(id, outcomeStatus, remark) {
   if (!res.ok) throw new Error(await res.text());
 }
 
+async function updateStrategyTier(id, tierCount) {
+  const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === String(id ?? '').trim());
+  if (!row) throw new Error('未找到策略记录');
+  const payload = rebuildStrategyForTier(row, tierCount);
+  if (!payload) throw new Error('无法计算档位数据');
+
+  const encodedId = encodeURIComponent(id);
+  const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
+    method: 'PATCH',
+    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
 function getTimeBadgeInfo(endAt, now = new Date()) {
   if (!endAt) return null;
   if (getTimeRangeStatusByEndAt(endAt) === 'ended') return null;
@@ -1658,8 +1749,10 @@ function resetAdminPageState() {
 
 let selectedStrategyIds = new Set();
 let isDeletingStrategies = false;
+let isUpdatingStrategyTier = false;
 let isAdminSelectionMode = false;
 let visibleAdminStrategyIds = [];
+let latestAdminRows = [];
 
 function getVisibleAdminStrategyIds() {
   const domIds = Array.from(document.querySelectorAll('#admin-list .admin-item__select'))
@@ -1754,7 +1847,20 @@ function setAdminDeleteLoading(loading) {
   document.querySelectorAll('.admin-item__selector').forEach((el) => {
     el.classList.toggle('is-disabled', loading);
   });
+  setAdminTierSwitchDisabled(loading || isUpdatingStrategyTier);
   updateAdminSelectionControls();
+}
+
+function setAdminTierSwitchDisabled(disabled) {
+  document.querySelectorAll('.admin-tier-switch').forEach((el) => {
+    el.disabled = disabled;
+    el.setAttribute('aria-busy', disabled ? 'true' : 'false');
+  });
+}
+
+function setAdminTierUpdateLoading(loading) {
+  isUpdatingStrategyTier = loading;
+  setAdminTierSwitchDisabled(loading || isDeletingStrategies || isAdminSelectionMode);
 }
 
 function setVisibleAdminSelection(selected) {
@@ -1919,11 +2025,13 @@ async function renderAdminList() {
   } catch (err) {
     selectedStrategyIds.clear();
     visibleAdminStrategyIds = [];
+    latestAdminRows = [];
     listEl.innerHTML = `<div class="admin-sync-error">${escapeHtml(String(err?.message || '同步失败'))}</div>`;
     updateAdminSelectionControls();
     return;
   }
   syncAdminSelectionWithRows(rows);
+  latestAdminRows = rows;
 
   if (!rows.length) {
     listEl.innerHTML = '';
@@ -1996,7 +2104,17 @@ async function renderAdminList() {
         `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
         '</div>',
       ].join('');
-    const buttonsHtml = `<div class="admin-item__buttons">${outcomeStatusHtml}</div>`;
+    const tierCount = getTierCountFromRow(row);
+    const nextTierCount = getAlternateTierCount(tierCount);
+    const tierSwitchDisabled = isDeletingStrategies || isUpdatingStrategyTier || isAdminSelectionMode;
+    const tierSwitchHtml = id
+      ? [
+        `<button type="button" class="admin-tier-switch" data-id="${id}" data-tier-count="${tierCount}" data-next-tier-count="${nextTierCount}" aria-label="切换档位，当前${tierCount}档，点击切换至${nextTierCount}档"${tierSwitchDisabled ? ' disabled' : ''}>`,
+        `<span class="admin-tier-switch__tag">${tierCount}档</span>`,
+        '</button>',
+      ].join('')
+      : '';
+    const buttonsHtml = `<div class="admin-item__buttons">${tierSwitchHtml}${outcomeStatusHtml}</div>`;
     return [
       `<article class="admin-item admin-item--${sideMod}">`,
       remarkStampHtml,
@@ -3014,6 +3132,22 @@ if (adminSelectionEl) {
   });
 }
 
+async function handleAdminTierSwitch(id, nextTierCount) {
+  if (!id || isUpdatingStrategyTier || isDeletingStrategies || isAdminSelectionMode) return;
+  setAdminTierUpdateLoading(true);
+  try {
+    await updateStrategyTier(id, nextTierCount);
+    showToast(`已切换至${nextTierCount}档`);
+    await renderAdminList();
+  } catch (err) {
+    if (typeof window.alert === 'function') {
+      window.alert(`切换档位失败：${String(err?.message || '请检查网络或 Supabase 权限。')}`);
+    }
+  } finally {
+    setAdminTierUpdateLoading(false);
+  }
+}
+
 const adminListEl = document.getElementById('admin-list');
 if (adminListEl) {
   adminListEl.addEventListener('change', (e) => {
@@ -3029,6 +3163,16 @@ if (adminListEl) {
   adminListEl.addEventListener('click', async (e) => {
     const target = e.target instanceof HTMLElement ? e.target : null;
     if (!target) return;
+
+    const tierSwitchBtn = target.closest('.admin-tier-switch');
+    if (tierSwitchBtn) {
+      const id = String(tierSwitchBtn.getAttribute('data-id') ?? '').trim();
+      const nextTierCount = Number(tierSwitchBtn.getAttribute('data-next-tier-count'));
+      if (id && CONCESSION_RATES_BY_TIER[nextTierCount]) {
+        await handleAdminTierSwitch(id, nextTierCount);
+      }
+      return;
+    }
 
     const outcomeStatusActionBtn = target.closest('.admin-outcome-status--actionable');
     if (outcomeStatusActionBtn) {
