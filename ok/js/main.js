@@ -1034,8 +1034,9 @@ function buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rat
   return items;
 }
 
-function renderConcessionsHtml({ prefix, items, stopLabel, wrapperClass }) {
-  const displayItems = getDisplayConcessionItems(items);
+function renderConcessionsHtml({ prefix, items, stopLabel, wrapperClass, reverseOrder = false }) {
+  let displayItems = getDisplayConcessionItems(items);
+  if (reverseOrder) displayItems = displayItems.slice().reverse();
   if (!displayItems.length) return '';
   const stop = escapeHtml(String(stopLabel ?? '').trim() || '—');
   const rowClass = `${prefix}-concession`;
@@ -1115,6 +1116,7 @@ function renderAdminConcessionsHtml(concessions, stopLabel) {
     items: concessions,
     stopLabel,
     wrapperClass: 'admin-item__concessions',
+    reverseOrder: true,
   });
 }
 
