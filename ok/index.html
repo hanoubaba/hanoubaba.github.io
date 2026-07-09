@@ -6,39 +6,57 @@
   <title>无限拟合模型</title>
   <link rel="stylesheet" href="./css/style.css" />
 </head>
-<body>
-  <main class="container">
+<body class="login-mode">
+  <section id="login-page" class="login-page" aria-label="登录">
+    <div class="login-card">
+      <h2 class="login-card__title">无限拟合模型</h2>
+      <p class="login-card__desc">请输入账号和密码</p>
+      <form id="login-form" class="login-form">
+        <label class="login-field">
+          <span class="login-field__label">账号</span>
+          <input id="login-account" class="login-field__input" type="text" name="account" autocomplete="username" autocapitalize="none" spellcheck="false" required />
+        </label>
+        <label class="login-field">
+          <span class="login-field__label">密码</span>
+          <input id="login-password" class="login-field__input" type="password" name="password" autocomplete="current-password" enterkeyhint="go" required />
+        </label>
+        <p id="login-error" class="login-error" role="alert" aria-live="polite"></p>
+        <button id="login-submit" type="submit" class="login-submit">登录</button>
+      </form>
+    </div>
+  </section>
+
+  <main id="app-root" class="container" hidden>
     <header class="header">
       <div class="header-bar">
         <button id="btn-clear" type="button" class="header-action" hidden>清空</button>
         <h1 class="title"></h1>
-        <div class="page-switch" role="tablist" aria-label="页面切换">
+        <div class="header-actions">
+          <div class="page-switch" role="tablist" aria-label="页面切换">
           <button id="btn-tab-front" type="button" class="page-switch__btn" role="tab" aria-selected="false">前台</button>
           <button id="btn-tab-admin" type="button" class="page-switch__btn is-active" role="tab" aria-selected="true">后台管理</button>
-          <button id="btn-tab-stats" type="button" class="page-switch__btn" role="tab" aria-selected="false">数据统计</button>
+          <button id="btn-tab-observations" type="button" class="page-switch__btn" role="tab" aria-selected="false">观测日志</button>
+          </div>
         </div>
       </div>
     </header>
 
     <section id="front-page" hidden>
     <section class="panel" aria-label="参数输入">
-      <label class="field">
-        <span class="field-label">价格</span>
-        <input id="open-price-input" class="field-input" inputmode="decimal" autocomplete="off" />
-      </label>
-
-      <label class="field field--spaced">
-        <span class="field-label">止损</span>
-        <input id="stop-price-input" class="field-input" inputmode="decimal" autocomplete="off" />
-      </label>
+      <div class="field">
+        <span class="field-label">模式</span>
+        <div class="cost-switch mode-switch" role="tablist" aria-label="模式选择">
+          <button id="mode-normal" type="button" class="cost-switch__btn is-active" role="tab" aria-selected="true" data-mode="normal">正常模式</button>
+          <button id="mode-reverse" type="button" class="cost-switch__btn" role="tab" aria-selected="false" data-mode="reverse">反向模式</button>
+        </div>
+      </div>
 
       <div class="field field--spaced">
-        <span class="field-label">开仓成本</span>
-        <div class="cost-switch" role="tablist" aria-label="开仓成本选择">
-          <button id="cost-66" type="button" class="cost-switch__btn is-active" role="tab" aria-selected="true" data-cost="66">66</button>
-          <button id="cost-150" type="button" class="cost-switch__btn" role="tab" aria-selected="false" data-cost="150">150</button>
+        <span class="field-label" id="open-cost-label" aria-live="polite">开仓成本</span>
+        <div id="cost-switch" class="cost-switch" role="tablist" aria-label="开仓成本选择">
+          <button id="cost-200" type="button" class="cost-switch__btn is-active" role="tab" aria-selected="true" data-cost="200">200（普通）</button>
           <button id="cost-500" type="button" class="cost-switch__btn" role="tab" aria-selected="false" data-cost="500">500</button>
-          <button id="cost-1500" type="button" class="cost-switch__btn" role="tab" aria-selected="false" data-cost="1500">1500</button>
+          <button id="cost-1000" type="button" class="cost-switch__btn" role="tab" aria-selected="false" data-cost="1000">1000</button>
         </div>
       </div>
 
@@ -51,37 +69,31 @@
       </div>
 
       <label class="field field--spaced">
-        <span class="field-label">名称（选填）</span>
+        <span class="field-label">名称</span>
         <input id="name-input" class="field-input" autocomplete="off" />
+      </label>
+
+      <label class="field field--spaced">
+        <span class="field-label">价格</span>
+        <input id="open-price-input" class="field-input" inputmode="decimal" autocomplete="off" />
+      </label>
+
+      <label class="field field--spaced">
+        <span class="field-label">止损</span>
+        <input id="stop-price-input" class="field-input" inputmode="decimal" autocomplete="off" />
       </label>
 
       <p id="error" class="error" role="alert" aria-live="polite"></p>
     </section>
-
-    <section class="panel" aria-label="策略输出">
-      <div class="field">
-        <div class="field-heading">
-          <span class="field-label">策略内容</span>
-          <div class="copy-actions">
-            <button id="btn-copy-qty" type="button" class="btn-copy-strategy" aria-label="复制数量">复制数量</button>
-            <button id="btn-copy-strategy" type="button" class="btn-copy-strategy" aria-label="保存策略">保存</button>
-          </div>
-        </div>
-        <pre id="strategy-output" class="strategy-output" aria-live="polite"></pre>
-      </div>
-    </section>
+    <button id="btn-copy-strategy" type="button" class="btn-save-strategy" aria-label="保存策略">保存</button>
     </section>
 
     <section id="admin-page" class="panel admin-page" aria-label="后台管理">
-      <div class="admin-controls">
-        <div class="admin-control-row">
-          <label class="admin-search">
-            <input id="admin-name-search" class="admin-search__input" type="search" autocomplete="off" placeholder="搜索名称" />
-          </label>
-          <select id="admin-timeframe-filter-select" class="admin-filter-select" aria-label="时间维度筛选"></select>
-          <select id="admin-outcome-filter-select" class="admin-filter-select" aria-label="盈利状态筛选"></select>
-        </div>
-      </div>
+      <nav class="admin-shortcuts" aria-label="快捷入口">
+        <button id="btn-tab-stats" type="button" class="admin-shortcut">数据统计</button>
+        <button id="btn-tab-methodology" type="button" class="admin-shortcut">方法论</button>
+        <button id="btn-tab-cases" type="button" class="admin-shortcut">典型案例</button>
+      </nav>
       <div id="admin-filter-tabs" class="admin-filter-tabs" role="tablist" aria-label="时间状态筛选"></div>
       <div id="admin-selection" class="admin-selection" hidden>
         <span id="admin-selection-count" class="admin-selection__count">已选 0 条</span>
@@ -103,6 +115,34 @@
         <div class="stats-loading">加载中...</div>
       </div>
     </section>
+
+    <section id="methodology-page" class="panel methodology-page" aria-label="方法论" hidden>
+      <div class="methodology-content"></div>
+    </section>
+
+    <section id="cases-page" class="panel cases-page" aria-label="典型案例" hidden>
+      <div id="cases-carousel" class="cases-carousel">
+        <div class="cases-carousel__viewport">
+          <div id="cases-track" class="cases-carousel__track"></div>
+        </div>
+      </div>
+      <p id="cases-empty" class="cases-empty" hidden>暂无案例图片。请将图片放入 cases 文件夹，按序号命名：01.jpg、02.png、03.webp …（两位序号，连续编号）。</p>
+    </section>
+
+    <section id="observations-page" class="panel obs-page" aria-label="观测记录" hidden>
+      <div id="obs-selection" class="admin-selection" hidden>
+        <span id="obs-selection-count" class="admin-selection__count">已选 0 条</span>
+        <div class="admin-selection__buttons">
+          <button id="obs-select-all" type="button" class="admin-selection__btn">全选</button>
+          <button id="obs-clear-selection" type="button" class="admin-selection__btn">取消</button>
+          <button id="obs-delete-selected" type="button" class="admin-selection__btn admin-selection__btn--danger">删除所选</button>
+        </div>
+      </div>
+      <div id="obs-list" class="obs-list" aria-live="polite"></div>
+      <div class="obs-footer">
+        <button id="obs-add-btn" type="button" class="obs-footer__btn">新增记录</button>
+      </div>
+    </section>
   </main>
 
   <div id="start-time-picker" class="time-picker" hidden>
@@ -121,28 +161,55 @@
       <div class="status-picker__grabber" aria-hidden="true"></div>
       <div class="status-picker__header">
         <h2 id="status-picker-title" class="status-picker__title">盈利状态</h2>
-        <p id="status-picker-desc" class="status-picker__desc">选择后会同步更新后台统计数据。</p>
+        <p id="status-picker-desc" class="status-picker__desc">选择状态并填写备注，点击提交后生效。</p>
       </div>
       <div class="status-picker__options">
-        <button id="status-picker-profit" type="button" class="status-picker__option status-picker__option--profit" data-outcome-status="profit">
+        <button id="status-picker-profit" type="button" class="status-picker__option status-picker__option--profit" data-outcome-status="profit" aria-pressed="false">
           <span class="status-picker__option-title">盈利</span>
           <span class="status-picker__option-note">本单已开单并盈利</span>
         </button>
-        <button id="status-picker-loss" type="button" class="status-picker__option status-picker__option--loss" data-outcome-status="loss">
+        <button id="status-picker-loss" type="button" class="status-picker__option status-picker__option--loss" data-outcome-status="loss" aria-pressed="false">
           <span class="status-picker__option-title">亏损</span>
           <span class="status-picker__option-note">本单已开单并亏损</span>
         </button>
-        <button id="status-picker-not-filled" type="button" class="status-picker__option status-picker__option--not-filled" data-outcome-status="not_filled">
+        <button id="status-picker-not-filled" type="button" class="status-picker__option status-picker__option--not-filled" data-outcome-status="not_filled" aria-pressed="false">
           <span class="status-picker__option-title">未成交</span>
           <span class="status-picker__option-note">本单未能成交</span>
         </button>
       </div>
+      <label class="status-picker__remark">
+        <span class="status-picker__remark-label">备注</span>
+        <textarea id="status-picker-remark" class="status-picker__remark-input" rows="2" placeholder="选填"></textarea>
+      </label>
       <p id="status-picker-error" class="status-picker__error" role="alert" aria-live="polite"></p>
-      <button id="status-picker-cancel" type="button" class="status-picker__cancel">取消</button>
+      <div class="status-picker__actions">
+        <button id="status-picker-cancel" type="button" class="status-picker__cancel">取消</button>
+        <button id="status-picker-submit" type="button" class="status-picker__submit">提交</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="obs-form-picker" class="status-picker obs-form-picker" hidden>
+    <div class="status-picker__backdrop" data-obs-form-dismiss="true"></div>
+    <div class="status-picker__sheet obs-form-picker__sheet" role="dialog" aria-modal="true" aria-label="新增观测记录">
+      <div class="obs-form-picker__grabber" aria-hidden="true"></div>
+      <div class="obs-form-list__head">
+        <span>名称</span>
+        <span>等级</span>
+        <span class="obs-form-list__head-spacer" aria-hidden="true"></span>
+      </div>
+      <div id="obs-form-list" class="obs-form-list"></div>
+      <button id="obs-form-add-row" type="button" class="obs-form-add-row">新增</button>
+      <p id="obs-form-error" class="status-picker__error" role="alert" aria-live="polite"></p>
+      <div class="status-picker__actions">
+        <button id="obs-form-cancel" type="button" class="status-picker__cancel">取消</button>
+        <button id="obs-form-submit" type="button" class="status-picker__submit">保存</button>
+      </div>
     </div>
   </div>
 
   <div id="app-toast" class="app-toast" role="status" aria-live="polite" hidden></div>
+  </main>
 
   <script src="./js/main.js"></script>
 </body>

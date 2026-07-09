@@ -85,6 +85,13 @@ function parseStartSlotValue(value) {
   return d;
 }
 
+function parseDateValue(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function isSameDate(a, b) {
   return a.getFullYear() === b.getFullYear()
     && a.getMonth() === b.getMonth()
@@ -131,8 +138,19 @@ const TIMEFRAME_LABELS = {
   '4h': '4小时',
 };
 
-const PRICE_ADJUSTMENT_RATE = 0;
+const PRICE_ADJUSTMENT_RATE = 0.2;
+const CONCESSION_RATES_BY_TIER = {
+  3: [0, 0.2, 0.5, 0.8],
+  5: [0, 0.2, 0.4, 0.6, 0.8, 1],
+};
+const DEFAULT_TIER_COUNT = 3;
+const TRADE_MODE_NORMAL = 'normal';
+const TRADE_MODE_REVERSE = 'reverse';
+const OPEN_COST_TOTAL_DEFAULT = 200;
+const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
+const REF_TAKE_PROFIT_R_LOW = 3;
+const REF_TAKE_PROFIT_R_HIGH = 5;
 const STRATEGY_DURATION_PERIODS = 10;
 
 function getTimeframeMode() {
@@ -148,38 +166,457 @@ function getTimeframeLabel(mode) {
   return TIMEFRAME_LABELS[value] || value;
 }
 
-function getOpenCost() {
-  const activeBtn = document.querySelector('.cost-switch__btn.is-active');
+function getTradeMode() {
+  const activeBtn = document.querySelector('.mode-switch .cost-switch__btn.is-active');
+  return activeBtn?.getAttribute('data-mode') || TRADE_MODE_NORMAL;
+}
+
+function isReverseTradeMode(mode = getTradeMode()) {
+  return mode === TRADE_MODE_REVERSE;
+}
+
+function updateTradeModeAppearance() {
+  const frontPage = document.getElementById('front-page');
+  if (frontPage) frontPage.classList.toggle('is-reverse-mode', isReverseTradeMode());
+}
+
+function getOpenCostTotal() {
+  const activeBtn = document.querySelector('#cost-switch .cost-switch__btn.is-active');
   if (!activeBtn) return null;
   const n = toNumber(activeBtn.getAttribute('data-cost'));
   return n !== null && n > 0 ? n : null;
 }
 
+function getConcessionRates(tierCount = DEFAULT_TIER_COUNT) {
+  return CONCESSION_RATES_BY_TIER[tierCount] ?? CONCESSION_RATES_BY_TIER[DEFAULT_TIER_COUNT];
+}
+
+function getOpenCost() {
+  const total = getOpenCostTotal();
+  if (total == null) return null;
+  return total / DEFAULT_TIER_COUNT;
+}
+
+function getTierCountFromConcessions(concessions) {
+  const count = getDisplayConcessionItems(concessions).length;
+  return CONCESSION_RATES_BY_TIER[count] ? count : DEFAULT_TIER_COUNT;
+}
+
+function getTierCountFromRow(row) {
+  if (hasConcessions(row?.concessions)) return getTierCountFromConcessions(row.concessions);
+  return DEFAULT_TIER_COUNT;
+}
+
+function getAlternateTierCount(tierCount) {
+  return tierCount === 5 ? 3 : 5;
+}
+
+function getOpenCostTotalFromRow(row) {
+  const tierCount = getTierCountFromRow(row);
+  const openCost = toNumber(row?.openCost);
+  if (openCost != null && openCost > 0) return openCost * tierCount;
+  return null;
+}
+
+function inferReverseFromConcessions(entryPrice, stopLoss, concessions, decimalPlaces) {
+  const displayItems = getDisplayConcessionItems(concessions);
+  if (!displayItems.length) return false;
+  const first = displayItems[0];
+  const entry = toNumber(entryPrice);
+  const stop = toNumber(stopLoss);
+  const rate = Number(first.rate);
+  if (entry == null || stop == null || !Number.isFinite(rate)) return false;
+  const savedPrice = String(first.price ?? '').trim();
+  const normalPrice = calcConcessionalEntryPrice(entry, stop, rate, decimalPlaces, false);
+  const reversePrice = calcConcessionalEntryPrice(entry, stop, rate, decimalPlaces, true);
+  const normalLabel = normalPrice == null ? '' : formatTrimmedFixedDecimals(normalPrice, decimalPlaces);
+  const reverseLabel = reversePrice == null ? '' : formatTrimmedFixedDecimals(reversePrice, decimalPlaces);
+  if (savedPrice && savedPrice === reverseLabel && savedPrice !== normalLabel) return true;
+  return false;
+}
+
+function rebuildStrategyForTier(row, newTierCount) {
+  const entryPrice = toNumber(row?.entryPrice);
+  const stopLoss = toNumber(row?.stopLossPrice);
+  const openCostTotal = getOpenCostTotalFromRow(row);
+  if (entryPrice == null || stopLoss == null || !(openCostTotal > 0)) return null;
+  if (!CONCESSION_RATES_BY_TIER[newTierCount]) return null;
+
+  const decimalPlaces = getPriceDecimalPlacesFromValues(
+    row?.entryPrice,
+    row?.stopLossPrice,
+    row?.inputPrice,
+    row?.inputStopLoss,
+  );
+  const currentConcessions = buildAdminConcessionsForRow(row);
+  const reverse = inferReverseFromConcessions(entryPrice, stopLoss, currentConcessions, decimalPlaces);
+  const newOpenCost = openCostTotal / newTierCount;
+  const rates = getConcessionRates(newTierCount);
+  const concessions = buildConcessionItems(entryPrice, stopLoss, newOpenCost, decimalPlaces, rates, reverse);
+  const baselineItem = concessions.find((item) => Number(item.rate) === 0);
+  const quantity = toNumber(baselineItem?.quantity);
+  if (quantity == null || !(quantity > 0)) return null;
+
+  return {
+    open_cost: newOpenCost,
+    quantity,
+    concessions: normalizeConcessions(concessions),
+  };
+}
+
 const SUPABASE_URL = 'https://rxggjijrfafcrmtkqkuv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_8B1PLTeHhtPou4lPt9cl6w_O2hipMVY';
+const AUTH_STORAGE_KEY = 'ok_supabase_session';
+const LOGIN_EMAIL_SUFFIX = '@ok.local';
+const AUTH_ENDPOINT = `${SUPABASE_URL}/auth/v1/token`;
 const STRATEGIES_ENDPOINT = `${SUPABASE_URL}/rest/v1/strategies`;
 const STRATEGY_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_strategy_stats`;
 const RECENT_10_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_recent_10_stats`;
+const OBSERVATIONS_ENDPOINT = `${SUPABASE_URL}/rest/v1/observation_records`;
+const OBS_GRADE_OPTIONS = ['优质', '普通', '观测中'];
+const OBS_DEFAULT_GRADE = '普通';
+const STRATEGY_GRADE_PREMIUM = '优质';
+const STRATEGY_GRADE_NORMAL = '普通';
+function getStrategyGradeFromOpenCost(openCost, openCostTotal, tierCount = DEFAULT_TIER_COUNT) {
+  const total = openCostTotal != null
+    ? Number(openCostTotal)
+    : Math.round(Number(openCost) * tierCount);
+  if (OPEN_COST_TOTAL_PREMIUM_LEVELS.includes(total)) return STRATEGY_GRADE_PREMIUM;
+  if (Number(openCost) === 150) return STRATEGY_GRADE_PREMIUM;
+  return STRATEGY_GRADE_NORMAL;
+}
+
+function normalizeStrategyGrade(grade) {
+  const raw = String(grade ?? '').trim();
+  if (raw === STRATEGY_GRADE_PREMIUM) return STRATEGY_GRADE_PREMIUM;
+  return STRATEGY_GRADE_NORMAL;
+}
+
+const OBS_FORM_DEFAULT_ROWS = 3;
+const SAVE_LOG_PREFIX = '[strategy-save]';
+const METHODOLOGY_SECTIONS = [
+  {
+    title: '1、核心理念',
+    items: ['右侧交易，趋势跟随，见好就收。', '风控第一，收益第二，策略唯一。'],
+  },
+  { title: '2、选择标准', items: ['形态上三线齐飞，交叉在同一个时间维度。', '交易量过亿。', '盈亏比', '胜率'] },
+  { title: '3、档位', paragraphs: ['三档挂单，兼顾风险和收益。'] },
+  { title: '4、仓位', paragraphs: ['3目标 x 3档位 = 9仓位'] },
+  { title: '5、平仓', items: ['时间参考：九尾和十尾', '空间参考：3倍和5倍'] },
+  {
+    title: '6、心态建设',
+    items: [
+      '遵守规则是为了全局收益更大，践踏规则最多只能赢几次无法实现最终的目标。',
+      '我的目标是星辰大海。整体战略高于单次的战术胜利。',
+      '坚持好难，但这是修正的必要代价。',
+    ],
+  },
+  {
+    title: '7、观测',
+    items: [
+      '盯盘会调动主观情绪，影响客观判断。',
+      '挂测开单列表，按照时间进行操作更佳。',
+      '8小时节点观测，全天候覆盖无遗漏。',
+    ],
+  },
+  { title: '8、无悖论', paragraphs: ['相邻时间维度趋势不冲突，有冲突不做。'] },
+  { title: '9、目标', paragraphs: ['目标35岁之前退休，计划不变。'] },
+  {
+    title: '10、理性和感性冲突的终极解法',
+    items: ['固定策略选一边覆盖。', '统一标准量化分析。', '1个单位0.5倍，超出预期可做T，预期内则坚持到底。'],
+  },
+  {
+    title: '11、让每一个操作都有意义',
+    items: ['做好开仓记录。', '做好观测日志。', '8小时定点操作。', '不做任何无效操作。'],
+  },
+  {
+    title: '12、操作手法',
+    items: [
+      '观测变为4小时，范围扩展到0.5亿交易量。',
+      '只要前三，分清主次。',
+      '风险厌恶，浮亏影响判断。时机比点位更重要。',
+      '优质股必上车。大仓位挂着，小仓位跑着，进度有度。',
+      '4小时为主。1小时和1天维度为辅。多维度兼容思维分析行情。',
+      '等待就是最快的前行。',
+      '让利润飞腾，无需太大的仓位。关键是时间和空间。',
+    ],
+  },
+  {
+    title: '13、基本定律',
+    items: [
+      '博弈中盈亏比与确定性互斥。盈亏比高的情况往往是还没走向确定，等确定性很高了往往也没有多少盈亏比。',
+      '做多赢得多，做空盈利快。',
+      '盈亏同源。',
+    ],
+  },
+];
+
+let authSession = null;
+let isLoggingIn = false;
+let isAuthReady = false;
+
+function loadAuthSession() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) {
+      authSession = null;
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    authSession = parsed && parsed.access_token ? parsed : null;
+  } catch {
+    authSession = null;
+  }
+}
+
+function saveAuthSession(session) {
+  authSession = session;
+  if (!session) {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    return;
+  }
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+}
+
+function clearAuthSession() {
+  saveAuthSession(null);
+}
+
+function isAccessTokenValid() {
+  if (!authSession?.access_token || !authSession?.expires_at) return false;
+  return Date.now() < authSession.expires_at - 60_000;
+}
+
+function buildAuthSessionFromTokenResponse(data) {
+  const expiresIn = Number(data?.expires_in);
+  return {
+    access_token: String(data?.access_token ?? ''),
+    refresh_token: String(data?.refresh_token ?? ''),
+    expires_at: Date.now() + (Number.isFinite(expiresIn) ? expiresIn : 3600) * 1000,
+    email: String(data?.user?.email ?? ''),
+  };
+}
+
+async function authTokenRequest(grantType, payload) {
+  const url = `${AUTH_ENDPOINT}?grant_type=${encodeURIComponent(grantType)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error_description || data?.msg || data?.message || '登录失败');
+  }
+  return data;
+}
+
+async function refreshAuthSession() {
+  if (!authSession?.refresh_token) throw new Error('未登录');
+  const data = await authTokenRequest('refresh_token', {
+    refresh_token: authSession.refresh_token,
+  });
+  const nextSession = buildAuthSessionFromTokenResponse(data);
+  if (!nextSession.access_token) throw new Error('刷新登录失败');
+  saveAuthSession(nextSession);
+  return nextSession;
+}
+
+async function ensureAuthSession() {
+  if (isAccessTokenValid()) return authSession;
+  if (authSession?.refresh_token) return refreshAuthSession();
+  throw new Error('未登录');
+}
+
+function normalizeLoginEmail(account) {
+  const raw = String(account ?? '').trim();
+  if (!raw) return '';
+  if (raw.includes('@')) return raw;
+  return `${raw}${LOGIN_EMAIL_SUFFIX}`;
+}
+
+function showLoginPage(message = '') {
+  const loginPage = document.getElementById('login-page');
+  const appRoot = document.getElementById('app-root');
+  const errorEl = document.getElementById('login-error');
+  const accountEl = document.getElementById('login-account');
+  document.body.classList.add('login-mode');
+  if (loginPage) loginPage.hidden = false;
+  if (appRoot) appRoot.hidden = true;
+  if (errorEl) errorEl.textContent = message;
+  isAuthReady = false;
+  clearMethodologyPage();
+  requestAnimationFrame(() => accountEl?.focus());
+}
+
+function showApp() {
+  const loginPage = document.getElementById('login-page');
+  const appRoot = document.getElementById('app-root');
+  document.body.classList.remove('login-mode');
+  if (loginPage) loginPage.hidden = true;
+  if (appRoot) appRoot.hidden = false;
+  isAuthReady = true;
+}
+
+async function loginWithPassword(email, password) {
+  const data = await authTokenRequest('password', {
+    email: String(email ?? '').trim(),
+    password: String(password ?? ''),
+  });
+  const session = buildAuthSessionFromTokenResponse(data);
+  if (!session.access_token) throw new Error('登录失败');
+  saveAuthSession(session);
+  return session;
+}
 
 function getSupabaseHeaders(extra = {}) {
+  const token = authSession?.access_token;
+  if (!token) throw new Error('未登录');
   return {
     apikey: SUPABASE_KEY,
-    Authorization: `Bearer ${SUPABASE_KEY}`,
-    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
     ...extra,
   };
 }
 
-function isDevEnvironment() {
-  const host = window.location.hostname;
-  return window.location.protocol === 'file:'
-    || host === 'localhost'
-    || host === '127.0.0.1'
-    || host === '::1';
+async function supabaseFetch(input, init = {}) {
+  await ensureAuthSession();
+  const hasBody = init.body !== undefined && init.body !== null && init.body !== '';
+  const headers = {
+    ...getSupabaseHeaders(),
+    ...(init.headers || {}),
+  };
+  if (hasBody) {
+    if (!headers['Content-Type'] && !headers['content-type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+  } else {
+    delete headers['Content-Type'];
+    delete headers['content-type'];
+  }
+  const res = await fetch(input, { ...init, headers });
+  if (res.status === 401) {
+    clearAuthSession();
+    showLoginPage('登录已过期，请重新登录');
+    throw new Error('登录已过期，请重新登录');
+  }
+  return res;
+}
+
+async function handleLoginSubmit(event) {
+  event.preventDefault();
+  if (isLoggingIn) return;
+  const accountEl = document.getElementById('login-account');
+  const passwordEl = document.getElementById('login-password');
+  const errorEl = document.getElementById('login-error');
+  const submitBtn = document.getElementById('login-submit');
+  const account = String(accountEl?.value ?? '').trim();
+  const password = String(passwordEl?.value ?? '');
+  if (!account || !password) {
+    if (errorEl) errorEl.textContent = '请填写账号和密码。';
+    return;
+  }
+  if (errorEl) errorEl.textContent = '';
+  isLoggingIn = true;
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = '登录中';
+  }
+  try {
+    await loginWithPassword(normalizeLoginEmail(account), password);
+    showApp();
+    setPage('admin');
+  } catch (err) {
+    if (errorEl) errorEl.textContent = String(err?.message || '登录失败');
+  } finally {
+    isLoggingIn = false;
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '登录';
+    }
+  }
+}
+
+async function initApp() {
+  loadAuthSession();
+  if (authSession?.refresh_token) {
+    try {
+      await ensureAuthSession();
+      showApp();
+      setPage('admin');
+      return;
+    } catch {
+      clearAuthSession();
+    }
+  }
+  showLoginPage();
+}
+
+function logSave(level, message, detail) {
+  const fn = level === 'error'
+    ? console.error
+    : level === 'warn'
+      ? console.warn
+      : console.log;
+  if (detail === undefined) {
+    fn(SAVE_LOG_PREFIX, message);
+    return;
+  }
+  fn(SAVE_LOG_PREFIX, message, detail);
 }
 
 function dbValueToString(value) {
   return value == null ? '' : String(value);
+}
+
+function normalizeConcessions(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => ({
+      rate: Number(item?.rate),
+      price: dbValueToString(item?.price),
+      quantity: dbValueToString(item?.quantity),
+    }))
+    .filter((item) => Number.isFinite(item.rate) && item.rate >= 0 && item.price && item.quantity);
+}
+
+function enrichConcessionsWithBaseline(concessions, entryPrice, quantity) {
+  if (!hasConcessions(concessions)) return concessions;
+  const items = concessions.slice();
+  if (!items.some((item) => Number(item.rate) === 0)) {
+    const price = String(entryPrice ?? '').trim();
+    const qty = String(quantity ?? '').trim();
+    if (price && qty) items.unshift({ rate: 0, price, quantity: qty });
+  }
+  return items.sort((a, b) => Number(a.rate) - Number(b.rate));
+}
+
+function buildAdminConcessionsForRow(row) {
+  const entryPrice = String(row?.entryPrice ?? '').trim();
+  const quantity = String(row?.quantity ?? '').trim();
+  if (!entryPrice || !quantity) return [];
+  if (hasConcessions(row?.concessions)) {
+    return enrichConcessionsWithBaseline(row.concessions, entryPrice, quantity);
+  }
+  return [{ rate: 0, price: entryPrice, quantity }];
+}
+
+/** 旧数据无 concessions 字段、为 null 或空数组时返回 null，列表不展示让利区块 */
+function parseConcessionsFromDb(value) {
+  if (value == null) return null;
+  const items = normalizeConcessions(value);
+  return items.length ? items : null;
+}
+
+function hasConcessions(concessions) {
+  return Array.isArray(concessions) && concessions.length > 0;
+}
+
+function normalizeOutcomeStatus(outcomeStatus) {
+  return outcomeStatus === 'profit' || outcomeStatus === 'loss' || outcomeStatus === 'not_filled' ? outcomeStatus : 'pending';
 }
 
 function fromDbRecord(row) {
@@ -196,8 +633,10 @@ function fromDbRecord(row) {
     takeProfitPrice: dbValueToString(row.take_profit_price),
     stopLossPrice: dbValueToString(row.stop_loss_price),
     openCost: row.open_cost,
+    grade: normalizeStrategyGrade(row.grade ?? getStrategyGradeFromOpenCost(row.open_cost)),
     priceAdjustmentRate: row.price_adjustment_rate,
     priceAdjustment: row.price_adjustment,
+    concessions: parseConcessionsFromDb(row.concessions),
     takeProfitRMultiple: row.take_profit_r_multiple,
     timeframe: row.timeframe,
     timeframeMinutes: row.timeframe_minutes,
@@ -207,6 +646,7 @@ function fromDbRecord(row) {
     startAt: row.start_at,
     expiresAt: row.expires_at,
     outcomeStatus: row.outcome_status ?? 'pending',
+    outcomeRemark: dbValueToString(row.outcome_remark),
   };
 }
 
@@ -223,8 +663,12 @@ function toDbRecord(record) {
     take_profit_price: toNumber(record.takeProfitPrice),
     stop_loss_price: toNumber(record.stopLossPrice),
     open_cost: Number(record.openCost),
+    grade: normalizeStrategyGrade(record.grade ?? getStrategyGradeFromOpenCost(record.openCost, record.openCostTotal)),
     price_adjustment_rate: Number(record.priceAdjustmentRate),
     price_adjustment: toNumber(record.priceAdjustment),
+    concessions: hasConcessions(record.concessions)
+      ? normalizeConcessions(record.concessions)
+      : [],
     take_profit_r_multiple: Number(record.takeProfitRMultiple),
     timeframe: record.timeframe,
     timeframe_minutes: Number(record.timeframeMinutes),
@@ -433,32 +877,71 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-function clearStrategyOutput(outEl) {
-  if (!outEl) return;
-  outEl.textContent = '';
-  delete outEl.dataset.plainText;
-  delete outEl.dataset.qty;
-  delete outEl.dataset.copyText;
-  delete outEl.dataset.record;
+function clearMethodologyPage() {
+  const container = document.querySelector('#methodology-page .methodology-content');
+  if (container) container.innerHTML = '';
 }
 
-function renderStrategyOutput(outEl, { plain, html }) {
-  if (!outEl) return;
-  outEl.innerHTML = html;
-  outEl.dataset.plainText = plain;
-  const qtyLine = String(plain ?? '').split('\n').find((line) => line.startsWith('数量：')) || '';
-  outEl.dataset.qty = qtyLine.replace(/^数量：/, '').trim();
+function renderMethodologyPage() {
+  if (!isAuthReady) return;
+  const container = document.querySelector('#methodology-page .methodology-content');
+  if (!container) return;
+  container.innerHTML = METHODOLOGY_SECTIONS.map((section) => {
+    let body = '';
+    if (section.paragraphs?.length) {
+      body = section.paragraphs
+        .map((p) => `<p class="methodology-section__text">${escapeHtml(p)}</p>`)
+        .join('');
+    } else if (section.items?.length) {
+      body = `<ul class="methodology-section__list">${section.items
+        .map((item) => `<li>${escapeHtml(item)}</li>`)
+        .join('')}</ul>`;
+    }
+    return `<article class="methodology-section"><h3 class="methodology-section__title">${escapeHtml(section.title)}</h3><div class="methodology-section__body">${body}</div></article>`;
+  }).join('');
 }
 
-function getStrategySideText(side) {
-  if (side === 'long') return '开多';
-  if (side === 'short') return '开空';
-  return '开仓';
+let currentStrategyCopyText = '';
+let currentStrategyRecord = null;
+
+function clearStrategyState() {
+  currentStrategyCopyText = '';
+  currentStrategyRecord = null;
 }
 
-function buildStrategyCopyText({ side, name, price, quantity, takeProfit, stopLoss }) {
+function setStrategyState(strategy) {
+  if (!strategy) {
+    clearStrategyState();
+    return;
+  }
+  currentStrategyCopyText = String(strategy.copyText ?? '').trim();
+  currentStrategyRecord = strategy.record ?? null;
+}
+
+function getPositionSideMod(side) {
+  return side === 'long' || side === 'short' ? side : 'flat';
+}
+
+function formatStrategyCardTitle(name) {
+  const base = String(name || '未命名').trim() || '未命名';
+  return /[A-Z]/.test(base) ? base.toLowerCase() : base;
+}
+
+function formatAdminCardTitlePlain(name, remark) {
+  const title = formatStrategyCardTitle(name);
+  const note = String(remark ?? '').trim();
+  return note ? `${title}，备注：${note}` : title;
+}
+
+function renderAdminRemarkStampHtml(remark) {
+  const note = String(remark ?? '').trim();
+  if (!note) return '';
+  return `<div class="admin-item__remark-stamp" aria-label="备注：${escapeHtml(note)}">${escapeHtml(note)}</div>`;
+}
+
+function buildStrategyCopyText({ name, price, quantity, takeProfit, stopLoss }) {
   return [
-    `${getStrategySideText(side)}${String(name || '未命名').trim() || '未命名'}`,
+    formatStrategyCardTitle(name),
     `价格：${String(price ?? '').trim()}`,
     `数量：${String(quantity ?? '').trim()}`,
     `止盈：${String(takeProfit ?? '').trim()}`,
@@ -476,8 +959,165 @@ function calcTakeProfit(open, stop, multiplier = 1) {
   return open - move;
 }
 
+function getPriceDecimalPlacesFromValues(...values) {
+  return values.reduce((max, value) => {
+    const places = getDecimalPlacesFromInput(String(value ?? ''));
+    return Math.max(max, places);
+  }, 0);
+}
+
+/** 参考止盈：3R 与 5R 止盈价区间（1R 盈利 = 开仓成本） */
+function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces) {
+  const entry = toNumber(entryPrice);
+  const stop = toNumber(stopLoss);
+  if (entry == null || stop == null || entry === stop) return '—';
+  const tpLowR = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R_LOW);
+  const tpHighR = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R_HIGH);
+  if (tpLowR == null || tpHighR == null) return '—';
+  const decimals = decimalPlaces ?? getPriceDecimalPlacesFromValues(entryPrice, stopLoss);
+  const low = formatTrimmedFixedDecimals(Math.min(tpLowR, tpHighR), decimals);
+  const high = formatTrimmedFixedDecimals(Math.max(tpLowR, tpHighR), decimals);
+  return `${low}-${high}`;
+}
+
+function renderReferenceTakeProfitHtml(blockClass, label) {
+  const value = escapeHtml(String(label ?? '').trim() || '—');
+  return [
+    `<div class="${blockClass}">`,
+    `<span class="${blockClass}-label">参考止盈</span>`,
+    `<span class="${blockClass}-value">${value}</span>`,
+    '</div>',
+  ].join('');
+}
+
 function calcAdjustedOpenPrice(open, stop, decimalPlaces) {
   return Number(formatFixedDecimals(open, decimalPlaces));
+}
+
+/** 让利价：正常模式沿远离止损方向移动；反向模式沿靠近止损方向移动 */
+function calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces, reverse = false) {
+  const stopDiff = Math.abs(entryPrice - stopLoss);
+  if (!(stopDiff > 0) || !Number.isFinite(rate) || rate < 0) return null;
+  const awayFromStop = entryPrice > stopLoss ? 1 : -1;
+  const direction = reverse ? -awayFromStop : awayFromStop;
+  const price = entryPrice + direction * rate * stopDiff;
+  return Number(formatFixedDecimals(price, decimalPlaces));
+}
+
+function calcQuantityByRisk(openCost, entryPrice, stopLoss) {
+  const stopDiff = Math.abs(entryPrice - stopLoss);
+  if (!(stopDiff > 0) || openCost == null || !(openCost > 0)) return null;
+  return openCost / stopDiff;
+}
+
+function formatConcessionPercent(rate) {
+  return `${Math.round(rate * 100)}%`;
+}
+
+function getDisplayConcessionItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items.filter((item) => Number(item.rate) !== 0);
+}
+
+function buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rates = getConcessionRates(), reverse = false) {
+  const items = [];
+  for (const rate of rates) {
+    const price = calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces, reverse);
+    const qty = price == null ? null : calcQuantityByRisk(openCost, price, stopLoss);
+    if (price == null || qty == null) continue;
+    items.push({
+      rate,
+      price: formatTrimmedFixedDecimals(price, decimalPlaces),
+      quantity: formatQuantity(qty),
+    });
+  }
+  return items;
+}
+
+function renderConcessionsHtml({ prefix, items, stopLabel, wrapperClass, reverseOrder = false }) {
+  let displayItems = getDisplayConcessionItems(items);
+  if (reverseOrder) displayItems = displayItems.slice().reverse();
+  if (!displayItems.length) return '';
+  const stop = escapeHtml(String(stopLabel ?? '').trim() || '—');
+  const rowClass = `${prefix}-concession`;
+  const rows = displayItems.map((item) => [
+    `<div class="${rowClass}">`,
+    `<span class="${rowClass}__rate">${escapeHtml(formatConcessionPercent(item.rate))}</span>`,
+    `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`,
+    `<span class="${rowClass}__qty">${escapeHtml(item.quantity)}</span>`,
+    `<span class="${rowClass}__stop">${stop}</span>`,
+    '</div>',
+  ].join('')).join('');
+  return [
+    `<div class="${wrapperClass}" aria-label="让利档位">`,
+    `<div class="${rowClass} ${rowClass}--head">`,
+    `<span class="${rowClass}__rate">让利</span>`,
+    `<span class="${rowClass}__price">价格</span>`,
+    `<span class="${rowClass}__qty">数量</span>`,
+    `<span class="${rowClass}__stop">止损</span>`,
+    '</div>',
+    rows,
+    '</div>',
+  ].join('');
+}
+
+function renderStrategyConcessionsHtml(items, stopLabel) {
+  return renderConcessionsHtml({
+    prefix: 'strategy',
+    items,
+    stopLabel,
+    wrapperClass: 'strategy-card__concessions',
+  });
+}
+
+function buildStrategyDisplayHtml({
+  side,
+  alarmName,
+  stopLabel,
+  refTakeProfitLabel,
+  concessionItems,
+  timeRangeLabel,
+}) {
+  const sideMod = getPositionSideMod(side);
+  const title = formatStrategyCardTitle(alarmName);
+  return [
+    `<div class="strategy-card strategy-card--${sideMod}">`,
+    '<div class="strategy-card__head">',
+    `<span class="strategy-card__title">${escapeHtml(title)}</span>`,
+    '</div>',
+    renderStrategyConcessionsHtml(concessionItems, stopLabel),
+    renderReferenceTakeProfitHtml('strategy-card__ref-tp', refTakeProfitLabel),
+    `<div class="strategy-card__time"><span class="strategy-card__time-label">时间范围</span><span class="strategy-card__time-value">${escapeHtml(timeRangeLabel)}</span></div>`,
+    '</div>',
+  ].join('');
+}
+
+function buildStrategyPlainText({
+  sideLabel,
+  stopLabel,
+  refTakeProfitLabel,
+  concessionItems,
+  timeRangeLabel,
+}) {
+  const displayItems = getDisplayConcessionItems(concessionItems);
+  return [
+    sideLabel,
+    ...displayItems.map((item) => (
+      `让利${formatConcessionPercent(item.rate)}：${item.price} / ${item.quantity} / ${stopLabel}`
+    )),
+    `参考止盈：${refTakeProfitLabel}`,
+    `时间范围：${timeRangeLabel}`,
+  ].join('\n');
+}
+
+function renderAdminConcessionsHtml(concessions, stopLabel) {
+  return renderConcessionsHtml({
+    prefix: 'admin',
+    items: concessions,
+    stopLabel,
+    wrapperClass: 'admin-item__concessions',
+    reverseOrder: true,
+  });
 }
 
 function getStartDateTime(startValue) {
@@ -501,45 +1141,55 @@ function getStartDateTime(startValue) {
   return startAt;
 }
 
-function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces) {
+function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces, tradeMode = getTradeMode()) {
   const timeframe = getTimeframeMode();
   const unitMin = getTimeframeMinutes(timeframe);
   const spanMinutes = unitMin * STRATEGY_DURATION_PERIODS;
+  const reverse = isReverseTradeMode(tradeMode);
   const adjustedOpen = calcAdjustedOpenPrice(open, stop, priceDecimalPlaces);
-  const priceAdjustment = 0;
-  const stopDiff = Math.abs(adjustedOpen - stop);
-  const quantity = openCost / stopDiff;
+  const quantity = calcQuantityByRisk(openCost, adjustedOpen, stop);
+  const primaryConcessionalPrice = calcConcessionalEntryPrice(adjustedOpen, stop, PRICE_ADJUSTMENT_RATE, priceDecimalPlaces, reverse);
+  const priceAdjustment = primaryConcessionalPrice == null ? 0 : Math.abs(adjustedOpen - primaryConcessionalPrice);
   const tp = calcTakeProfit(adjustedOpen, stop, TAKE_PROFIT_R_MULTIPLE);
   const tpDecimals = Math.max(0, priceDecimalPlaces);
 
   const nameEl = document.getElementById('name-input');
   const name = String(nameEl?.value ?? '').trim();
   const side = adjustedOpen > stop ? 'long' : 'short';
-  const sideHash = side === 'long' ? '#开多' : '#开空';
-  const alarmName = name || 'demo';
-  const sideLabel = `${sideHash}${alarmName}`;
+  const alarmName = name || 'test';
+  const sideLabel = formatStrategyCardTitle(alarmName);
   const startAt = getStartDateTime(startTimeValue);
   const endAt = addPeriodToStart(startTimeValue, spanMinutes);
   const startDisplay = startAt ? formatFullDateTimeLabel(startAt) : (startTimeLabel || startTimeValue);
   const endDisplay = endAt ? formatFullDateTimeLabel(endAt) : '—';
   const timeRangeLabel = `${startDisplay} — ${endDisplay}`;
 
-  const qty = formatQuantity(quantity);
   const priceLabel = formatTrimmedFixedDecimals(adjustedOpen, priceDecimalPlaces);
   const tpLabel = formatTrimmedFixedDecimals(tp, tpDecimals);
   const stopLabel = formatPrice(stop);
+  const refTakeProfitLabel = buildReferenceTakeProfitLabel(adjustedOpen, stop, priceDecimalPlaces);
+  const concessionRates = getConcessionRates(DEFAULT_TIER_COUNT);
+  const concessionItems = buildConcessionItems(adjustedOpen, stop, openCost, priceDecimalPlaces, concessionRates, reverse);
+  const baselineItem = concessionItems.find((item) => Number(item.rate) === 0);
+  const qty = baselineItem?.quantity ?? formatQuantity(quantity);
 
-  const lines = [
+  const plain = buildStrategyPlainText({
     sideLabel,
-    `价格：${priceLabel}`,
-    `数量：${qty}`,
-    `参考止盈：${tpLabel}`,
-    `止损：${stopLabel}`,
-    `时间范围：${timeRangeLabel}`,
-  ];
+    stopLabel,
+    refTakeProfitLabel,
+    concessionItems,
+    timeRangeLabel,
+  });
+  const html = buildStrategyDisplayHtml({
+    side,
+    alarmName,
+    stopLabel,
+    refTakeProfitLabel,
+    concessionItems,
+    timeRangeLabel,
+  });
 
   const copyText = buildStrategyCopyText({
-    side,
     name: alarmName,
     price: priceLabel,
     quantity: qty,
@@ -556,8 +1206,13 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
     takeProfitPrice: tpLabel,
     stopLossPrice: stopLabel,
     openCost,
+    openCostTotal: getOpenCostTotal(),
+    tierCount: DEFAULT_TIER_COUNT,
+    tradeMode,
+    grade: getStrategyGradeFromOpenCost(openCost, getOpenCostTotal(), DEFAULT_TIER_COUNT),
     priceAdjustmentRate: PRICE_ADJUSTMENT_RATE,
     priceAdjustment: formatTrimmedFixedDecimals(priceAdjustment, priceDecimalPlaces),
+    concessions: concessionItems,
     takeProfitRMultiple: TAKE_PROFIT_R_MULTIPLE,
     timeframe,
     timeframeMinutes: unitMin,
@@ -568,9 +1223,6 @@ function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, pri
     expiresAt: endAt ? endAt.toISOString() : null,
     outcomeStatus: 'pending',
   };
-
-  const plain = lines.join('\n');
-  const html = lines.map((line) => escapeHtml(line)).join('\n');
 
   return { plain, html, copyText, record };
 }
@@ -590,7 +1242,6 @@ function generate() {
   const stopEl = document.getElementById('stop-price-input');
   const timeEl = document.getElementById('start-time');
   const errEl = document.getElementById('error');
-  const outEl = document.getElementById('strategy-output');
 
   const open = toNumber(openEl && 'value' in openEl ? openEl.value : '');
   const stop = toNumber(stopEl && 'value' in stopEl ? stopEl.value : '');
@@ -602,31 +1253,31 @@ function generate() {
 
   if (open === null || stop === null) {
     if (errEl) errEl.textContent = '请输入有效的价格与止损（数字）。';
-    clearStrategyOutput(outEl);
+    clearStrategyState();
     return;
   }
 
   if (open <= 0) {
     if (errEl) errEl.textContent = '价格须为大于 0 的数字。';
-    clearStrategyOutput(outEl);
+    clearStrategyState();
     return;
   }
 
   if (openCost === null) {
     if (errEl) errEl.textContent = '请输入有效的开仓成本（大于 0 的数字）。';
-    clearStrategyOutput(outEl);
+    clearStrategyState();
     return;
   }
 
   if (!startTime) {
     if (errEl) errEl.textContent = '请选择开始时间。';
-    clearStrategyOutput(outEl);
+    clearStrategyState();
     return;
   }
 
   if (open === stop) {
     if (errEl) errEl.textContent = '价格与止损不能相同，无法计算数量与方向。';
-    clearStrategyOutput(outEl);
+    clearStrategyState();
     return;
   }
 
@@ -637,15 +1288,18 @@ function generate() {
   const takeProfit = calcTakeProfit(adjustedOpen, stop, TAKE_PROFIT_R_MULTIPLE);
   if (!Number.isFinite(adjustedOpen) || adjustedOpen <= 0 || !Number.isFinite(takeProfit) || takeProfit <= 0) {
     if (errEl) errEl.textContent = '价格或止盈价无效，请检查价格与止损。';
-    clearStrategyOutput(outEl);
+    clearStrategyState();
     return;
   }
-  const strategy = buildStrategy(open, stop, startTime, startTimeLabel, openCost, priceDecimals);
-  renderStrategyOutput(outEl, strategy);
-  if (outEl) {
-    outEl.dataset.copyText = strategy.copyText;
-    outEl.dataset.record = JSON.stringify(strategy.record);
-  }
+  const tradeMode = getTradeMode();
+  const strategy = buildStrategy(open, stop, startTime, startTimeLabel, openCost, priceDecimals, tradeMode);
+  setStrategyState(strategy);
+  logSave('info', '策略已生成，可保存', {
+    strategyName: strategy.record?.strategyName,
+    hasCopyText: Boolean(strategy.copyText),
+    hasRecord: Boolean(strategy.record),
+    recordPreview: strategy.record,
+  });
 }
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -665,8 +1319,23 @@ const openInput = document.getElementById('open-price-input');
 const stopInput = document.getElementById('stop-price-input');
 const startTimeSelect = document.getElementById('start-time');
 
+// 模式切换
+const modeBtns = document.querySelectorAll('.mode-switch .cost-switch__btn');
+modeBtns.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    modeBtns.forEach((b) => {
+      b.classList.remove('is-active');
+      b.setAttribute('aria-selected', 'false');
+    });
+    btn.classList.add('is-active');
+    btn.setAttribute('aria-selected', 'true');
+    updateTradeModeAppearance();
+    autoGenerateIfReady();
+  });
+});
+
 // 开仓成本按钮切换
-const costBtns = document.querySelectorAll('.cost-switch__btn');
+const costBtns = document.querySelectorAll('#cost-switch .cost-switch__btn');
 costBtns.forEach((btn) => {
   btn.addEventListener('click', () => {
     costBtns.forEach((b) => {
@@ -684,7 +1353,14 @@ function onEnter(e) {
 }
 if (openInput) openInput.addEventListener('keydown', onEnter);
 if (stopInput) stopInput.addEventListener('keydown', onEnter);
-if (startTimeSelect) startTimeSelect.addEventListener('keydown', onEnter);
+if (startTimeSelect) {
+  startTimeSelect.addEventListener('keydown', onEnter);
+  startTimeSelect.addEventListener('change', () => {
+    updateStartTimeTriggerLabel();
+    startTimeUserPicked = true;
+    autoGenerateIfReady();
+  });
+}
 
 function autoGenerateIfReady() {
   const openVal = String(openInput?.value ?? '').trim();
@@ -694,16 +1370,12 @@ function autoGenerateIfReady() {
     return;
   }
   const errEl = document.getElementById('error');
-  const outEl = document.getElementById('strategy-output');
   if (errEl) errEl.textContent = '';
-  clearStrategyOutput(outEl);
+  clearStrategyState();
 }
 
 if (openInput) openInput.addEventListener('input', autoGenerateIfReady);
 if (stopInput) stopInput.addEventListener('input', autoGenerateIfReady);
-if (startTimeSelect) startTimeSelect.addEventListener('change', autoGenerateIfReady);
-if (startTimeSelect) startTimeSelect.addEventListener('change', updateStartTimeTriggerLabel);
-if (startTimeSelect) startTimeSelect.addEventListener('change', () => { startTimeUserPicked = true; });
 
 function setTablistValue(tablistName, value) {
   const tablist = document.querySelector(`[data-tablist="${tablistName}"]`);
@@ -721,18 +1393,25 @@ function resetFrontPage() {
   rebuildStartTimeOptions();
   if (openInput) openInput.value = '';
   if (stopInput) stopInput.value = '';
-  // 重置开仓成本为默认值66
-  const costBtns = document.querySelectorAll('.cost-switch__btn');
+  // 重置模式为正常
+  const modeBtns = document.querySelectorAll('.mode-switch .cost-switch__btn');
+  modeBtns.forEach((btn) => {
+    const isDefault = btn.getAttribute('data-mode') === TRADE_MODE_NORMAL;
+    btn.classList.toggle('is-active', isDefault);
+    btn.setAttribute('aria-selected', isDefault ? 'true' : 'false');
+  });
+  updateTradeModeAppearance();
+  // 重置开仓成本为默认值200
+  const costBtns = document.querySelectorAll('#cost-switch .cost-switch__btn');
   costBtns.forEach((btn) => {
-    const isDefault = btn.getAttribute('data-cost') === '66';
+    const isDefault = btn.getAttribute('data-cost') === String(OPEN_COST_TOTAL_DEFAULT);
     btn.classList.toggle('is-active', isDefault);
     btn.setAttribute('aria-selected', isDefault ? 'true' : 'false');
   });
   if (nameInput) nameInput.value = '';
   const errEl = document.getElementById('error');
-  const outEl = document.getElementById('strategy-output');
   if (errEl) errEl.textContent = '';
-  clearStrategyOutput(outEl);
+  clearStrategyState();
 }
 
 /**
@@ -762,21 +1441,6 @@ window.addEventListener('focus', syncStartTimeToNow);
 const nameInput = document.getElementById('name-input');
 if (nameInput) nameInput.addEventListener('input', autoGenerateIfReady);
 
-function copyFallback(text) {
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.setAttribute('readonly', '');
-  ta.style.position = 'fixed';
-  ta.style.left = '-9999px';
-  document.body.appendChild(ta);
-  ta.select();
-  try {
-    return document.execCommand('copy');
-  } finally {
-    document.body.removeChild(ta);
-  }
-}
-
 function getLocalDayRange(date = new Date()) {
   const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
   const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1, 0, 0, 0, 0);
@@ -787,32 +1451,18 @@ function buildStrategiesQuery(filterValue = 'all') {
   const filter = normalizeAdminTimeFilter(filterValue);
   const params = ['select=*', 'order=created_at.desc'];
   const nameSearch = normalizeAdminNameSearch(adminNameSearch);
-  const timeframeFilter = normalizeAdminTimeframeFilter(adminTimeframeFilter);
-  const outcomeFilter = normalizeAdminOutcomeFilter(adminOutcomeFilter);
 
   if (nameSearch) {
     params.push(`strategy_name=ilike.${encodeURIComponent(`*${nameSearch}*`)}`);
   }
-  if (timeframeFilter !== 'all') {
-    params.push(`timeframe=eq.${encodeURIComponent(timeframeFilter)}`);
-  }
-  if (outcomeFilter !== 'all') {
-    params.push(`outcome_status=eq.${encodeURIComponent(outcomeFilter)}`);
-  }
   if (filter === 'active') {
     params.push(`expires_at=gt.${encodeURIComponent(new Date().toISOString())}`);
-    // 进行中只显示未操作的（待定状态）
-    if (outcomeFilter === 'all') {
-      params.push('outcome_status=eq.pending');
-    }
+    params.push('outcome_status=eq.pending');
   } else if (filter === 'dueToday') {
     const { start, end } = getLocalDayRange();
     params.push(`expires_at=gte.${encodeURIComponent(start.toISOString())}`);
     params.push(`expires_at=lt.${encodeURIComponent(end.toISOString())}`);
-    // 今日到期只显示未操作的（待定状态）
-    if (outcomeFilter === 'all') {
-      params.push('outcome_status=eq.pending');
-    }
+    params.push('outcome_status=eq.pending');
   } else if (filter === 'createdToday') {
     const { start, end } = getLocalDayRange();
     params.push(`created_at=gte.${encodeURIComponent(start.toISOString())}`);
@@ -822,7 +1472,7 @@ function buildStrategiesQuery(filterValue = 'all') {
 }
 
 async function fetchStrategies(filterValue = 'all') {
-  const res = await fetch(`${STRATEGIES_ENDPOINT}?${buildStrategiesQuery(filterValue)}`, {
+  const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?${buildStrategiesQuery(filterValue)}`, {
     headers: getSupabaseHeaders(),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -849,12 +1499,10 @@ function fromStatsRecord(row) {
 function buildStrategyStatsPayload(filterValue = 'all', options = {}) {
   const { ignoreAdminFilters = false } = options;
   const timeFilter = normalizeAdminTimeFilter(filterValue);
-  const timeframeFilter = ignoreAdminFilters ? 'all' : normalizeAdminTimeframeFilter(adminTimeframeFilter);
-  const outcomeFilter = ignoreAdminFilters ? 'all' : normalizeAdminOutcomeFilter(adminOutcomeFilter);
   const payload = {
     p_name_search: ignoreAdminFilters ? null : normalizeAdminNameSearch(adminNameSearch) || null,
-    p_timeframe: timeframeFilter === 'all' ? null : timeframeFilter,
-    p_outcome_status: outcomeFilter === 'all' ? null : outcomeFilter,
+    p_timeframe: null,
+    p_outcome_status: null,
     p_time_filter: timeFilter,
     p_today_start: null,
     p_today_end: null,
@@ -871,7 +1519,7 @@ function buildStrategyStatsPayload(filterValue = 'all', options = {}) {
 }
 
 async function fetchStrategyStats(filterValue = 'all', options = {}) {
-  const res = await fetch(STRATEGY_STATS_ENDPOINT, {
+  const res = await supabaseFetch(STRATEGY_STATS_ENDPOINT, {
     method: 'POST',
     headers: getSupabaseHeaders(),
     body: JSON.stringify(buildStrategyStatsPayload(filterValue, options)),
@@ -883,7 +1531,7 @@ async function fetchStrategyStats(filterValue = 'all', options = {}) {
 }
 
 async function fetchRecent10Stats() {
-  const res = await fetch(RECENT_10_STATS_ENDPOINT, {
+  const res = await supabaseFetch(RECENT_10_STATS_ENDPOINT, {
     method: 'POST',
     headers: getSupabaseHeaders(),
     body: JSON.stringify({}),
@@ -904,12 +1552,32 @@ async function fetchRecent10Stats() {
 }
 
 async function createStrategy(record) {
-  const res = await fetch(STRATEGIES_ENDPOINT, {
-    method: 'POST',
-    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify(toDbRecord(record)),
+  const payload = toDbRecord(record);
+  logSave('info', '准备请求 Supabase', {
+    endpoint: STRATEGIES_ENDPOINT,
+    payload,
   });
-  if (!res.ok) throw new Error(await res.text());
+  let res;
+  try {
+    res = await supabaseFetch(STRATEGIES_ENDPOINT, {
+      method: 'POST',
+      headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    logSave('error', '网络请求失败（未到达 Supabase）', {
+      message: err?.message || String(err),
+      endpoint: STRATEGIES_ENDPOINT,
+    });
+    throw err;
+  }
+  const bodyText = res.ok ? '' : await res.text();
+  logSave(res.ok ? 'info' : 'error', 'Supabase 响应', {
+    status: res.status,
+    ok: res.ok,
+    body: bodyText || '(empty)',
+  });
+  if (!res.ok) throw new Error(bodyText || `HTTP ${res.status}`);
 }
 
 function normalizeStrategyIds(ids) {
@@ -921,32 +1589,39 @@ async function deleteStrategies(ids) {
   const normalizedIds = normalizeStrategyIds(ids);
   if (!normalizedIds.length) return;
   const idFilter = encodeURIComponent(`(${normalizedIds.join(',')})`);
-  const res = await fetch(`${STRATEGIES_ENDPOINT}?id=in.${idFilter}`, {
+  const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=in.${idFilter}`, {
     method: 'DELETE',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
   });
   if (!res.ok) throw new Error(await res.text());
 }
 
-async function updateStrategyOutcomeStatus(id, outcomeStatus) {
+async function updateStrategyOutcomeStatus(id, outcomeStatus, remark) {
   const encodedId = encodeURIComponent(id);
-  const res = await fetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
+  const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
     method: 'PATCH',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify({ outcome_status: outcomeStatus }),
+    body: JSON.stringify({
+      outcome_status: outcomeStatus,
+      outcome_remark: String(remark ?? '').trim(),
+    }),
   });
   if (!res.ok) throw new Error(await res.text());
 }
 
-function normalizeOutcomeStatus(outcomeStatus) {
-  return outcomeStatus === 'profit' || outcomeStatus === 'loss' || outcomeStatus === 'not_filled' ? outcomeStatus : 'pending';
-}
+async function updateStrategyTier(id, tierCount) {
+  const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === String(id ?? '').trim());
+  if (!row) throw new Error('未找到策略记录');
+  const payload = rebuildStrategyForTier(row, tierCount);
+  if (!payload) throw new Error('无法计算档位数据');
 
-function getOutcomeStatusLabel(outcomeStatus) {
-  if (outcomeStatus === 'profit') return '盈利';
-  if (outcomeStatus === 'loss') return '亏损';
-  if (outcomeStatus === 'not_filled') return '未成交';
-  return '待定';
+  const encodedId = encodeURIComponent(id);
+  const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
+    method: 'PATCH',
+    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await res.text());
 }
 
 function getTimeBadgeInfo(endAt, now = new Date()) {
@@ -965,13 +1640,6 @@ function getOutcomeStatusInfo(outcomeStatus) {
   if (normalized === 'loss') return { label: '亏损', type: 'loss' };
   if (normalized === 'not_filled') return { label: '未成交', type: 'not-filled' };
   return { label: '待定', type: 'pending' };
-}
-
-function parseDateValue(value) {
-  const raw = String(value ?? '').trim();
-  if (!raw) return null;
-  const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function getStrategyEndAt(row) {
@@ -994,15 +1662,6 @@ function formatAdminTimeRange(startAt, endAt) {
   const start = startAt ? formatCompactDateTimeLabel(startAt) : '—';
   const end = endAt ? formatCompactDateTimeLabel(endAt) : '—';
   return `${start} — ${end}`;
-}
-
-function formatDurationLabel(totalMinutes) {
-  const days = Math.floor(totalMinutes / (24 * 60));
-  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
-  const minutes = totalMinutes % 60;
-  if (days > 0) return `${days}天${hours}小时${minutes}分钟`;
-  if (hours > 0) return `${hours}小时${minutes}分钟`;
-  return `${minutes}分钟`;
 }
 
 function formatCountdownTo(endAt, now = new Date()) {
@@ -1037,10 +1696,6 @@ function getTimeRangeStatusByEndAt(endAt) {
   return nowTs >= endTs ? 'ended' : 'active';
 }
 
-function getTimeRangeStatusLabel(timeStatus) {
-  return timeStatus === 'ended' ? '已结束' : '进行中';
-}
-
 const ADMIN_TIME_FILTER_LABELS = {
   all: '全部',
   active: '进行中',
@@ -1048,38 +1703,17 @@ const ADMIN_TIME_FILTER_LABELS = {
   dueToday: '今日到期',
 };
 
-const ADMIN_TIMEFRAME_FILTER_LABELS = {
-  all: '全部',
-  '1h': '1小时',
-  '4h': '4小时',
-};
-
-const ADMIN_OUTCOME_FILTER_LABELS = {
-  all: '全部',
-  pending: '待定',
-  profit: '盈利',
-  loss: '亏损',
-  not_filled: '未成交',
-};
-
 const DEFAULT_ADMIN_TIME_FILTER = 'active';
 
 let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
-let adminTimeframeFilter = 'all';
-let adminOutcomeFilter = 'all';
 let adminNameSearch = '';
-let adminSearchTimer = null;
+
+function normalizeAdminFilter(value, labels, fallback = 'all') {
+  return Object.prototype.hasOwnProperty.call(labels, value) ? value : fallback;
+}
 
 function normalizeAdminTimeFilter(value) {
-  return Object.prototype.hasOwnProperty.call(ADMIN_TIME_FILTER_LABELS, value) ? value : 'all';
-}
-
-function normalizeAdminTimeframeFilter(value) {
-  return Object.prototype.hasOwnProperty.call(ADMIN_TIMEFRAME_FILTER_LABELS, value) ? value : 'all';
-}
-
-function normalizeAdminOutcomeFilter(value) {
-  return Object.prototype.hasOwnProperty.call(ADMIN_OUTCOME_FILTER_LABELS, value) ? value : 'all';
+  return normalizeAdminFilter(value, ADMIN_TIME_FILTER_LABELS);
 }
 
 function normalizeAdminNameSearch(value) {
@@ -1091,16 +1725,6 @@ function renderAdminFilterTabs() {
   renderAdminTabGroup(tabsEl, ADMIN_TIME_FILTER_LABELS, normalizeAdminTimeFilter(adminTimeFilter), 'admin-time-filter');
 }
 
-function renderAdminTimeframeFilterSelect() {
-  const selectEl = document.getElementById('admin-timeframe-filter-select');
-  renderAdminSelect(selectEl, ADMIN_TIMEFRAME_FILTER_LABELS, normalizeAdminTimeframeFilter(adminTimeframeFilter));
-}
-
-function renderAdminOutcomeFilterSelect() {
-  const selectEl = document.getElementById('admin-outcome-filter-select');
-  renderAdminSelect(selectEl, ADMIN_OUTCOME_FILTER_LABELS, normalizeAdminOutcomeFilter(adminOutcomeFilter));
-}
-
 function renderAdminTabGroup(tabsEl, labels, activeValue, dataAttr) {
   if (!tabsEl) return;
   tabsEl.innerHTML = Object.entries(labels).map(([value, label]) => {
@@ -1109,31 +1733,13 @@ function renderAdminTabGroup(tabsEl, labels, activeValue, dataAttr) {
   }).join('');
 }
 
-function renderAdminSelect(selectEl, labels, activeValue) {
-  if (!selectEl) return;
-  selectEl.innerHTML = Object.entries(labels).map(([value, label]) => {
-    const selected = activeValue === value ? ' selected' : '';
-    return `<option value="${escapeHtml(value)}"${selected}>${escapeHtml(label)}</option>`;
-  }).join('');
-}
-
 function renderAdminControls() {
   renderAdminFilterTabs();
-  renderAdminTimeframeFilterSelect();
-  renderAdminOutcomeFilterSelect();
-  const searchEl = document.getElementById('admin-name-search');
-  if (searchEl && searchEl.value !== adminNameSearch) searchEl.value = adminNameSearch;
 }
 
 function resetAdminPageState() {
   closeOutcomeStatusPicker();
-  if (adminSearchTimer) {
-    clearTimeout(adminSearchTimer);
-    adminSearchTimer = null;
-  }
   adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
-  adminTimeframeFilter = 'all';
-  adminOutcomeFilter = 'all';
   adminNameSearch = '';
   isAdminSelectionMode = false;
   selectedStrategyIds.clear();
@@ -1143,18 +1749,12 @@ function resetAdminPageState() {
   updateAdminSelectionControls();
 }
 
-function scheduleRenderAdminList(delay = 250) {
-  if (adminSearchTimer) clearTimeout(adminSearchTimer);
-  adminSearchTimer = setTimeout(() => {
-    adminSearchTimer = null;
-    renderAdminList().catch(() => {});
-  }, delay);
-}
-
 let selectedStrategyIds = new Set();
 let isDeletingStrategies = false;
+let isUpdatingStrategyTier = false;
 let isAdminSelectionMode = false;
 let visibleAdminStrategyIds = [];
+let latestAdminRows = [];
 
 function getVisibleAdminStrategyIds() {
   const domIds = Array.from(document.querySelectorAll('#admin-list .admin-item__select'))
@@ -1171,12 +1771,6 @@ function syncAdminSelectionWithRows(rows) {
 }
 
 function updateAdminSelectionControls() {
-  const canDelete = isDevEnvironment();
-  if (!canDelete && isAdminSelectionMode) {
-    isAdminSelectionMode = false;
-    selectedStrategyIds.clear();
-  }
-
   const selectedCount = selectedStrategyIds.size;
   const selectionEl = document.getElementById('admin-selection');
   const countEl = document.getElementById('admin-selection-count');
@@ -1185,33 +1779,53 @@ function updateAdminSelectionControls() {
   const deleteSelectedBtn = document.getElementById('admin-delete-selected');
   const visibleCount = getVisibleAdminStrategyIds().length;
 
-  if (selectionEl) selectionEl.hidden = currentPage !== 'admin' || !canDelete || !isAdminSelectionMode || visibleCount === 0;
+  if (selectionEl) selectionEl.hidden = currentPage !== 'admin' || !isAdminSelectionMode || visibleCount === 0;
   if (countEl) countEl.textContent = `已选 ${selectedCount} 条`;
-  if (selectAllBtn) selectAllBtn.disabled = isDeletingStrategies || !canDelete || !isAdminSelectionMode || visibleCount === 0;
-  if (clearSelectionBtn) clearSelectionBtn.disabled = isDeletingStrategies || !canDelete || !isAdminSelectionMode;
+  if (selectAllBtn) selectAllBtn.disabled = isDeletingStrategies || !isAdminSelectionMode || visibleCount === 0;
+  if (clearSelectionBtn) clearSelectionBtn.disabled = isDeletingStrategies || !isAdminSelectionMode;
   if (deleteSelectedBtn) {
-    deleteSelectedBtn.disabled = isDeletingStrategies || !canDelete || !isAdminSelectionMode || selectedCount === 0;
+    deleteSelectedBtn.disabled = isDeletingStrategies || !isAdminSelectionMode || selectedCount === 0;
     deleteSelectedBtn.setAttribute('aria-busy', isDeletingStrategies ? 'true' : 'false');
   }
 
+  updateHeaderClearButton();
+}
+
+function updateHeaderClearButton() {
   const btnClear = document.getElementById('btn-clear');
-  if (btnClear && currentPage !== 'admin') {
-    btnClear.hidden = true;
-    btnClear.textContent = '清空';
-    btnClear.disabled = false;
-    btnClear.setAttribute('aria-busy', 'false');
-  } else if (btnClear) {
-    btnClear.hidden = !canDelete;
+  if (!btnClear) return;
+
+  if (currentPage === 'admin') {
+    btnClear.hidden = false;
+    const visibleCount = getVisibleAdminStrategyIds().length;
+    const selectedCount = selectedStrategyIds.size;
     btnClear.textContent = isAdminSelectionMode
       ? (selectedCount ? `删除所选(${selectedCount})` : '取消删除')
       : '删除';
     btnClear.disabled = isDeletingStrategies || (!isAdminSelectionMode && visibleCount === 0);
     btnClear.setAttribute('aria-busy', isDeletingStrategies ? 'true' : 'false');
+    return;
   }
+
+  if (currentPage === 'observations') {
+    btnClear.hidden = false;
+    const visibleCount = getVisibleObservationIds().length;
+    const selectedCount = selectedObservationIds.size;
+    btnClear.textContent = isObsSelectionMode
+      ? (selectedCount ? `删除所选(${selectedCount})` : '取消删除')
+      : '删除';
+    btnClear.disabled = isDeletingObservations || (!isObsSelectionMode && visibleCount === 0);
+    btnClear.setAttribute('aria-busy', isDeletingObservations ? 'true' : 'false');
+    return;
+  }
+
+  btnClear.hidden = true;
+  btnClear.textContent = '删除';
+  btnClear.disabled = false;
+  btnClear.setAttribute('aria-busy', 'false');
 }
 
 function enterAdminSelectionMode() {
-  if (!isDevEnvironment()) return;
   isAdminSelectionMode = true;
   renderAdminList().catch(() => updateAdminSelectionControls());
 }
@@ -1235,7 +1849,20 @@ function setAdminDeleteLoading(loading) {
   document.querySelectorAll('.admin-item__selector').forEach((el) => {
     el.classList.toggle('is-disabled', loading);
   });
+  setAdminTierSwitchDisabled(loading || isUpdatingStrategyTier);
   updateAdminSelectionControls();
+}
+
+function setAdminTierSwitchDisabled(disabled) {
+  document.querySelectorAll('.admin-tier-switch').forEach((el) => {
+    el.disabled = disabled;
+    el.setAttribute('aria-busy', disabled ? 'true' : 'false');
+  });
+}
+
+function setAdminTierUpdateLoading(loading) {
+  isUpdatingStrategyTier = loading;
+  setAdminTierSwitchDisabled(loading || isDeletingStrategies || isAdminSelectionMode);
 }
 
 function setVisibleAdminSelection(selected) {
@@ -1261,7 +1888,6 @@ function showAdminDeleteError() {
 }
 
 async function deleteStrategyIdsWithConfirm(ids, options = {}) {
-  if (!isDevEnvironment()) return;
   const { exitSelectionMode = false } = options;
   const normalizedIds = normalizeStrategyIds(ids);
   if (!normalizedIds.length || isDeletingStrategies) return;
@@ -1280,16 +1906,18 @@ async function deleteStrategyIdsWithConfirm(ids, options = {}) {
 }
 
 async function deleteSelectedStrategies() {
-  if (!isDevEnvironment()) return;
   await deleteStrategyIdsWithConfirm(Array.from(selectedStrategyIds), { exitSelectionMode: true });
 }
 
 let pendingOutcomeStatusRecordId = '';
+let pendingOutcomeStatusSelection = '';
 
 function setOutcomeStatusPickerLoading(loading) {
   document.querySelectorAll('#status-picker button').forEach((btn) => {
     btn.disabled = loading;
   });
+  const remarkEl = document.getElementById('status-picker-remark');
+  if (remarkEl) remarkEl.disabled = loading;
 }
 
 function setOutcomeStatusPickerError(message) {
@@ -1297,12 +1925,41 @@ function setOutcomeStatusPickerError(message) {
   if (errEl) errEl.textContent = message;
 }
 
-function openOutcomeStatusPicker(id, timeStatus) {
+function resetOutcomeStatusPickerForm() {
+  pendingOutcomeStatusSelection = '';
+  const remarkEl = document.getElementById('status-picker-remark');
+  if (remarkEl) remarkEl.value = '';
+  document.querySelectorAll('#status-picker [data-outcome-status]').forEach((btn) => {
+    btn.classList.remove('is-selected');
+    btn.setAttribute('aria-pressed', 'false');
+  });
+}
+
+function selectOutcomeStatusInPicker(outcomeStatus) {
+  const next = String(outcomeStatus ?? '').trim();
+  if (!isOutcomeStatusChoice(next)) return;
+  pendingOutcomeStatusSelection = next;
+  document.querySelectorAll('#status-picker [data-outcome-status]').forEach((btn) => {
+    const selected = btn.getAttribute('data-outcome-status') === next;
+    btn.classList.toggle('is-selected', selected);
+    btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
+}
+
+function openOutcomeStatusPicker(id, currentStatus, currentRemark) {
   const picker = document.getElementById('status-picker');
   if (!picker || !id) return;
   pendingOutcomeStatusRecordId = id;
   setOutcomeStatusPickerLoading(false);
   setOutcomeStatusPickerError('');
+  resetOutcomeStatusPickerForm();
+
+  const normalized = normalizeOutcomeStatus(currentStatus);
+  if (isOutcomeStatusChoice(normalized)) {
+    selectOutcomeStatusInPicker(normalized);
+  }
+  const remarkEl = document.getElementById('status-picker-remark');
+  if (remarkEl) remarkEl.value = String(currentRemark ?? '');
 
   picker.hidden = false;
   document.body.style.overflow = 'hidden';
@@ -1315,6 +1972,7 @@ function closeOutcomeStatusPicker() {
   const picker = document.getElementById('status-picker');
   if (!picker) return;
   pendingOutcomeStatusRecordId = '';
+  resetOutcomeStatusPickerForm();
   setOutcomeStatusPickerLoading(false);
   setOutcomeStatusPickerError('');
   picker.hidden = true;
@@ -1325,14 +1983,19 @@ function isOutcomeStatusChoice(value) {
   return value === 'profit' || value === 'loss' || value === 'not_filled';
 }
 
-async function submitOutcomeStatusFromPicker(outcomeStatus) {
-  const nextOutcomeStatus = String(outcomeStatus ?? '').trim();
+async function submitOutcomeStatusFromPicker() {
   const id = pendingOutcomeStatusRecordId;
-  if (!id || !isOutcomeStatusChoice(nextOutcomeStatus)) return;
+  const nextOutcomeStatus = pendingOutcomeStatusSelection;
+  if (!id || !isOutcomeStatusChoice(nextOutcomeStatus)) {
+    setOutcomeStatusPickerError('请先选择盈利状态。');
+    return;
+  }
+  const remarkEl = document.getElementById('status-picker-remark');
+  const remark = String(remarkEl?.value ?? '').trim();
   setOutcomeStatusPickerLoading(true);
   setOutcomeStatusPickerError('');
   try {
-    await updateStrategyOutcomeStatus(id, nextOutcomeStatus);
+    await updateStrategyOutcomeStatus(id, nextOutcomeStatus, remark);
     closeOutcomeStatusPicker();
     await renderAdminList();
   } catch {
@@ -1364,11 +2027,13 @@ async function renderAdminList() {
   } catch (err) {
     selectedStrategyIds.clear();
     visibleAdminStrategyIds = [];
+    latestAdminRows = [];
     listEl.innerHTML = `<div class="admin-sync-error">${escapeHtml(String(err?.message || '同步失败'))}</div>`;
     updateAdminSelectionControls();
     return;
   }
   syncAdminSelectionWithRows(rows);
+  latestAdminRows = rows;
 
   if (!rows.length) {
     listEl.innerHTML = '';
@@ -1379,15 +2044,27 @@ async function renderAdminList() {
     const rawId = String(row?.id ?? '').trim();
     const sideRaw = String(row?.positionSide ?? '').trim();
     const nameRaw = String(row?.strategyName ?? '').trim();
-    const isLong = sideRaw === 'long';
-    const isShort = sideRaw === 'short';
-    const sideMod = isLong ? 'long' : (isShort ? 'short' : 'flat');
-    const sideText = escapeHtml(isLong ? '开多' : (isShort ? '开空' : '—'));
-    const name = escapeHtml(nameRaw || '未命名');
-    const price = escapeHtml(String(row?.entryPrice ?? '-'));
-    const qty = escapeHtml(String(row?.quantity ?? '-'));
-    const tp = escapeHtml(String(row?.takeProfitPrice ?? '-'));
+    const sideMod = getPositionSideMod(sideRaw);
+    const title = escapeHtml(formatStrategyCardTitle(nameRaw));
+    const titleLabel = escapeHtml(formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark));
+    const gradeBadgeHtml = normalizeStrategyGrade(row?.grade) === STRATEGY_GRADE_PREMIUM
+      ? '<span class="admin-item__grade admin-item__grade--premium">优质</span>'
+      : '';
+    const titleGroupHtml = [
+      '<div class="admin-item__title-wrap">',
+      `<span class="admin-item__title">${title}</span>`,
+      gradeBadgeHtml,
+      '</div>',
+    ].join('');
+    const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
     const stop = escapeHtml(String(row?.stopLossPrice ?? '-'));
+    const refTakeProfitLabel = buildReferenceTakeProfitLabel(
+      row?.entryPrice,
+      row?.stopLossPrice,
+      getPriceDecimalPlacesFromValues(row?.entryPrice, row?.stopLossPrice),
+    );
+    const refTakeProfitHtml = renderReferenceTakeProfitHtml('admin-item__ref-tp', refTakeProfitLabel);
+    const concessionsHtml = renderAdminConcessionsHtml(buildAdminConcessionsForRow(row), stop);
     const startAt = getStrategyStartAt(row);
     const endAt = getStrategyEndAt(row);
     const timeRange = escapeHtml(formatAdminTimeRange(startAt, endAt));
@@ -1398,7 +2075,7 @@ async function renderAdminList() {
     const selectorDisabled = isDeletingStrategies ? ' is-disabled' : '';
     const selectHtml = rawId && isAdminSelectionMode
       ? [
-        `<label class="admin-item__selector${selectorDisabled}" aria-label="选择 ${name}">`,
+        `<label class="admin-item__selector${selectorDisabled}" aria-label="选择 ${titleLabel}">`,
         `<input type="checkbox" class="admin-item__select" data-id="${id}"${checked}${disabled}>`,
         '<span class="admin-item__checkmark" aria-hidden="true"></span>',
         '</label>',
@@ -1420,7 +2097,7 @@ async function renderAdminList() {
       : '';
     const outcomeStatusHtml = id
       ? [
-        `<button type="button" class="admin-outcome-status admin-outcome-status--${outcomeInfo.type} admin-outcome-status--actionable" data-id="${id}" data-time-status="${timeStatus}" aria-haspopup="dialog" aria-controls="status-picker" aria-label="修改盈利状态">`,
+        `<button type="button" class="admin-outcome-status admin-outcome-status--${outcomeInfo.type} admin-outcome-status--actionable" data-id="${id}" data-time-status="${timeStatus}" data-outcome-status="${escapeHtml(outcomeStatus)}" data-outcome-remark="${escapeHtml(String(row?.outcomeRemark ?? ''))}" aria-haspopup="dialog" aria-controls="status-picker" aria-label="修改盈利状态">`,
         `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
         '</button>',
       ].join('')
@@ -1429,21 +2106,27 @@ async function renderAdminList() {
         `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
         '</div>',
       ].join('');
-    const buttonsHtml = `<div class="admin-item__buttons">${outcomeStatusHtml}</div>`;
+    const tierCount = getTierCountFromRow(row);
+    const nextTierCount = getAlternateTierCount(tierCount);
+    const tierSwitchDisabled = isDeletingStrategies || isUpdatingStrategyTier || isAdminSelectionMode;
+    const tierSwitchHtml = id
+      ? [
+        `<button type="button" class="admin-tier-switch" data-id="${id}" data-tier-count="${tierCount}" data-next-tier-count="${nextTierCount}" aria-label="切换档位，当前${tierCount}档，点击切换至${nextTierCount}档"${tierSwitchDisabled ? ' disabled' : ''}>`,
+        `<span class="admin-tier-switch__tag">${tierCount}档</span>`,
+        '</button>',
+      ].join('')
+      : '';
+    const buttonsHtml = `<div class="admin-item__buttons">${tierSwitchHtml}${outcomeStatusHtml}</div>`;
     return [
       `<article class="admin-item admin-item--${sideMod}">`,
+      remarkStampHtml,
       '<header class="admin-item__head">',
       selectHtml,
-      `<span class="admin-item__side">${sideText}</span>`,
-      `<span class="admin-item__title">${name}</span>`,
+      titleGroupHtml,
       timeBadgeHtml,
       '</header>',
-      '<div class="admin-item__metrics">',
-      `<div class="metric metric--price"><span class="metric__label">价格</span><span class="metric__value">${price}</span></div>`,
-      `<div class="metric metric--qty"><span class="metric__label">数量</span><span class="metric__value">${qty}</span></div>`,
-      `<div class="metric metric--tp"><span class="metric__label">止盈</span><span class="metric__value">${tp}</span></div>`,
-      `<div class="metric metric--stop"><span class="metric__label">止损</span><span class="metric__value">${stop}</span></div>`,
-      '</div>',
+      concessionsHtml,
+      refTakeProfitHtml,
       '<div class="admin-item__actions">',
       '<div class="admin-item__meta">',
       `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
@@ -1561,24 +2244,609 @@ async function renderStatsPage() {
   }
 }
 
+const CASES_DIR = './cases/';
+const CASE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+const CASE_MAX_COUNT = 99;
+
+let casesSlideIndex = 0;
+let casesImages = [];
+
+function checkCaseImageExists(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = url;
+  });
+}
+
+async function findCaseImageByIndex(index) {
+  const base = String(index).padStart(2, '0');
+  const results = await Promise.all(
+    CASE_EXTENSIONS.map(async (ext) => {
+      const file = `${base}.${ext}`;
+      const exists = await checkCaseImageExists(`${CASES_DIR}${file}`);
+      return exists ? file : null;
+    }),
+  );
+  return results.find(Boolean) ?? null;
+}
+
+/** 按 01、02 … 序号自动扫描 cases 文件夹内的图片 */
+async function discoverCaseImages() {
+  const images = [];
+  for (let i = 1; i <= CASE_MAX_COUNT; i += 1) {
+    const found = await findCaseImageByIndex(i);
+    if (found) {
+      images.push(found);
+    } else if (images.length > 0) {
+      break;
+    }
+  }
+  return images;
+}
+
+function getCasesViewport() {
+  return document.querySelector('.cases-carousel__viewport');
+}
+
+function goToCaseSlide(index, { animate = true } = {}) {
+  const track = document.getElementById('cases-track');
+  const viewport = getCasesViewport();
+  if (!track || !viewport || casesImages.length === 0) return;
+  casesSlideIndex = Math.max(0, Math.min(index, casesImages.length - 1));
+  track.style.transition = animate ? 'transform 0.32s ease' : 'none';
+  track.style.transform = `translateX(-${casesSlideIndex * viewport.clientWidth}px)`;
+}
+
+function setupCasesSwipe(viewport, track) {
+  let startX = 0;
+  let startTranslate = 0;
+  let dragging = false;
+  let pointerId = null;
+
+  const getWidth = () => viewport.clientWidth;
+
+  const finishDrag = (clientX) => {
+    if (!dragging) return;
+    dragging = false;
+    viewport.classList.remove('is-dragging');
+    const dx = clientX - startX;
+    const threshold = getWidth() * 0.18;
+    if (dx < -threshold) goToCaseSlide(casesSlideIndex + 1);
+    else if (dx > threshold) goToCaseSlide(casesSlideIndex - 1);
+    else goToCaseSlide(casesSlideIndex);
+  };
+
+  viewport.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    pointerId = e.pointerId;
+    viewport.setPointerCapture(pointerId);
+    dragging = true;
+    startX = e.clientX;
+    startTranslate = -casesSlideIndex * getWidth();
+    track.style.transition = 'none';
+    viewport.classList.add('is-dragging');
+  });
+
+  viewport.addEventListener('pointermove', (e) => {
+    if (!dragging || e.pointerId !== pointerId) return;
+    const dx = e.clientX - startX;
+    const min = -(casesImages.length - 1) * getWidth();
+    const max = 0;
+    const rubber = getWidth() * 0.25;
+    let next = startTranslate + dx;
+    next = Math.max(min - rubber, Math.min(max + rubber, next));
+    track.style.transform = `translateX(${next}px)`;
+  });
+
+  viewport.addEventListener('pointerup', (e) => {
+    if (e.pointerId !== pointerId) return;
+    viewport.releasePointerCapture(pointerId);
+    pointerId = null;
+    finishDrag(e.clientX);
+  });
+
+  viewport.addEventListener('pointercancel', (e) => {
+    if (e.pointerId !== pointerId) return;
+    pointerId = null;
+    finishDrag(e.clientX);
+  });
+
+  window.addEventListener('resize', () => {
+    if (currentPage === 'cases') goToCaseSlide(casesSlideIndex, { animate: false });
+  });
+}
+
+async function renderCasesPage() {
+  const track = document.getElementById('cases-track');
+  const emptyEl = document.getElementById('cases-empty');
+  const carouselEl = document.getElementById('cases-carousel');
+  if (!track || !emptyEl) return;
+
+  track.innerHTML = '<div class="cases-loading">加载中...</div>';
+  emptyEl.hidden = true;
+  if (carouselEl) carouselEl.hidden = false;
+
+  casesImages = await discoverCaseImages();
+
+  if (casesImages.length === 0) {
+    track.innerHTML = '';
+    if (carouselEl) carouselEl.hidden = true;
+    emptyEl.hidden = false;
+    return;
+  }
+
+  track.innerHTML = casesImages.map((file, i) => {
+    const src = `${CASES_DIR}${encodeURIComponent(file)}`;
+    const alt = file.replace(/\.[^.]+$/, '');
+    return `<figure class="cases-carousel__slide"><img class="cases-carousel__img" src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" loading="${i === 0 ? 'eager' : 'lazy'}" draggable="false" /></figure>`;
+  }).join('');
+
+  const viewport = getCasesViewport();
+  if (viewport && !viewport.dataset.swipeBound) {
+    setupCasesSwipe(viewport, track);
+    viewport.dataset.swipeBound = 'true';
+  }
+
+  casesSlideIndex = 0;
+  requestAnimationFrame(() => goToCaseSlide(0, { animate: false }));
+}
+
+function getObsGradeClass(grade) {
+  const map = {
+    观测中: 'pending',
+    普通: 'normal',
+    优质: 'premium',
+  };
+  return map[grade] || 'normal';
+}
+
+function normalizeObservationItems(items) {
+  const source = Array.isArray(items) ? items : [];
+  return source
+    .map((item) => ({
+      name: String(item?.name ?? '').trim(),
+      grade: normalizeObservationGrade(item?.grade),
+    }))
+    .filter((item) => item.name);
+}
+
+function fromObservationRecord(row) {
+  let items = [];
+  if (Array.isArray(row?.items)) {
+    items = row.items;
+  } else if (typeof row?.content === 'string' && row.content.trim()) {
+    items = [{ name: row.content.trim(), grade: OBS_DEFAULT_GRADE }];
+  }
+  return {
+    id: String(row?.id ?? '').trim(),
+    createdAt: row?.created_at ?? null,
+    items: normalizeObservationItems(items),
+  };
+}
+
+async function fetchObservationRecords() {
+  const params = 'select=id,created_at,items&order=created_at.desc';
+  const res = await supabaseFetch(`${OBSERVATIONS_ENDPOINT}?${params}`, {
+    headers: getSupabaseHeaders(),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows.map(fromObservationRecord) : [];
+}
+
+async function createObservationRecord(items) {
+  const normalizedItems = normalizeObservationItems(items);
+  if (!normalizedItems.length) throw new Error('记录内容不能为空');
+  const payload = {
+    items: normalizedItems,
+    content: normalizedItems.map((item) => `${item.name}:${item.grade}`).join('\n'),
+  };
+  const res = await supabaseFetch(OBSERVATIONS_ENDPOINT, {
+    method: 'POST',
+    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+async function deleteObservationRecords(ids) {
+  const normalizedIds = Array.from(new Set(
+    (Array.isArray(ids) ? ids : [ids])
+      .map((id) => String(id ?? '').trim())
+      .filter(Boolean),
+  ));
+  if (!normalizedIds.length) return;
+  const idFilter = encodeURIComponent(`(${normalizedIds.join(',')})`);
+  const res = await supabaseFetch(`${OBSERVATIONS_ENDPOINT}?id=in.${idFilter}`, {
+    method: 'DELETE',
+    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+function formatObservationRecordDate(isoString) {
+  const d = parseDateValue(isoString);
+  if (!d) return '—';
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function renderObsGradeBadge(grade) {
+  const cls = getObsGradeClass(grade);
+  return `<span class="obs-grade obs-grade--${cls}">${escapeHtml(grade)}</span>`;
+}
+
+function normalizeObservationGrade(grade) {
+  const raw = String(grade ?? '').trim();
+  const legacyMap = {
+    优秀: '优质',
+    良好: '普通',
+    及格: '普通',
+    待观测: '观测中',
+  };
+  const normalized = legacyMap[raw] || raw;
+  return OBS_GRADE_OPTIONS.includes(normalized) ? normalized : OBS_DEFAULT_GRADE;
+}
+
+function renderObservationTemplateDisplay(items) {
+  const normalizedItems = normalizeObservationItems(items);
+  if (!normalizedItems.length) {
+    return '<p class="obs-template-empty">暂无币种记录</p>';
+  }
+  const rows = normalizedItems
+    .map((item) => [
+      '<div class="obs-template__row">',
+      `<span class="obs-template__name">${escapeHtml(item.name)}</span>`,
+      renderObsGradeBadge(item.grade),
+      '</div>',
+    ].join(''))
+    .join('');
+  return [
+    '<div class="obs-template">',
+    '<div class="obs-template__row obs-template__head">',
+    '<span>名称</span>',
+    '<span>等级</span>',
+    '</div>',
+    rows,
+    '</div>',
+  ].join('');
+}
+
+function renderObservationFormRow(item = {}) {
+  const name = escapeHtml(String(item?.name ?? ''));
+  const grade = normalizeObservationGrade(item?.grade);
+  const options = OBS_GRADE_OPTIONS.map((option) => {
+    const selected = option === grade ? ' selected' : '';
+    return `<option value="${escapeHtml(option)}"${selected}>${escapeHtml(option)}</option>`;
+  }).join('');
+  return [
+    '<div class="obs-form-row">',
+    `<input class="obs-form-row__name" type="text" value="${name}" placeholder="请输入名称" autocomplete="off" autocapitalize="characters" spellcheck="false" />`,
+    `<select class="obs-form-row__grade" aria-label="等级">${options}</select>`,
+    '<button type="button" class="obs-form-row__remove" aria-label="删除">×</button>',
+    '</div>',
+  ].join('');
+}
+
+function renderObservationFormEmptyHint() {
+  return '<p class="obs-form-empty">点击「新增」添加币种记录。</p>';
+}
+
+function renderObservationFormList() {
+  const listEl = document.getElementById('obs-form-list');
+  if (!listEl) return;
+  listEl.innerHTML = Array.from({ length: OBS_FORM_DEFAULT_ROWS }, () => (
+    renderObservationFormRow({ grade: OBS_DEFAULT_GRADE })
+  )).join('');
+}
+
+function syncObservationFormEmptyHint() {
+  const listEl = document.getElementById('obs-form-list');
+  if (!listEl) return;
+  const hasRows = listEl.querySelector('.obs-form-row');
+  const emptyEl = listEl.querySelector('.obs-form-empty');
+  if (hasRows) {
+    emptyEl?.remove();
+    return;
+  }
+  if (!emptyEl) listEl.innerHTML = renderObservationFormEmptyHint();
+}
+
+function addObservationFormRow(focusName = true) {
+  const listEl = document.getElementById('obs-form-list');
+  if (!listEl) return;
+  listEl.querySelector('.obs-form-empty')?.remove();
+  listEl.insertAdjacentHTML('beforeend', renderObservationFormRow({ grade: OBS_DEFAULT_GRADE }));
+  if (focusName) {
+    const rows = listEl.querySelectorAll('.obs-form-row__name');
+    rows[rows.length - 1]?.focus();
+  }
+}
+
+function removeObservationFormRow(rowEl) {
+  if (!(rowEl instanceof HTMLElement)) return;
+  rowEl.remove();
+  syncObservationFormEmptyHint();
+}
+
+function collectObservationFormItems() {
+  return Array.from(document.querySelectorAll('#obs-form-list .obs-form-row'))
+    .map((row) => ({
+      name: String(row.querySelector('.obs-form-row__name')?.value ?? '').trim(),
+      grade: normalizeObservationGrade(row.querySelector('.obs-form-row__grade')?.value),
+    }))
+    .filter((item) => item.name);
+}
+
+function renderObservationRecordItem(record) {
+  const rawId = String(record?.id ?? '').trim();
+  const id = escapeHtml(rawId);
+  const date = escapeHtml(formatObservationRecordDate(record.createdAt));
+  const dateTime = escapeHtml(String(record?.createdAt ?? ''));
+  const templateHtml = renderObservationTemplateDisplay(record.items);
+  const checked = rawId && selectedObservationIds.has(rawId) ? ' checked' : '';
+  const disabled = isDeletingObservations ? ' disabled' : '';
+  const selectorDisabled = isDeletingObservations ? ' is-disabled' : '';
+  const selectHtml = rawId && isObsSelectionMode
+    ? [
+      `<label class="admin-item__selector${selectorDisabled}" aria-label="选择观测记录">`,
+      `<input type="checkbox" class="admin-item__select" data-id="${id}"${checked}${disabled}>`,
+      '<span class="admin-item__checkmark" aria-hidden="true"></span>',
+      '</label>',
+    ].join('')
+    : '';
+  return [
+    '<article class="obs-record">',
+    '<div class="obs-record__meta">',
+    selectHtml,
+    `<time class="obs-record__date" datetime="${dateTime}">${date}</time>`,
+    '</div>',
+    '<div class="obs-item">',
+    templateHtml,
+    '</div>',
+    '</article>',
+  ].join('');
+}
+
+let selectedObservationIds = new Set();
+let isDeletingObservations = false;
+let isObsSelectionMode = false;
+let visibleObservationIds = [];
+
+function getVisibleObservationIds() {
+  const domIds = Array.from(document.querySelectorAll('#obs-list .admin-item__select'))
+    .map((el) => String(el.getAttribute('data-id') ?? '').trim())
+    .filter(Boolean);
+  return domIds.length ? domIds : visibleObservationIds;
+}
+
+function syncObsSelectionWithRows(records) {
+  visibleObservationIds = records.map((row) => String(row?.id ?? '').trim()).filter(Boolean);
+  const visibleIds = new Set(visibleObservationIds);
+  selectedObservationIds = new Set(Array.from(selectedObservationIds).filter((id) => visibleIds.has(id)));
+  updateObsSelectionControls();
+}
+
+function updateObsSelectionControls() {
+  const selectedCount = selectedObservationIds.size;
+  const selectionEl = document.getElementById('obs-selection');
+  const countEl = document.getElementById('obs-selection-count');
+  const selectAllBtn = document.getElementById('obs-select-all');
+  const clearSelectionBtn = document.getElementById('obs-clear-selection');
+  const deleteSelectedBtn = document.getElementById('obs-delete-selected');
+  const visibleCount = getVisibleObservationIds().length;
+
+  if (selectionEl) selectionEl.hidden = currentPage !== 'observations' || !isObsSelectionMode || visibleCount === 0;
+  if (countEl) countEl.textContent = `已选 ${selectedCount} 条`;
+  if (selectAllBtn) selectAllBtn.disabled = isDeletingObservations || !isObsSelectionMode || visibleCount === 0;
+  if (clearSelectionBtn) clearSelectionBtn.disabled = isDeletingObservations || !isObsSelectionMode;
+  if (deleteSelectedBtn) {
+    deleteSelectedBtn.disabled = isDeletingObservations || !isObsSelectionMode || selectedCount === 0;
+    deleteSelectedBtn.setAttribute('aria-busy', isDeletingObservations ? 'true' : 'false');
+  }
+
+  updateHeaderClearButton();
+}
+
+function enterObsSelectionMode() {
+  isObsSelectionMode = true;
+  renderObservationsPage().catch(() => updateObsSelectionControls());
+}
+
+function resetObsSelectionMode() {
+  isObsSelectionMode = false;
+  selectedObservationIds.clear();
+  updateObsSelectionControls();
+}
+
+function exitObsSelectionMode() {
+  resetObsSelectionMode();
+  renderObservationsPage().catch(() => updateObsSelectionControls());
+}
+
+function resetObsPageState() {
+  isObsSelectionMode = false;
+  selectedObservationIds.clear();
+  visibleObservationIds = [];
+  isDeletingObservations = false;
+  updateObsSelectionControls();
+}
+
+function setObsDeleteLoading(loading) {
+  isDeletingObservations = loading;
+  document.querySelectorAll('#obs-list .admin-item__select').forEach((el) => {
+    el.disabled = loading;
+  });
+  document.querySelectorAll('#obs-list .admin-item__selector').forEach((el) => {
+    el.classList.toggle('is-disabled', loading);
+  });
+  updateObsSelectionControls();
+}
+
+function setVisibleObsSelection(selected) {
+  document.querySelectorAll('#obs-list .admin-item__select').forEach((el) => {
+    const id = String(el.getAttribute('data-id') ?? '').trim();
+    if (!id) return;
+    if (selected) selectedObservationIds.add(id);
+    else selectedObservationIds.delete(id);
+    el.checked = selected;
+  });
+  updateObsSelectionControls();
+}
+
+function confirmDeleteObservations(count) {
+  if (typeof window.confirm !== 'function') return true;
+  return window.confirm(count > 1 ? `确认删除选中的 ${count} 条观测记录？` : '确认删除这条观测记录？');
+}
+
+function showObsDeleteError() {
+  if (typeof window.alert === 'function') {
+    window.alert('删除失败，请检查网络或 Supabase 权限。');
+  }
+}
+
+async function deleteObservationIdsWithConfirm(ids, options = {}) {
+  const { exitSelectionMode = false } = options;
+  const normalizedIds = Array.from(new Set(
+    (Array.isArray(ids) ? ids : [ids])
+      .map((id) => String(id ?? '').trim())
+      .filter(Boolean),
+  ));
+  if (!normalizedIds.length || isDeletingObservations) return;
+  if (!confirmDeleteObservations(normalizedIds.length)) return;
+  setObsDeleteLoading(true);
+  try {
+    await deleteObservationRecords(normalizedIds);
+    normalizedIds.forEach((id) => selectedObservationIds.delete(id));
+    if (exitSelectionMode) isObsSelectionMode = false;
+    await renderObservationsPage();
+  } catch {
+    showObsDeleteError();
+  } finally {
+    setObsDeleteLoading(false);
+  }
+}
+
+async function deleteSelectedObservations() {
+  await deleteObservationIdsWithConfirm(Array.from(selectedObservationIds), { exitSelectionMode: true });
+}
+
+async function renderObservationsPage() {
+  const listEl = document.getElementById('obs-list');
+  if (!listEl) return;
+
+  listEl.innerHTML = '<p class="obs-loading">加载中...</p>';
+
+  try {
+    const records = await fetchObservationRecords();
+    if (records.length === 0) {
+      visibleObservationIds = [];
+      selectedObservationIds.clear();
+      listEl.innerHTML = '<p class="obs-empty">暂无观测记录，点击下方按钮新增。</p>';
+      updateObsSelectionControls();
+      return;
+    }
+    syncObsSelectionWithRows(records);
+    listEl.innerHTML = records.map(renderObservationRecordItem).join('');
+    updateObsSelectionControls();
+  } catch (err) {
+    visibleObservationIds = [];
+    selectedObservationIds.clear();
+    listEl.innerHTML = `<p class="obs-error">加载失败：${escapeHtml(String(err?.message || '未知错误'))}</p>`;
+    updateObsSelectionControls();
+  }
+}
+
+function openObservationFormPicker() {
+  const picker = document.getElementById('obs-form-picker');
+  const errorEl = document.getElementById('obs-form-error');
+  if (!picker) return;
+  renderObservationFormList();
+  if (errorEl) errorEl.textContent = '';
+  picker.hidden = false;
+}
+
+function closeObservationFormPicker() {
+  const picker = document.getElementById('obs-form-picker');
+  const listEl = document.getElementById('obs-form-list');
+  const errorEl = document.getElementById('obs-form-error');
+  if (!picker) return;
+  picker.hidden = true;
+  if (listEl) listEl.innerHTML = '';
+  if (errorEl) errorEl.textContent = '';
+}
+
+let isSavingObservation = false;
+
+async function submitObservationForm() {
+  const errorEl = document.getElementById('obs-form-error');
+  const submitBtn = document.getElementById('obs-form-submit');
+  const items = collectObservationFormItems();
+  if (!items.length) {
+    if (errorEl) errorEl.textContent = '请至少新增一条币种记录。';
+    return;
+  }
+  if (errorEl) errorEl.textContent = '';
+  if (isSavingObservation) return;
+
+  isSavingObservation = true;
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = '保存中';
+  }
+
+  try {
+    await createObservationRecord(items);
+    closeObservationFormPicker();
+    showToast('记录已保存');
+    if (currentPage === 'observations') await renderObservationsPage();
+  } catch (err) {
+    if (errorEl) errorEl.textContent = `保存失败：${String(err?.message || '未知错误')}`;
+  } finally {
+    isSavingObservation = false;
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '保存';
+    }
+  }
+}
+
 function setPage(mode) {
+  if (!isAuthReady) {
+    showLoginPage();
+    return;
+  }
   const front = document.getElementById('front-page');
   const admin = document.getElementById('admin-page');
   const stats = document.getElementById('stats-page');
+  const methodology = document.getElementById('methodology-page');
+  const cases = document.getElementById('cases-page');
+  const observations = document.getElementById('observations-page');
   const btnFront = document.getElementById('btn-tab-front');
   const btnAdmin = document.getElementById('btn-tab-admin');
   const btnStats = document.getElementById('btn-tab-stats');
-  if (!front || !admin || !stats || !btnFront || !btnAdmin || !btnStats) return;
+  const btnMethodology = document.getElementById('btn-tab-methodology');
+  const btnCases = document.getElementById('btn-tab-cases');
+  const btnObservations = document.getElementById('btn-tab-observations');
+  if (!front || !admin || !stats || !methodology || !cases || !observations || !btnFront || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations) return;
 
-  const toAdmin = mode === 'admin';
-  const toStats = mode === 'stats';
-  const toFront = !toAdmin && !toStats;
+  const normalizedMode = ['admin', 'stats', 'methodology', 'cases', 'observations'].includes(mode) ? mode : 'front';
+  const toAdmin = normalizedMode === 'admin';
+  const toStats = normalizedMode === 'stats';
+  const toMethodology = normalizedMode === 'methodology';
+  const toCases = normalizedMode === 'cases';
+  const toObservations = normalizedMode === 'observations';
+  const toFront = normalizedMode === 'front';
 
-  currentPage = toAdmin ? 'admin' : (toStats ? 'stats' : 'front');
+  currentPage = normalizedMode;
 
   front.hidden = !toFront;
   admin.hidden = !toAdmin;
   stats.hidden = !toStats;
+  methodology.hidden = !toMethodology;
+  cases.hidden = !toCases;
+  observations.hidden = !toObservations;
 
   btnFront.classList.toggle('is-active', toFront);
   btnFront.setAttribute('aria-selected', toFront ? 'true' : 'false');
@@ -1586,14 +2854,16 @@ function setPage(mode) {
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   btnStats.classList.toggle('is-active', toStats);
   btnStats.setAttribute('aria-selected', toStats ? 'true' : 'false');
+  btnMethodology.classList.toggle('is-active', toMethodology);
+  btnMethodology.setAttribute('aria-selected', toMethodology ? 'true' : 'false');
+  btnCases.classList.toggle('is-active', toCases);
+  btnCases.setAttribute('aria-selected', toCases ? 'true' : 'false');
+  btnObservations.classList.toggle('is-active', toObservations);
+  btnObservations.setAttribute('aria-selected', toObservations ? 'true' : 'false');
 
-  const btnClear = document.getElementById('btn-clear');
-  if (btnClear) {
-    btnClear.hidden = !toAdmin || !isDevEnvironment();
-    btnClear.textContent = toAdmin ? '删除' : '清空';
-    btnClear.disabled = toAdmin;
-    btnClear.setAttribute('aria-busy', 'false');
-  }
+  if (!toObservations) resetObsPageState();
+
+  updateHeaderClearButton();
 
   if (toAdmin) {
     resetFrontPage();
@@ -1603,6 +2873,19 @@ function setPage(mode) {
     resetFrontPage();
     resetAdminPageState();
     renderStatsPage().catch(() => {});
+  } else if (toMethodology) {
+    resetFrontPage();
+    resetAdminPageState();
+    renderMethodologyPage();
+  } else if (toCases) {
+    resetFrontPage();
+    resetAdminPageState();
+    renderCasesPage().catch(() => {});
+  } else if (toObservations) {
+    resetFrontPage();
+    resetAdminPageState();
+    resetObsPageState();
+    renderObservationsPage().catch(() => {});
   } else {
     resetAdminPageState();
     resetFrontPage();
@@ -1637,24 +2920,36 @@ function flashCopyStrategyBtn(btn, label, duration = 1200) {
 let isSavingStrategy = false;
 
 async function copyStrategyOutput() {
+  logSave('info', '点击保存');
   const btn = document.getElementById('btn-copy-strategy');
-  const out = document.getElementById('strategy-output');
   const errEl = document.getElementById('error');
   const nameEl = document.getElementById('name-input');
   const name = String(nameEl?.value ?? '').trim();
+  logSave('info', '保存前状态', {
+    currentPage,
+    name,
+    hasCopyText: Boolean(currentStrategyCopyText),
+    hasRecord: Boolean(currentStrategyRecord),
+    copyTextLength: currentStrategyCopyText.length,
+  });
   if (!name) {
+    logSave('warn', '前端拦截：未填写名称');
     if (errEl) errEl.textContent = '保存前请填写名称。';
     flashCopyStrategyBtn(btn, '请填名称');
     return;
   }
   if (errEl) errEl.textContent = '';
-  const text = String(out?.dataset.copyText ?? '').trim();
+  const text = currentStrategyCopyText;
   if (!text) {
+    logSave('warn', '前端拦截：策略未生成（copyText 为空）');
     flashCopyStrategyBtn(btn, '无内容');
     return;
   }
 
-  if (isSavingStrategy) return;
+  if (isSavingStrategy) {
+    logSave('warn', '前端拦截：正在保存中，忽略重复点击');
+    return;
+  }
   isSavingStrategy = true;
   if (btn) {
     if (!btn.dataset.defaultLabel) btn.dataset.defaultLabel = btn.textContent;
@@ -1669,16 +2964,25 @@ async function copyStrategyOutput() {
 
   let saved = false;
   try {
-    if (out?.dataset.record) {
-      try {
-        await createStrategy(JSON.parse(out.dataset.record));
-        saved = true;
-        if (currentPage === 'admin') await renderAdminList();
-      } catch {
-        if (errEl) errEl.textContent = '保存失败。请检查 Supabase 表和权限。';
-        flashCopyStrategyBtn(btn, '保存失败');
-        return;
-      }
+    if (!currentStrategyRecord) {
+      logSave('warn', '前端拦截：有 copyText 但缺少 record，未发起接口');
+      flashCopyStrategyBtn(btn, '保存失败');
+      return;
+    }
+    const record = currentStrategyRecord;
+    logSave('info', 'record 已就绪', record);
+    try {
+      await createStrategy(record);
+      saved = true;
+      logSave('info', '保存成功');
+      if (currentPage === 'admin') await renderAdminList();
+    } catch (err) {
+      logSave('error', 'Supabase 保存失败', {
+        message: err?.message || String(err),
+      });
+      if (errEl) errEl.textContent = '保存失败。请检查 Supabase 表和权限。';
+      flashCopyStrategyBtn(btn, '保存失败');
+      return;
     }
     if (saved) {
       showToast('保存成功');
@@ -1694,42 +2998,32 @@ async function copyStrategyOutput() {
   }
 }
 
-async function copyQtyOutput() {
-  const btn = document.getElementById('btn-copy-qty');
-  const out = document.getElementById('strategy-output');
-  const qty = String(out?.dataset.qty ?? '').trim();
-  if (!qty) {
-    flashCopyStrategyBtn(btn, '无内容');
-    return;
-  }
-  let ok = false;
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(qty);
-      ok = true;
-    }
-  } catch {
-    ok = false;
-  }
-  if (!ok) ok = copyFallback(qty);
-  flashCopyStrategyBtn(btn, ok ? '已复制' : '复制失败');
-}
-
 const btnCopyStrategy = document.getElementById('btn-copy-strategy');
 if (btnCopyStrategy) btnCopyStrategy.addEventListener('click', copyStrategyOutput);
-const btnCopyQty = document.getElementById('btn-copy-qty');
-if (btnCopyQty) btnCopyQty.addEventListener('click', copyQtyOutput);
 const clearAll = () => {
-  if (currentPage !== 'admin' || !isDevEnvironment()) return;
-  if (!isAdminSelectionMode) {
-    enterAdminSelectionMode();
+  if (currentPage === 'admin') {
+    if (!isAdminSelectionMode) {
+      enterAdminSelectionMode();
+      return;
+    }
+    if (selectedStrategyIds.size === 0) {
+      exitAdminSelectionMode();
+      return;
+    }
+    deleteSelectedStrategies().catch(() => {});
     return;
   }
-  if (selectedStrategyIds.size === 0) {
-    exitAdminSelectionMode();
-    return;
+  if (currentPage === 'observations') {
+    if (!isObsSelectionMode) {
+      enterObsSelectionMode();
+      return;
+    }
+    if (selectedObservationIds.size === 0) {
+      exitObsSelectionMode();
+      return;
+    }
+    deleteSelectedObservations().catch(() => {});
   }
-  deleteSelectedStrategies().catch(() => {});
 };
 const btnClear = document.getElementById('btn-clear');
 if (btnClear) btnClear.addEventListener('click', clearAll);
@@ -1740,6 +3034,74 @@ const btnTabAdmin = document.getElementById('btn-tab-admin');
 if (btnTabAdmin) btnTabAdmin.addEventListener('click', () => setPage('admin'));
 const btnTabStats = document.getElementById('btn-tab-stats');
 if (btnTabStats) btnTabStats.addEventListener('click', () => setPage('stats'));
+const btnTabMethodology = document.getElementById('btn-tab-methodology');
+if (btnTabMethodology) btnTabMethodology.addEventListener('click', () => setPage('methodology'));
+const btnTabCases = document.getElementById('btn-tab-cases');
+if (btnTabCases) btnTabCases.addEventListener('click', () => setPage('cases'));
+const btnTabObservations = document.getElementById('btn-tab-observations');
+if (btnTabObservations) btnTabObservations.addEventListener('click', () => setPage('observations'));
+
+const obsAddBtn = document.getElementById('obs-add-btn');
+if (obsAddBtn) obsAddBtn.addEventListener('click', openObservationFormPicker);
+
+const obsListEl = document.getElementById('obs-list');
+if (obsListEl) {
+  obsListEl.addEventListener('change', (e) => {
+    const checkbox = e.target instanceof HTMLElement ? e.target.closest('#obs-list .admin-item__select') : null;
+    if (!checkbox) return;
+    const id = String(checkbox.getAttribute('data-id') ?? '').trim();
+    if (!id) return;
+    if (checkbox.checked) selectedObservationIds.add(id);
+    else selectedObservationIds.delete(id);
+    updateObsSelectionControls();
+  });
+}
+
+const obsSelectionEl = document.getElementById('obs-selection');
+if (obsSelectionEl) {
+  obsSelectionEl.addEventListener('click', (e) => {
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    if (!target) return;
+    if (target.closest('#obs-select-all')) {
+      setVisibleObsSelection(true);
+      return;
+    }
+    if (target.closest('#obs-clear-selection')) {
+      exitObsSelectionMode();
+      return;
+    }
+    if (target.closest('#obs-delete-selected')) {
+      deleteSelectedObservations().catch(() => {});
+    }
+  });
+}
+
+const obsFormPicker = document.getElementById('obs-form-picker');
+if (obsFormPicker) {
+  obsFormPicker.addEventListener('click', (e) => {
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    if (!target) return;
+    if (target.getAttribute('data-obs-form-dismiss') === 'true') {
+      closeObservationFormPicker();
+      return;
+    }
+    const removeBtn = target.closest('.obs-form-row__remove');
+    if (removeBtn) {
+      removeObservationFormRow(removeBtn.closest('.obs-form-row'));
+    }
+  });
+}
+
+const obsFormAddRow = document.getElementById('obs-form-add-row');
+if (obsFormAddRow) obsFormAddRow.addEventListener('click', () => addObservationFormRow(true));
+
+const obsFormCancel = document.getElementById('obs-form-cancel');
+if (obsFormCancel) obsFormCancel.addEventListener('click', closeObservationFormPicker);
+
+const obsFormSubmit = document.getElementById('obs-form-submit');
+if (obsFormSubmit) obsFormSubmit.addEventListener('click', () => {
+  submitObservationForm().catch(() => {});
+});
 
 const adminFilterTabsEl = document.getElementById('admin-filter-tabs');
 if (adminFilterTabsEl) {
@@ -1749,34 +3111,6 @@ if (adminFilterTabsEl) {
     const nextFilter = normalizeAdminTimeFilter(target.getAttribute('data-admin-time-filter'));
     if (adminTimeFilter === nextFilter) return;
     adminTimeFilter = nextFilter;
-    renderAdminList().catch(() => {});
-  });
-}
-
-const adminNameSearchEl = document.getElementById('admin-name-search');
-if (adminNameSearchEl) {
-  adminNameSearchEl.addEventListener('input', () => {
-    adminNameSearch = normalizeAdminNameSearch(adminNameSearchEl.value);
-    scheduleRenderAdminList();
-  });
-}
-
-const adminTimeframeFilterSelectEl = document.getElementById('admin-timeframe-filter-select');
-if (adminTimeframeFilterSelectEl) {
-  adminTimeframeFilterSelectEl.addEventListener('change', () => {
-    const nextFilter = normalizeAdminTimeframeFilter(adminTimeframeFilterSelectEl.value);
-    if (adminTimeframeFilter === nextFilter) return;
-    adminTimeframeFilter = nextFilter;
-    renderAdminList().catch(() => {});
-  });
-}
-
-const adminOutcomeFilterSelectEl = document.getElementById('admin-outcome-filter-select');
-if (adminOutcomeFilterSelectEl) {
-  adminOutcomeFilterSelectEl.addEventListener('change', () => {
-    const nextFilter = normalizeAdminOutcomeFilter(adminOutcomeFilterSelectEl.value);
-    if (adminOutcomeFilter === nextFilter) return;
-    adminOutcomeFilter = nextFilter;
     renderAdminList().catch(() => {});
   });
 }
@@ -1800,6 +3134,18 @@ if (adminSelectionEl) {
   });
 }
 
+async function handleAdminTierSwitch(id, nextTierCount) {
+  if (!id || isUpdatingStrategyTier || isDeletingStrategies || isAdminSelectionMode) return;
+  setAdminTierUpdateLoading(true);
+  try {
+    await updateStrategyTier(id, nextTierCount);
+    await renderAdminList();
+  } catch {
+  } finally {
+    setAdminTierUpdateLoading(false);
+  }
+}
+
 const adminListEl = document.getElementById('admin-list');
 if (adminListEl) {
   adminListEl.addEventListener('change', (e) => {
@@ -1816,11 +3162,24 @@ if (adminListEl) {
     const target = e.target instanceof HTMLElement ? e.target : null;
     if (!target) return;
 
+    const tierSwitchBtn = target.closest('.admin-tier-switch');
+    if (tierSwitchBtn) {
+      const id = String(tierSwitchBtn.getAttribute('data-id') ?? '').trim();
+      const nextTierCount = Number(tierSwitchBtn.getAttribute('data-next-tier-count'));
+      if (id && CONCESSION_RATES_BY_TIER[nextTierCount]) {
+        await handleAdminTierSwitch(id, nextTierCount);
+      }
+      return;
+    }
+
     const outcomeStatusActionBtn = target.closest('.admin-outcome-status--actionable');
     if (outcomeStatusActionBtn) {
       const id = String(outcomeStatusActionBtn.getAttribute('data-id') ?? '').trim();
-      const timeStatus = String(outcomeStatusActionBtn.getAttribute('data-time-status') ?? '').trim();
-      openOutcomeStatusPicker(id, timeStatus);
+      openOutcomeStatusPicker(
+        id,
+        outcomeStatusActionBtn.getAttribute('data-outcome-status'),
+        outcomeStatusActionBtn.getAttribute('data-outcome-remark') ?? '',
+      );
     }
   });
 }
@@ -1835,17 +3194,30 @@ if (outcomeStatusPicker) {
       return;
     }
     const option = target.closest('[data-outcome-status]');
-    if (!option) return;
-    submitOutcomeStatusFromPicker(option.getAttribute('data-outcome-status'));
+    if (option) {
+      selectOutcomeStatusInPicker(option.getAttribute('data-outcome-status'));
+    }
   });
 }
 
 const outcomeStatusPickerCancel = document.getElementById('status-picker-cancel');
 if (outcomeStatusPickerCancel) outcomeStatusPickerCancel.addEventListener('click', closeOutcomeStatusPicker);
 
+const outcomeStatusPickerSubmit = document.getElementById('status-picker-submit');
+if (outcomeStatusPickerSubmit) outcomeStatusPickerSubmit.addEventListener('click', () => {
+  submitOutcomeStatusFromPicker().catch(() => {});
+});
+
 document.addEventListener('keydown', (e) => {
   const picker = document.getElementById('status-picker');
   if (e.key === 'Escape' && picker && !picker.hidden) closeOutcomeStatusPicker();
+  const obsPicker = document.getElementById('obs-form-picker');
+  if (e.key === 'Escape' && obsPicker && !obsPicker.hidden) closeObservationFormPicker();
 });
 
-setPage('admin');
+const loginForm = document.getElementById('login-form');
+if (loginForm) loginForm.addEventListener('submit', (e) => {
+  handleLoginSubmit(e).catch(() => {});
+});
+
+initApp().catch(() => showLoginPage());
