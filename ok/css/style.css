@@ -862,52 +862,6 @@ body.login-mode {
   border-radius: 6px;
 }
 
-.admin-tier-switch {
-  flex: none;
-  display: flex;
-  align-items: center;
-  margin: 0;
-  border: none;
-  padding: 0;
-  background: transparent;
-  cursor: pointer;
-  font: inherit;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.admin-tier-switch:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.admin-tier-switch:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-.admin-tier-switch:focus-visible {
-  outline: 2px solid rgba(34, 197, 94, 0.55);
-  outline-offset: 2px;
-  border-radius: 6px;
-}
-
-.admin-tier-switch__tag {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  white-space: nowrap;
-  box-sizing: border-box;
-  border-radius: 6px;
-  padding: 4px 9px;
-  min-height: 26px;
-  min-width: 44px;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.2;
-  border: 1px solid var(--border);
-  background: var(--surface-tint);
-  color: var(--primary-strong);
-}
-
 .admin-item__concessions {
   margin-top: 6px;
   border: 1px solid var(--border-soft);
@@ -2191,14 +2145,6 @@ body.login-mode {
   }
 
   .admin-outcome-status__tag {
-    min-height: 26px;
-    min-width: 0;
-    padding: 4px 9px;
-    font-size: 12px;
-    border-radius: 6px;
-  }
-
-  .admin-tier-switch__tag {
     min-height: 26px;
     min-width: 0;
     padding: 4px 9px;

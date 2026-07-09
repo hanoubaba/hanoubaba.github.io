@@ -46,8 +46,8 @@
       <div class="field">
         <span class="field-label">模式</span>
         <div class="cost-switch mode-switch" role="tablist" aria-label="模式选择">
-          <button id="mode-normal" type="button" class="cost-switch__btn is-active" role="tab" aria-selected="true" data-mode="normal">正常模式</button>
-          <button id="mode-reverse" type="button" class="cost-switch__btn" role="tab" aria-selected="false" data-mode="reverse">反向模式</button>
+          <button id="mode-normal" type="button" class="cost-switch__btn is-active" role="tab" aria-selected="true" data-mode="normal">趋势跟随</button>
+          <button id="mode-reverse" type="button" class="cost-switch__btn" role="tab" aria-selected="false" data-mode="reverse">马丁策略</button>
         </div>
       </div>
 
@@ -74,12 +74,12 @@
       </label>
 
       <label class="field field--spaced">
-        <span class="field-label">价格</span>
+        <span id="open-price-label" class="field-label">价格</span>
         <input id="open-price-input" class="field-input" inputmode="decimal" autocomplete="off" />
       </label>
 
       <label class="field field--spaced">
-        <span class="field-label">止损</span>
+        <span id="stop-price-label" class="field-label">止损</span>
         <input id="stop-price-input" class="field-input" inputmode="decimal" autocomplete="off" />
       </label>
 
