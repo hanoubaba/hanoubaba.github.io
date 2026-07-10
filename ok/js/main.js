@@ -34,6 +34,15 @@ function formatFixed2FromValue(value) {
   return formatFixedDecimals(n, 2);
 }
 
+const ADMIN_DECIMAL_PLACES = 3;
+
+/** 后台价格/数量：最多 3 位小数，去掉尾随 0 */
+function formatAdminDecimalFromValue(value, maxDecimals = ADMIN_DECIMAL_PLACES) {
+  const n = toNumber(value);
+  if (n == null) return String(value ?? '').trim();
+  return formatTrimmedFixedDecimals(n, maxDecimals);
+}
+
 function formatQuantity(n) {
   return formatFixedDecimals(n, 1);
 }
@@ -1270,8 +1279,8 @@ function formatAdminConcessionItems(items) {
   if (!Array.isArray(items)) return [];
   return items.map((item) => ({
     ...item,
-    price: formatFixed2FromValue(item?.price),
-    quantity: formatFixed2FromValue(item?.quantity),
+    price: formatAdminDecimalFromValue(item?.price),
+    quantity: formatAdminDecimalFromValue(item?.quantity),
   }));
 }
 
