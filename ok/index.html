@@ -33,7 +33,8 @@
         <h1 class="title"></h1>
         <div class="header-actions">
           <div class="page-switch" role="tablist" aria-label="页面切换">
-          <button id="btn-tab-front" type="button" class="page-switch__btn" role="tab" aria-selected="false">前台</button>
+          <button id="btn-tab-trend" type="button" class="page-switch__btn" role="tab" aria-selected="false">趋势跟随</button>
+          <button id="btn-tab-martin" type="button" class="page-switch__btn" role="tab" aria-selected="false">马丁策略</button>
           <button id="btn-tab-admin" type="button" class="page-switch__btn is-active" role="tab" aria-selected="true">后台管理</button>
           <button id="btn-tab-observations" type="button" class="page-switch__btn" role="tab" aria-selected="false">观测日志</button>
           </div>
@@ -44,14 +45,6 @@
     <section id="front-page" hidden>
     <section class="panel" aria-label="参数输入">
       <div class="field">
-        <span class="field-label">模式</span>
-        <div class="cost-switch mode-switch" role="tablist" aria-label="模式选择">
-          <button id="mode-normal" type="button" class="cost-switch__btn is-active" role="tab" aria-selected="true" data-mode="normal">趋势跟随</button>
-          <button id="mode-reverse" type="button" class="cost-switch__btn" role="tab" aria-selected="false" data-mode="reverse">马丁策略</button>
-        </div>
-      </div>
-
-      <div class="field field--spaced">
         <span class="field-label" id="open-cost-label" aria-live="polite">开仓成本</span>
         <div id="cost-switch" class="cost-switch" role="tablist" aria-label="开仓成本选择">
           <button id="cost-200" type="button" class="cost-switch__btn is-active" role="tab" aria-selected="true" data-cost="200">200（普通）</button>

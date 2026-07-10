@@ -173,9 +173,10 @@ function getTimeframeLabel(mode) {
   return TIMEFRAME_LABELS[value] || value;
 }
 
+const FRONT_PAGES = ['trend', 'martin'];
+
 function getTradeMode() {
-  const activeBtn = document.querySelector('.mode-switch .cost-switch__btn.is-active');
-  return activeBtn?.getAttribute('data-mode') || TRADE_MODE_NORMAL;
+  return currentPage === 'martin' ? TRADE_MODE_REVERSE : TRADE_MODE_NORMAL;
 }
 
 function isMartinTradeMode(mode = getTradeMode()) {
@@ -183,11 +184,9 @@ function isMartinTradeMode(mode = getTradeMode()) {
 }
 
 function updateTradeModeAppearance() {
-  const frontPage = document.getElementById('front-page');
-  const martinMode = isMartinTradeMode();
-  if (frontPage) frontPage.classList.toggle('is-reverse-mode', martinMode);
   const openLabel = document.getElementById('open-price-label');
   const stopLabel = document.getElementById('stop-price-label');
+  const martinMode = isMartinTradeMode();
   if (openLabel) openLabel.textContent = martinMode ? '开始价格' : '价格';
   if (stopLabel) stopLabel.textContent = martinMode ? '结束价格' : '止损';
 }
@@ -284,6 +283,27 @@ function isMartinConcessionSet(concessions) {
 
 function isCurrentTrendConcessionSet(concessions) {
   return ratesMatch(getSortedDisplayRates(concessions), [-0.2, 0, 0.2, 0.5, 0.8]);
+}
+
+function getAdminStrategyTypeInfo(row) {
+  const savedConcessions = buildAdminConcessionsForRow(row);
+  if (isMartinConcessionSet(savedConcessions)) {
+    return { label: '马丁策略', type: 'martin' };
+  }
+  if (isCurrentTrendConcessionSet(savedConcessions)) {
+    return { label: '趋势跟随', type: 'trend' };
+  }
+  const entryPrice = toNumber(row?.entryPrice);
+  const stopLoss = toNumber(row?.stopLossPrice);
+  const decimalPlaces = getPriceDecimalPlacesFromValues(row?.entryPrice, row?.stopLossPrice);
+  if (
+    entryPrice != null
+    && stopLoss != null
+    && inferReverseFromConcessions(entryPrice, stopLoss, savedConcessions, decimalPlaces)
+  ) {
+    return { label: '马丁策略', type: 'martin' };
+  }
+  return { label: '趋势跟随', type: 'trend' };
 }
 
 function buildAdminDisplayConcessions(row) {
@@ -1000,7 +1020,12 @@ function getPriceDecimalPlacesFromValues(...values) {
   }, 0);
 }
 
-/** 参考止盈：3R 与 5R 止盈价区间（1R 盈利 = 开仓成本） */
+function normalizeReferenceTakeProfitPrice(price) {
+  const n = Number(price);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
 function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
@@ -1008,10 +1033,15 @@ function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces) {
   const tpLowR = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R_LOW);
   const tpHighR = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R_HIGH);
   if (tpLowR == null || tpHighR == null) return '—';
+  let low = normalizeReferenceTakeProfitPrice(Math.min(tpLowR, tpHighR));
+  let high = normalizeReferenceTakeProfitPrice(Math.max(tpLowR, tpHighR));
+  if (low == null && high == null) return '—';
+  if (low == null) low = high;
+  if (high == null) high = low;
   const decimals = decimalPlaces ?? getPriceDecimalPlacesFromValues(entryPrice, stopLoss);
-  const low = formatTrimmedFixedDecimals(Math.min(tpLowR, tpHighR), decimals);
-  const high = formatTrimmedFixedDecimals(Math.max(tpLowR, tpHighR), decimals);
-  return `${low}-${high}`;
+  const lowLabel = formatTrimmedFixedDecimals(low, decimals);
+  const highLabel = formatTrimmedFixedDecimals(high, decimals);
+  return lowLabel === highLabel ? lowLabel : `${lowLabel}-${highLabel}`;
 }
 
 function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss) {
@@ -1021,9 +1051,14 @@ function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss) {
   const tpLowR = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R_LOW);
   const tpHighR = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R_HIGH);
   if (tpLowR == null || tpHighR == null) return '—';
-  const low = formatFixedDecimals(Math.min(tpLowR, tpHighR), 2);
-  const high = formatFixedDecimals(Math.max(tpLowR, tpHighR), 2);
-  return `${low}-${high}`;
+  let low = normalizeReferenceTakeProfitPrice(Math.min(tpLowR, tpHighR));
+  let high = normalizeReferenceTakeProfitPrice(Math.max(tpLowR, tpHighR));
+  if (low == null && high == null) return '—';
+  if (low == null) low = high;
+  if (high == null) high = low;
+  const lowLabel = formatFixedDecimals(low, 2);
+  const highLabel = formatFixedDecimals(high, 2);
+  return lowLabel === highLabel ? lowLabel : `${lowLabel}-${highLabel}`;
 }
 
 function renderReferenceTakeProfitHtml(blockClass, label) {
@@ -1135,9 +1170,23 @@ function buildMartinConcessionItems(startPrice, endPrice, openCost, decimalPlace
     .map(({ rawQuantity, ...item }) => item);
 }
 
-function renderConcessionsHtml({ prefix, items, stopLabel, stopHeaderLabel = '止损', wrapperClass, reverseOrder = false }) {
+function reverseConcessionPriceQty(displayItems) {
+  if (!Array.isArray(displayItems) || displayItems.length < 2) return displayItems;
+  const prices = displayItems.map((item) => item.price);
+  const quantities = displayItems.map((item) => item.quantity);
+  prices.reverse();
+  quantities.reverse();
+  return displayItems.map((item, index) => ({
+    ...item,
+    price: prices[index],
+    quantity: quantities[index],
+  }));
+}
+
+function renderConcessionsHtml({ prefix, items, stopLabel, stopHeaderLabel = '止损', wrapperClass, reverseOrder = false, reversePriceQty = false }) {
   let displayItems = getDisplayConcessionItems(items);
   if (reverseOrder) displayItems = displayItems.slice().reverse();
+  if (reversePriceQty) displayItems = reverseConcessionPriceQty(displayItems);
   if (!displayItems.length) return '';
   const stop = escapeHtml(String(stopLabel ?? '').trim() || '—');
   const stopHeader = escapeHtml(String(stopHeaderLabel ?? '').trim() || '止损');
@@ -1233,6 +1282,7 @@ function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
     stopLabel: formatFixed2FromValue(stopLabel),
     stopHeaderLabel: options.stopHeaderLabel,
     wrapperClass: 'admin-item__concessions',
+    reversePriceQty: options.reversePriceQty === true,
   });
 }
 
@@ -1348,6 +1398,7 @@ function buildMartinStrategyPlainText({
   startLabel,
   endLabel,
   stopLabel,
+  refTakeProfitLabel,
   concessionItems,
   timeRangeLabel,
 }) {
@@ -1359,6 +1410,7 @@ function buildMartinStrategyPlainText({
     ...concessionItems.map((item) => (
       `档位${formatConcessionPercent(item.rate)}：${item.price} / ${item.quantity} / ${stopLabel}`
     )),
+    `参考止盈：${refTakeProfitLabel}`,
     `时间范围：${timeRangeLabel}`,
   ].join('\n');
 }
@@ -1386,6 +1438,7 @@ function buildMartinStrategy(startPrice, endPrice, startTimeValue, startTimeLabe
   const stopLabel = formatTrimmedFixedDecimals(stopLoss, priceDecimalPlaces);
   const tp = calcTakeProfit(endPrice, stopLoss, TAKE_PROFIT_R_MULTIPLE);
   const tpLabel = formatTrimmedFixedDecimals(tp, priceDecimalPlaces);
+  const refTakeProfitLabel = buildReferenceTakeProfitLabel(endPrice, stopLoss, priceDecimalPlaces);
   const concessionItems = buildMartinConcessionItems(startPrice, endPrice, openCost, priceDecimalPlaces);
   const primaryItem = concessionItems[0];
   const qty = primaryItem?.quantity ?? '';
@@ -1395,6 +1448,7 @@ function buildMartinStrategy(startPrice, endPrice, startTimeValue, startTimeLabe
     startLabel,
     endLabel,
     stopLabel,
+    refTakeProfitLabel,
     concessionItems,
     timeRangeLabel,
   });
@@ -1403,7 +1457,7 @@ function buildMartinStrategy(startPrice, endPrice, startTimeValue, startTimeLabe
     alarmName,
     stopLabel,
     stopHeaderLabel: '止损',
-    refTakeProfitLabel: null,
+    refTakeProfitLabel,
     concessionItems,
     timeRangeLabel,
   });
@@ -1566,21 +1620,6 @@ const openInput = document.getElementById('open-price-input');
 const stopInput = document.getElementById('stop-price-input');
 const startTimeSelect = document.getElementById('start-time');
 
-// 模式切换
-const modeBtns = document.querySelectorAll('.mode-switch .cost-switch__btn');
-modeBtns.forEach((btn) => {
-  btn.addEventListener('click', () => {
-    modeBtns.forEach((b) => {
-      b.classList.remove('is-active');
-      b.setAttribute('aria-selected', 'false');
-    });
-    btn.classList.add('is-active');
-    btn.setAttribute('aria-selected', 'true');
-    updateTradeModeAppearance();
-    autoGenerateIfReady();
-  });
-});
-
 // 开仓成本按钮切换
 const costBtns = document.querySelectorAll('#cost-switch .cost-switch__btn');
 costBtns.forEach((btn) => {
@@ -1640,14 +1679,6 @@ function resetFrontPage() {
   rebuildStartTimeOptions();
   if (openInput) openInput.value = '';
   if (stopInput) stopInput.value = '';
-  // 重置模式为正常
-  const modeBtns = document.querySelectorAll('.mode-switch .cost-switch__btn');
-  modeBtns.forEach((btn) => {
-    const isDefault = btn.getAttribute('data-mode') === TRADE_MODE_NORMAL;
-    btn.classList.toggle('is-active', isDefault);
-    btn.setAttribute('aria-selected', isDefault ? 'true' : 'false');
-  });
-  updateTradeModeAppearance();
   // 重置开仓成本为默认值200
   const costBtns = document.querySelectorAll('#cost-switch .cost-switch__btn');
   costBtns.forEach((btn) => {
@@ -2265,12 +2296,15 @@ async function renderAdminList() {
     const sideMod = getPositionSideMod(sideRaw);
     const title = escapeHtml(formatStrategyCardTitle(nameRaw));
     const titleLabel = escapeHtml(formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark));
+    const strategyType = getAdminStrategyTypeInfo(row);
+    const strategyTypeBadgeHtml = `<span class="admin-item__strategy-type admin-item__strategy-type--${strategyType.type}">${escapeHtml(strategyType.label)}</span>`;
     const gradeBadgeHtml = normalizeStrategyGrade(row?.grade) === STRATEGY_GRADE_PREMIUM
       ? '<span class="admin-item__grade admin-item__grade--premium">优质</span>'
       : '';
     const titleGroupHtml = [
       '<div class="admin-item__title-wrap">',
       `<span class="admin-item__title">${title}</span>`,
+      strategyTypeBadgeHtml,
       gradeBadgeHtml,
       '</div>',
     ].join('');
@@ -2278,14 +2312,13 @@ async function renderAdminList() {
     const stop = formatFixed2FromValue(row?.stopLossPrice) || '-';
     const concessions = buildAdminDisplayConcessions(row);
     const martinConcessions = isMartinConcessionSet(concessions);
-    const refTakeProfitLabel = martinConcessions
-      ? null
-      : buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice);
+    const refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice);
     const refTakeProfitHtml = refTakeProfitLabel == null
       ? ''
       : renderReferenceTakeProfitHtml('admin-item__ref-tp', refTakeProfitLabel);
     const concessionsHtml = renderAdminConcessionsHtml(concessions, stop, {
       stopHeaderLabel: '止损',
+      reversePriceQty: martinConcessions,
     });
     const startAt = getStrategyStartAt(row);
     const endAt = getStrategyEndAt(row);
@@ -3035,21 +3068,26 @@ function setPage(mode) {
   const methodology = document.getElementById('methodology-page');
   const cases = document.getElementById('cases-page');
   const observations = document.getElementById('observations-page');
-  const btnFront = document.getElementById('btn-tab-front');
+  const btnTrend = document.getElementById('btn-tab-trend');
+  const btnMartin = document.getElementById('btn-tab-martin');
   const btnAdmin = document.getElementById('btn-tab-admin');
   const btnStats = document.getElementById('btn-tab-stats');
   const btnMethodology = document.getElementById('btn-tab-methodology');
   const btnCases = document.getElementById('btn-tab-cases');
   const btnObservations = document.getElementById('btn-tab-observations');
-  if (!front || !admin || !stats || !methodology || !cases || !observations || !btnFront || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations) return;
+  if (!front || !admin || !stats || !methodology || !cases || !observations || !btnTrend || !btnMartin || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations) return;
 
-  const normalizedMode = ['admin', 'stats', 'methodology', 'cases', 'observations'].includes(mode) ? mode : 'front';
+  const allowedPages = ['admin', 'stats', 'methodology', 'cases', 'observations', ...FRONT_PAGES];
+  const normalizedMode = allowedPages.includes(mode) ? mode : 'trend';
+  const wasFront = FRONT_PAGES.includes(currentPage);
   const toAdmin = normalizedMode === 'admin';
   const toStats = normalizedMode === 'stats';
   const toMethodology = normalizedMode === 'methodology';
   const toCases = normalizedMode === 'cases';
   const toObservations = normalizedMode === 'observations';
-  const toFront = normalizedMode === 'front';
+  const toTrend = normalizedMode === 'trend';
+  const toMartin = normalizedMode === 'martin';
+  const toFront = toTrend || toMartin;
 
   currentPage = normalizedMode;
 
@@ -3060,8 +3098,10 @@ function setPage(mode) {
   cases.hidden = !toCases;
   observations.hidden = !toObservations;
 
-  btnFront.classList.toggle('is-active', toFront);
-  btnFront.setAttribute('aria-selected', toFront ? 'true' : 'false');
+  btnTrend.classList.toggle('is-active', toTrend);
+  btnTrend.setAttribute('aria-selected', toTrend ? 'true' : 'false');
+  btnMartin.classList.toggle('is-active', toMartin);
+  btnMartin.setAttribute('aria-selected', toMartin ? 'true' : 'false');
   btnAdmin.classList.toggle('is-active', toAdmin);
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   btnStats.classList.toggle('is-active', toStats);
@@ -3098,9 +3138,11 @@ function setPage(mode) {
     resetAdminPageState();
     resetObsPageState();
     renderObservationsPage().catch(() => {});
-  } else {
+  } else if (toFront) {
     resetAdminPageState();
-    resetFrontPage();
+    if (!wasFront) resetFrontPage();
+    updateTradeModeAppearance();
+    autoGenerateIfReady();
   }
 
   syncAdminCountdownTimer();
@@ -3240,8 +3282,10 @@ const clearAll = () => {
 const btnClear = document.getElementById('btn-clear');
 if (btnClear) btnClear.addEventListener('click', clearAll);
 
-const btnTabFront = document.getElementById('btn-tab-front');
-if (btnTabFront) btnTabFront.addEventListener('click', () => setPage('front'));
+const btnTabTrend = document.getElementById('btn-tab-trend');
+if (btnTabTrend) btnTabTrend.addEventListener('click', () => setPage('trend'));
+const btnTabMartin = document.getElementById('btn-tab-martin');
+if (btnTabMartin) btnTabMartin.addEventListener('click', () => setPage('martin'));
 const btnTabAdmin = document.getElementById('btn-tab-admin');
 if (btnTabAdmin) btnTabAdmin.addEventListener('click', () => setPage('admin'));
 const btnTabStats = document.getElementById('btn-tab-stats');
