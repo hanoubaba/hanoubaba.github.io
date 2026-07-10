@@ -1980,6 +1980,7 @@ const DEFAULT_ADMIN_TIME_FILTER = 'active';
 let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
 let adminNameSearch = '';
 let adminNameFilter = '';
+let adminSortByExpiresAsc = false;
 
 function getAdminNameFilterKey(name) {
   const raw = String(name ?? '').trim();
@@ -2000,10 +2001,33 @@ function getFilteredAdminRows(rows = latestAdminRows) {
   return rows.filter(rowMatchesAdminNameFilter);
 }
 
+function compareAdminRowsByExpiresAsc(a, b) {
+  const aEnd = getStrategyEndAt(a);
+  const bEnd = getStrategyEndAt(b);
+  const aTs = aEnd?.getTime();
+  const bTs = bEnd?.getTime();
+  if (aTs == null && bTs == null) return 0;
+  if (aTs == null) return 1;
+  if (bTs == null) return -1;
+  return aTs - bTs;
+}
+
+function getDisplayAdminRows(rows = latestAdminRows) {
+  const filtered = getFilteredAdminRows(rows);
+  if (!adminSortByExpiresAsc) return filtered;
+  return filtered.slice().sort(compareAdminRowsByExpiresAsc);
+}
+
 function toggleAdminNameFilter(name) {
   const key = getAdminNameFilterKey(name);
   if (!key) return;
   adminNameFilter = adminNameFilter === key ? '' : key;
+  renderAdminListItems();
+  renderAdminActiveNames();
+}
+
+function toggleAdminSortByExpires() {
+  adminSortByExpiresAsc = !adminSortByExpiresAsc;
   renderAdminListItems();
   renderAdminActiveNames();
 }
@@ -2066,13 +2090,14 @@ function renderAdminActiveNames(rows = latestAdminRows) {
     el.innerHTML = '';
     return;
   }
-  const total = Array.isArray(rows) ? rows.length : 0;
-  const filteredTotal = getFilteredAdminRows(rows).length;
   const nameCounts = collectAdminNameCounts(rows);
+  const uniqueTotal = nameCounts.length;
   el.hidden = false;
-  const totalHtml = adminNameFilter
-    ? `<span class="admin-active-names__total">共 ${filteredTotal}/${total} 条</span>`
-    : `<span class="admin-active-names__total">共 ${total} 条</span>`;
+  const sortHtml = [
+    `<button type="button" class="admin-active-names__sort${adminSortByExpiresAsc ? ' is-active' : ''}" data-admin-sort-expires aria-pressed="${adminSortByExpiresAsc ? 'true' : 'false'}" aria-label="按截止时间由近到远排序，${uniqueTotal} 个名称">`,
+    `排序 ${uniqueTotal}`,
+    '</button>',
+  ].join('');
   const activeKey = adminNameFilter;
   const namesHtml = nameCounts.map(({ name, count, type }) => {
     const strategyType = type === 'martin' ? 'martin' : 'trend';
@@ -2087,7 +2112,7 @@ function renderAdminActiveNames(rows = latestAdminRows) {
       '</button>',
     ].join('');
   }).join('');
-  el.innerHTML = `${totalHtml}${namesHtml}`;
+  el.innerHTML = `${sortHtml}${namesHtml}`;
 }
 
 function renderAdminControls() {
@@ -2100,6 +2125,7 @@ function resetAdminPageState() {
   adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
   adminNameSearch = '';
   adminNameFilter = '';
+  adminSortByExpiresAsc = false;
   isAdminSelectionMode = false;
   selectedStrategyIds.clear();
   visibleAdminStrategyIds = [];
@@ -2479,7 +2505,7 @@ function buildAdminListItemHtml(row) {
 function renderAdminListItems() {
   const listEl = document.getElementById('admin-list');
   if (!listEl) return;
-  const rows = getFilteredAdminRows(latestAdminRows);
+  const rows = getDisplayAdminRows(latestAdminRows);
   syncAdminSelectionWithRows(rows);
   if (!rows.length) {
     listEl.innerHTML = latestAdminRows.length && adminNameFilter
@@ -3476,6 +3502,7 @@ if (adminFilterTabsEl) {
     if (adminTimeFilter === nextFilter) return;
     adminTimeFilter = nextFilter;
     adminNameFilter = '';
+    adminSortByExpiresAsc = false;
     renderAdminList().catch(() => {});
   });
 }
@@ -3483,9 +3510,15 @@ if (adminFilterTabsEl) {
 const adminActiveNamesEl = document.getElementById('admin-active-names');
 if (adminActiveNamesEl) {
   adminActiveNamesEl.addEventListener('click', (e) => {
-    const target = e.target instanceof HTMLElement ? e.target.closest('[data-admin-name-filter]') : null;
+    const target = e.target instanceof HTMLElement ? e.target : null;
     if (!target) return;
-    const name = target.getAttribute('data-admin-name-filter');
+    if (target.closest('[data-admin-sort-expires]')) {
+      toggleAdminSortByExpires();
+      return;
+    }
+    const nameTarget = target.closest('[data-admin-name-filter]');
+    if (!nameTarget) return;
+    const name = nameTarget.getAttribute('data-admin-name-filter');
     if (!name) return;
     toggleAdminNameFilter(name);
   });
