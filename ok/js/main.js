@@ -1979,6 +1979,34 @@ const DEFAULT_ADMIN_TIME_FILTER = 'active';
 
 let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
 let adminNameSearch = '';
+let adminNameFilter = '';
+
+function getAdminNameFilterKey(name) {
+  const raw = String(name ?? '').trim();
+  if (!raw) return '';
+  return formatStrategyCardTitle(raw).toLowerCase();
+}
+
+function rowMatchesAdminNameFilter(row) {
+  if (!adminNameFilter) return true;
+  const raw = String(row?.strategyName ?? '').trim();
+  if (!raw) return false;
+  return getAdminNameFilterKey(raw) === adminNameFilter;
+}
+
+function getFilteredAdminRows(rows = latestAdminRows) {
+  if (!Array.isArray(rows)) return [];
+  if (!adminNameFilter) return rows;
+  return rows.filter(rowMatchesAdminNameFilter);
+}
+
+function toggleAdminNameFilter(name) {
+  const key = getAdminNameFilterKey(name);
+  if (!key) return;
+  adminNameFilter = adminNameFilter === key ? '' : key;
+  renderAdminListItems();
+  renderAdminActiveNames();
+}
 
 function normalizeAdminFilter(value, labels, fallback = 'all') {
   return Object.prototype.hasOwnProperty.call(labels, value) ? value : fallback;
@@ -2005,14 +2033,73 @@ function renderAdminTabGroup(tabsEl, labels, activeValue, dataAttr) {
   }).join('');
 }
 
+function collectAdminNameCounts(rows) {
+  const order = [];
+  const counts = new Map();
+  for (const row of rows) {
+    const raw = String(row?.strategyName ?? '').trim();
+    if (!raw) continue;
+    const display = formatStrategyCardTitle(raw);
+    const key = display.toLowerCase();
+    if (!counts.has(key)) {
+      order.push(key);
+      counts.set(key, {
+        name: display,
+        count: 0,
+        type: getAdminStrategyTypeInfo(row).type,
+      });
+    }
+    counts.get(key).count += 1;
+  }
+  return order.map((key) => counts.get(key));
+}
+
+function shouldShowAdminNameSummary() {
+  return normalizeAdminTimeFilter(adminTimeFilter) !== 'all';
+}
+
+function renderAdminActiveNames(rows = latestAdminRows) {
+  const el = document.getElementById('admin-active-names');
+  if (!el) return;
+  if (!shouldShowAdminNameSummary()) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+  const total = Array.isArray(rows) ? rows.length : 0;
+  const filteredTotal = getFilteredAdminRows(rows).length;
+  const nameCounts = collectAdminNameCounts(rows);
+  el.hidden = false;
+  const totalHtml = adminNameFilter
+    ? `<span class="admin-active-names__total">共 ${filteredTotal}/${total} 条</span>`
+    : `<span class="admin-active-names__total">共 ${total} 条</span>`;
+  const activeKey = adminNameFilter;
+  const namesHtml = nameCounts.map(({ name, count, type }) => {
+    const strategyType = type === 'martin' ? 'martin' : 'trend';
+    const isActive = activeKey && getAdminNameFilterKey(name) === activeKey;
+    const countHtml = count > 1
+      ? `<span class="admin-active-names__count">${count}</span>`
+      : '';
+    return [
+      `<button type="button" class="admin-active-names__item admin-active-names__item--${strategyType}${isActive ? ' is-active' : ''}" data-admin-name-filter="${escapeHtml(name)}" aria-pressed="${isActive ? 'true' : 'false'}">`,
+      escapeHtml(name),
+      countHtml,
+      '</button>',
+    ].join('');
+  }).join('');
+  el.innerHTML = `${totalHtml}${namesHtml}`;
+}
+
 function renderAdminControls() {
   renderAdminFilterTabs();
+  renderAdminActiveNames();
 }
 
 function resetAdminPageState() {
   closeOutcomeStatusPicker();
   adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
   adminNameSearch = '';
+  adminNameFilter = '';
   isAdminSelectionMode = false;
   selectedStrategyIds.clear();
   visibleAdminStrategyIds = [];
@@ -2287,109 +2374,121 @@ async function renderAdminList() {
     visibleAdminStrategyIds = [];
     latestAdminRows = [];
     listEl.innerHTML = `<div class="admin-sync-error">${escapeHtml(String(err?.message || '同步失败'))}</div>`;
+    renderAdminActiveNames([]);
     updateAdminSelectionControls();
     return;
   }
-  syncAdminSelectionWithRows(rows);
   latestAdminRows = rows;
+  renderAdminActiveNames(rows);
+  renderAdminListItems();
+}
 
+function buildAdminListItemHtml(row) {
+  const rawId = String(row?.id ?? '').trim();
+  const sideRaw = String(row?.positionSide ?? '').trim();
+  const nameRaw = String(row?.strategyName ?? '').trim();
+  const sideMod = getPositionSideMod(sideRaw);
+  const title = escapeHtml(formatStrategyCardTitle(nameRaw));
+  const titleLabel = escapeHtml(formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark));
+  const strategyType = getAdminStrategyTypeInfo(row);
+  const strategyTypeBadgeHtml = `<span class="admin-item__strategy-type admin-item__strategy-type--${strategyType.type}">${escapeHtml(strategyType.label)}</span>`;
+  const gradeBadgeHtml = normalizeStrategyGrade(row?.grade) === STRATEGY_GRADE_PREMIUM
+    ? '<span class="admin-item__grade admin-item__grade--premium">优质</span>'
+    : '';
+  const titleGroupHtml = [
+    '<div class="admin-item__title-wrap">',
+    `<span class="admin-item__title">${title}</span>`,
+    strategyTypeBadgeHtml,
+    gradeBadgeHtml,
+    '</div>',
+  ].join('');
+  const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
+  const stop = formatFixed2FromValue(row?.stopLossPrice) || '-';
+  const concessions = buildAdminDisplayConcessions(row);
+  const martinConcessions = isMartinConcessionSet(concessions);
+  const refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice);
+  const refTakeProfitHtml = refTakeProfitLabel == null
+    ? ''
+    : renderReferenceTakeProfitHtml('admin-item__ref-tp', refTakeProfitLabel);
+  const concessionsHtml = renderAdminConcessionsHtml(concessions, stop, {
+    stopHeaderLabel: '止损',
+    reversePriceQty: martinConcessions,
+  });
+  const startAt = getStrategyStartAt(row);
+  const endAt = getStrategyEndAt(row);
+  const timeRange = escapeHtml(formatAdminTimeRange(startAt, endAt));
+  const expiresAt = endAt ? escapeHtml(endAt.toISOString()) : '';
+  const id = escapeHtml(rawId);
+  const checked = rawId && selectedStrategyIds.has(rawId) ? ' checked' : '';
+  const disabled = isDeletingStrategies ? ' disabled' : '';
+  const selectorDisabled = isDeletingStrategies ? ' is-disabled' : '';
+  const selectHtml = rawId && isAdminSelectionMode
+    ? [
+      `<label class="admin-item__selector${selectorDisabled}" aria-label="选择 ${titleLabel}">`,
+      `<input type="checkbox" class="admin-item__select" data-id="${id}"${checked}${disabled}>`,
+      '<span class="admin-item__checkmark" aria-hidden="true"></span>',
+      '</label>',
+    ].join('')
+    : '';
+  const outcomeStatus = normalizeOutcomeStatus(row?.outcomeStatus);
+  const timeStatus = getTimeRangeStatusByEndAt(endAt);
+  const timeBadge = getTimeBadgeInfo(endAt);
+  const outcomeInfo = getOutcomeStatusInfo(outcomeStatus);
+  const timeBadgeUrgent = timeBadge?.type === 'active' && isCountdownWithinUrgentWindow(endAt)
+    ? ' admin-time-status--urgent'
+    : '';
+  const timeBadgeHtml = timeBadge && expiresAt
+    ? [
+      `<div class="admin-time-status admin-time-status--${timeBadge.type}${timeBadgeUrgent}">`,
+      `<span class="admin-time-status__tag admin-time-status__value" data-expires-at="${expiresAt}" data-time-status="${timeBadge.timeStatus}">${escapeHtml(timeBadge.label)}</span>`,
+      '</div>',
+    ].join('')
+    : '';
+  const outcomeStatusHtml = id
+    ? [
+      `<button type="button" class="admin-outcome-status admin-outcome-status--${outcomeInfo.type} admin-outcome-status--actionable" data-id="${id}" data-time-status="${timeStatus}" data-outcome-status="${escapeHtml(outcomeStatus)}" data-outcome-remark="${escapeHtml(String(row?.outcomeRemark ?? ''))}" aria-haspopup="dialog" aria-controls="status-picker" aria-label="修改盈利状态">`,
+      `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
+      '</button>',
+    ].join('')
+    : [
+      `<div class="admin-outcome-status admin-outcome-status--${outcomeInfo.type}">`,
+      `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
+      '</div>',
+    ].join('');
+  const buttonsHtml = `<div class="admin-item__buttons">${outcomeStatusHtml}</div>`;
+  return [
+    `<article class="admin-item admin-item--${sideMod}">`,
+    remarkStampHtml,
+    '<header class="admin-item__head">',
+    selectHtml,
+    titleGroupHtml,
+    timeBadgeHtml,
+    '</header>',
+    concessionsHtml,
+    refTakeProfitHtml,
+    '<div class="admin-item__actions">',
+    '<div class="admin-item__meta">',
+    `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
+    '</div>',
+    buttonsHtml,
+    '</div>',
+    '</article>',
+  ].join('');
+}
+
+function renderAdminListItems() {
+  const listEl = document.getElementById('admin-list');
+  if (!listEl) return;
+  const rows = getFilteredAdminRows(latestAdminRows);
+  syncAdminSelectionWithRows(rows);
   if (!rows.length) {
-    listEl.innerHTML = '';
+    listEl.innerHTML = latestAdminRows.length && adminNameFilter
+      ? '<div class="admin-list-empty">无匹配策略</div>'
+      : '';
     updateAdminSelectionControls();
     return;
   }
-  listEl.innerHTML = rows.map((row) => {
-    const rawId = String(row?.id ?? '').trim();
-    const sideRaw = String(row?.positionSide ?? '').trim();
-    const nameRaw = String(row?.strategyName ?? '').trim();
-    const sideMod = getPositionSideMod(sideRaw);
-    const title = escapeHtml(formatStrategyCardTitle(nameRaw));
-    const titleLabel = escapeHtml(formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark));
-    const strategyType = getAdminStrategyTypeInfo(row);
-    const strategyTypeBadgeHtml = `<span class="admin-item__strategy-type admin-item__strategy-type--${strategyType.type}">${escapeHtml(strategyType.label)}</span>`;
-    const gradeBadgeHtml = normalizeStrategyGrade(row?.grade) === STRATEGY_GRADE_PREMIUM
-      ? '<span class="admin-item__grade admin-item__grade--premium">优质</span>'
-      : '';
-    const titleGroupHtml = [
-      '<div class="admin-item__title-wrap">',
-      `<span class="admin-item__title">${title}</span>`,
-      strategyTypeBadgeHtml,
-      gradeBadgeHtml,
-      '</div>',
-    ].join('');
-    const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
-    const stop = formatFixed2FromValue(row?.stopLossPrice) || '-';
-    const concessions = buildAdminDisplayConcessions(row);
-    const martinConcessions = isMartinConcessionSet(concessions);
-    const refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice);
-    const refTakeProfitHtml = refTakeProfitLabel == null
-      ? ''
-      : renderReferenceTakeProfitHtml('admin-item__ref-tp', refTakeProfitLabel);
-    const concessionsHtml = renderAdminConcessionsHtml(concessions, stop, {
-      stopHeaderLabel: '止损',
-      reversePriceQty: martinConcessions,
-    });
-    const startAt = getStrategyStartAt(row);
-    const endAt = getStrategyEndAt(row);
-    const timeRange = escapeHtml(formatAdminTimeRange(startAt, endAt));
-    const expiresAt = endAt ? escapeHtml(endAt.toISOString()) : '';
-    const id = escapeHtml(rawId);
-    const checked = rawId && selectedStrategyIds.has(rawId) ? ' checked' : '';
-    const disabled = isDeletingStrategies ? ' disabled' : '';
-    const selectorDisabled = isDeletingStrategies ? ' is-disabled' : '';
-    const selectHtml = rawId && isAdminSelectionMode
-      ? [
-        `<label class="admin-item__selector${selectorDisabled}" aria-label="选择 ${titleLabel}">`,
-        `<input type="checkbox" class="admin-item__select" data-id="${id}"${checked}${disabled}>`,
-        '<span class="admin-item__checkmark" aria-hidden="true"></span>',
-        '</label>',
-      ].join('')
-      : '';
-    const outcomeStatus = normalizeOutcomeStatus(row?.outcomeStatus);
-    const timeStatus = getTimeRangeStatusByEndAt(endAt);
-    const timeBadge = getTimeBadgeInfo(endAt);
-    const outcomeInfo = getOutcomeStatusInfo(outcomeStatus);
-    const timeBadgeUrgent = timeBadge?.type === 'active' && isCountdownWithinUrgentWindow(endAt)
-      ? ' admin-time-status--urgent'
-      : '';
-    const timeBadgeHtml = timeBadge && expiresAt
-      ? [
-        `<div class="admin-time-status admin-time-status--${timeBadge.type}${timeBadgeUrgent}">`,
-        `<span class="admin-time-status__tag admin-time-status__value" data-expires-at="${expiresAt}" data-time-status="${timeBadge.timeStatus}">${escapeHtml(timeBadge.label)}</span>`,
-        '</div>',
-      ].join('')
-      : '';
-    const outcomeStatusHtml = id
-      ? [
-        `<button type="button" class="admin-outcome-status admin-outcome-status--${outcomeInfo.type} admin-outcome-status--actionable" data-id="${id}" data-time-status="${timeStatus}" data-outcome-status="${escapeHtml(outcomeStatus)}" data-outcome-remark="${escapeHtml(String(row?.outcomeRemark ?? ''))}" aria-haspopup="dialog" aria-controls="status-picker" aria-label="修改盈利状态">`,
-        `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
-        '</button>',
-      ].join('')
-      : [
-        `<div class="admin-outcome-status admin-outcome-status--${outcomeInfo.type}">`,
-        `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
-        '</div>',
-      ].join('');
-    const buttonsHtml = `<div class="admin-item__buttons">${outcomeStatusHtml}</div>`;
-    return [
-      `<article class="admin-item admin-item--${sideMod}">`,
-      remarkStampHtml,
-      '<header class="admin-item__head">',
-      selectHtml,
-      titleGroupHtml,
-      timeBadgeHtml,
-      '</header>',
-      concessionsHtml,
-      refTakeProfitHtml,
-      '<div class="admin-item__actions">',
-      '<div class="admin-item__meta">',
-      `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
-      '</div>',
-      buttonsHtml,
-      '</div>',
-      '</article>',
-    ].join('');
-  }).join('');
+  listEl.innerHTML = rows.map((row) => buildAdminListItemHtml(row)).join('');
   updateAdminSelectionControls();
   updateAdminCountdowns();
 }
@@ -3376,7 +3475,19 @@ if (adminFilterTabsEl) {
     const nextFilter = normalizeAdminTimeFilter(target.getAttribute('data-admin-time-filter'));
     if (adminTimeFilter === nextFilter) return;
     adminTimeFilter = nextFilter;
+    adminNameFilter = '';
     renderAdminList().catch(() => {});
+  });
+}
+
+const adminActiveNamesEl = document.getElementById('admin-active-names');
+if (adminActiveNamesEl) {
+  adminActiveNamesEl.addEventListener('click', (e) => {
+    const target = e.target instanceof HTMLElement ? e.target.closest('[data-admin-name-filter]') : null;
+    if (!target) return;
+    const name = target.getAttribute('data-admin-name-filter');
+    if (!name) return;
+    toggleAdminNameFilter(name);
   });
 }
 

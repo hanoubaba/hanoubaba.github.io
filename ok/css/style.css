@@ -334,6 +334,17 @@ body.login-mode {
   align-content: start;
 }
 
+.admin-list-empty {
+  padding: 16px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  background: #fff;
+}
+
 .admin-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -448,6 +459,96 @@ body.login-mode {
   color: var(--primary-strong);
   background: #fff;
   box-shadow: 0 1px 3px rgba(22, 101, 52, 0.14), 0 0 0 1px var(--border);
+}
+
+.admin-active-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-active-names[hidden] {
+  display: none !important;
+}
+
+.admin-active-names__total {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.3;
+  color: var(--primary-deep);
+  background: #fff;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.admin-active-names__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.admin-active-names__item.is-active {
+  box-shadow: 0 0 0 2px currentColor;
+}
+
+.admin-active-names__item--trend.is-active {
+  box-shadow: 0 0 0 2px var(--primary-strong);
+}
+
+.admin-active-names__item--martin.is-active {
+  box-shadow: 0 0 0 2px #1d4ed8;
+}
+
+.admin-active-names__item--trend {
+  color: var(--primary-strong);
+  background: var(--long-soft);
+  border-color: var(--border);
+}
+
+.admin-active-names__item--martin {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.admin-active-names__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  color: #fff;
+}
+
+.admin-active-names__item--trend .admin-active-names__count {
+  background: var(--primary-strong);
+}
+
+.admin-active-names__item--martin .admin-active-names__count {
+  background: #1d4ed8;
 }
 
 .admin-selection {
@@ -1959,6 +2060,7 @@ body.login-mode {
   .admin-page > .admin-shortcuts,
   .admin-page > .admin-controls,
   .admin-page > .admin-filter-tabs,
+  .admin-page > .admin-active-names,
   .admin-page > .admin-selection {
     flex-shrink: 0;
   }
