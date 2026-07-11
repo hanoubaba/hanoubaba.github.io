@@ -56,7 +56,7 @@ create table if not exists public.strategies (
       and input_price <> input_stop_loss
       and entry_price > 0
       and quantity > 0
-      and take_profit_price > 0
+      and take_profit_price >= 0
       and stop_loss_price > 0
       and open_cost > 0
       and price_adjustment_rate >= 0
@@ -72,8 +72,8 @@ create table if not exists public.strategies (
     ),
   constraint strategies_take_profit_direction_check
     check (
-      (position_side = 'long' and take_profit_price > entry_price)
-      or (position_side = 'short' and take_profit_price < entry_price)
+      (position_side = 'long' and (take_profit_price = 0 or take_profit_price > entry_price))
+      or (position_side = 'short' and (take_profit_price = 0 or take_profit_price < entry_price))
     ),
   constraint strategies_duration_minutes_check
     check (duration_minutes = timeframe_minutes * valid_periods),
@@ -424,5 +424,36 @@ drop constraint if exists observation_records_items_not_empty_check;
 alter table public.observation_records
 add constraint observation_records_items_not_empty_check
 check (jsonb_array_length(items) > 0);
+
+alter table public.strategies
+drop constraint if exists strategies_positive_values_check;
+
+alter table public.strategies
+add constraint strategies_positive_values_check
+check (
+  input_price > 0
+  and input_stop_loss > 0
+  and input_price <> input_stop_loss
+  and entry_price > 0
+  and quantity > 0
+  and take_profit_price >= 0
+  and stop_loss_price > 0
+  and open_cost > 0
+  and price_adjustment_rate >= 0
+  and take_profit_r_multiple > 0
+  and timeframe_minutes > 0
+  and valid_periods > 0
+  and duration_minutes > 0
+);
+
+alter table public.strategies
+drop constraint if exists strategies_take_profit_direction_check;
+
+alter table public.strategies
+add constraint strategies_take_profit_direction_check
+check (
+  (position_side = 'long' and (take_profit_price = 0 or take_profit_price > entry_price))
+  or (position_side = 'short' and (take_profit_price = 0 or take_profit_price < entry_price))
+);
 
 notify pgrst, 'reload schema';

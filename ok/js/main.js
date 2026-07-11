@@ -157,7 +157,8 @@ const PRICE_ADJUSTMENT_RATE = 0.2;
 const CONCESSION_RATES_BY_TIER = {
   5: [0, 0.8, 0.5, 0.2, { rate: 0, display: true }, -0.2],
 };
-const MARTIN_CONCESSION_RATES = [-0.5, -0.2, { rate: 0, display: true }, 0.2, 0.5];
+const MARTIN_CONCESSION_RATES = [{ rate: 0, display: true }, 0.1, 0.3, 0.5, 0.7];
+const MARTIN_CONCESSION_RATES_LEGACY = [-0.5, -0.2, 0, 0.2, 0.5];
 const LEGACY_TIER_COUNTS = new Set([3, 6, 7]);
 const DEFAULT_TIER_COUNT = 5;
 const TRADE_MODE_NORMAL = 'normal';
@@ -195,9 +196,8 @@ function isMartinTradeMode(mode = getTradeMode()) {
 function updateTradeModeAppearance() {
   const openLabel = document.getElementById('open-price-label');
   const stopLabel = document.getElementById('stop-price-label');
-  const martinMode = isMartinTradeMode();
-  if (openLabel) openLabel.textContent = martinMode ? '开始价格' : '价格';
-  if (stopLabel) stopLabel.textContent = martinMode ? '结束价格' : '止损';
+  if (openLabel) openLabel.textContent = '开始价格';
+  if (stopLabel) stopLabel.textContent = '止损价格';
 }
 
 function getOpenCostTotal() {
@@ -287,7 +287,9 @@ function ratesMatch(actual, expected) {
 }
 
 function isMartinConcessionSet(concessions) {
-  return ratesMatch(getSortedDisplayRates(concessions), [-0.5, -0.2, 0, 0.2, 0.5]);
+  const rates = getSortedDisplayRates(concessions);
+  return ratesMatch(rates, [0, 0.1, 0.3, 0.5, 0.7])
+    || ratesMatch(rates, MARTIN_CONCESSION_RATES_LEGACY);
 }
 
 function isCurrentTrendConcessionSet(concessions) {
@@ -391,6 +393,10 @@ const METHODOLOGY_SECTIONS = [
   {
     title: '12、操作手法',
     items: [
+      '确定性第一，风险第二，盈亏比第三。浮亏浮盈是最后。',
+      '集中力量做确定性最高的龙头。',
+      '最大止损不超过50%，最大止盈不超过一个数量级。',
+      '风险很小的策略，等待时间和空间。',
       '观测变为4小时，范围扩展到0.5亿交易量。',
       '只要前三，分清主次。',
       '风险厌恶，浮亏影响判断。时机比点位更重要。',
@@ -1007,10 +1013,10 @@ function renderAdminRemarkStampHtml(remark) {
 function buildStrategyCopyText({ name, price, quantity, takeProfit, stopLoss }) {
   return [
     formatStrategyCardTitle(name),
-    `价格：${String(price ?? '').trim()}`,
+    `开始价格：${String(price ?? '').trim()}`,
     `数量：${String(quantity ?? '').trim()}`,
     `止盈：${String(takeProfit ?? '').trim()}`,
-    `止损：${String(stopLoss ?? '').trim()}`,
+    `止损价格：${String(stopLoss ?? '').trim()}`,
   ].join('\n');
 }
 
@@ -1106,6 +1112,18 @@ function formatConcessionPercent(rate) {
   return `${Math.round(rate * 100)}%`;
 }
 
+function formatMartinConcessionPercent(rate) {
+  const n = Number(rate);
+  if (!Number.isFinite(n)) return '';
+  if (n === 0) return '0%';
+  if (n > 0) return `-${Math.round(n * 100)}%`;
+  return formatConcessionPercent(n);
+}
+
+function isCurrentMartinConcessionSet(concessions) {
+  return ratesMatch(getSortedDisplayRates(concessions), [0, 0.1, 0.3, 0.5, 0.7]);
+}
+
 function getDisplayConcessionItems(items) {
   if (!Array.isArray(items)) return [];
   return items.filter((item) => Number(item.rate) !== 0 || item.display === true);
@@ -1142,43 +1160,32 @@ function buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rat
   return items;
 }
 
-function calcMartinStopLossPrice(startPrice, endPrice, decimalPlaces) {
-  const diff = endPrice - startPrice;
-  if (!Number.isFinite(diff) || diff === 0) return null;
-  const stopLoss = endPrice + diff;
-  if (!(stopLoss > 0)) return null;
-  return Number(formatFixedDecimals(stopLoss, decimalPlaces));
-}
-
-function calcMartinLevelPrice(startPrice, endPrice, rate, decimalPlaces) {
-  const diff = endPrice - startPrice;
+function calcMartinLevelPrice(startPrice, stopPrice, rate, decimalPlaces) {
+  const diff = stopPrice - startPrice;
   if (!Number.isFinite(diff) || diff === 0 || !Number.isFinite(rate)) return null;
-  const price = endPrice + rate * diff;
+  const price = startPrice + rate * diff;
   if (!(price > 0)) return null;
   return Number(formatFixedDecimals(price, decimalPlaces));
 }
 
-function buildMartinConcessionItems(startPrice, endPrice, openCost, decimalPlaces, rates = MARTIN_CONCESSION_RATES) {
-  const stopLoss = calcMartinStopLossPrice(startPrice, endPrice, decimalPlaces);
-  if (stopLoss == null) return [];
+function buildMartinConcessionItems(startPrice, stopPrice, openCost, decimalPlaces, rates = MARTIN_CONCESSION_RATES) {
+  if (!(stopPrice > 0)) return [];
+  const stopLoss = Number(formatFixedDecimals(stopPrice, decimalPlaces));
   const items = [];
   for (const rateConfig of rates) {
     const { rate, display } = normalizeConcessionRateConfig(rateConfig);
-    const price = calcMartinLevelPrice(startPrice, endPrice, rate, decimalPlaces);
+    const price = calcMartinLevelPrice(startPrice, stopPrice, rate, decimalPlaces);
     const qty = price == null ? null : calcQuantityByRisk(openCost, price, stopLoss);
     if (price == null || qty == null) continue;
     const item = {
       rate,
       price: formatTrimmedFixedDecimals(price, decimalPlaces),
       quantity: formatQuantity(qty),
-      rawQuantity: qty,
     };
     if (display) item.display = true;
     items.push(item);
   }
-  return items
-    .sort((a, b) => b.rawQuantity - a.rawQuantity)
-    .map(({ rawQuantity, ...item }) => item);
+  return items;
 }
 
 function reverseConcessionPriceQty(displayItems) {
@@ -1194,17 +1201,17 @@ function reverseConcessionPriceQty(displayItems) {
   }));
 }
 
-function renderConcessionsHtml({ prefix, items, stopLabel, stopHeaderLabel = '止损', wrapperClass, reverseOrder = false, reversePriceQty = false }) {
+function renderConcessionsHtml({ prefix, items, stopLabel, stopHeaderLabel = '止损价格', wrapperClass, reverseOrder = false, reversePriceQty = false, formatRate = formatConcessionPercent }) {
   let displayItems = getDisplayConcessionItems(items);
   if (reverseOrder) displayItems = displayItems.slice().reverse();
   if (reversePriceQty) displayItems = reverseConcessionPriceQty(displayItems);
   if (!displayItems.length) return '';
   const stop = escapeHtml(String(stopLabel ?? '').trim() || '—');
-  const stopHeader = escapeHtml(String(stopHeaderLabel ?? '').trim() || '止损');
+  const stopHeader = escapeHtml(String(stopHeaderLabel ?? '').trim() || '止损价格');
   const rowClass = `${prefix}-concession`;
   const rows = displayItems.map((item) => [
     `<div class="${rowClass}">`,
-    `<span class="${rowClass}__rate">${escapeHtml(formatConcessionPercent(item.rate))}</span>`,
+    `<span class="${rowClass}__rate">${escapeHtml(formatRate(item.rate))}</span>`,
     `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`,
     `<span class="${rowClass}__qty">${escapeHtml(item.quantity)}</span>`,
     `<span class="${rowClass}__stop">${stop}</span>`,
@@ -1230,6 +1237,8 @@ function renderStrategyConcessionsHtml(items, stopLabel, options = {}) {
     stopLabel,
     stopHeaderLabel: options.stopHeaderLabel,
     wrapperClass: 'strategy-card__concessions',
+    reverseOrder: options.reverseOrder === true,
+    formatRate: options.formatRate,
   });
 }
 
@@ -1241,6 +1250,8 @@ function buildStrategyDisplayHtml({
   refTakeProfitLabel,
   concessionItems,
   timeRangeLabel,
+  formatRate,
+  reverseOrder = false,
 }) {
   const sideMod = getPositionSideMod(side);
   const title = formatStrategyCardTitle(alarmName);
@@ -1252,7 +1263,11 @@ function buildStrategyDisplayHtml({
     '<div class="strategy-card__head">',
     `<span class="strategy-card__title">${escapeHtml(title)}</span>`,
     '</div>',
-    renderStrategyConcessionsHtml(concessionItems, stopLabel, { stopHeaderLabel }),
+    renderStrategyConcessionsHtml(concessionItems, stopLabel, {
+      stopHeaderLabel,
+      formatRate,
+      reverseOrder,
+    }),
     refTakeProfitHtml,
     `<div class="strategy-card__time"><span class="strategy-card__time-label">时间范围</span><span class="strategy-card__time-value">${escapeHtml(timeRangeLabel)}</span></div>`,
     '</div>',
@@ -1294,6 +1309,8 @@ function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
     stopHeaderLabel: options.stopHeaderLabel,
     wrapperClass: 'admin-item__concessions',
     reversePriceQty: options.reversePriceQty === true,
+    reverseOrder: options.reverseOrder === true,
+    formatRate: options.formatRate,
   });
 }
 
@@ -1361,6 +1378,7 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
     side,
     alarmName,
     stopLabel,
+    stopHeaderLabel: '止损价格',
     refTakeProfitLabel,
     concessionItems,
     timeRangeLabel,
@@ -1407,7 +1425,6 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
 function buildMartinStrategyPlainText({
   sideLabel,
   startLabel,
-  endLabel,
   stopLabel,
   refTakeProfitLabel,
   concessionItems,
@@ -1416,26 +1433,24 @@ function buildMartinStrategyPlainText({
   return [
     sideLabel,
     `开始价格：${startLabel}`,
-    `结束价格：${endLabel}`,
-    `止损：${stopLabel}`,
+    `止损价格：${stopLabel}`,
     ...concessionItems.map((item) => (
-      `档位${formatConcessionPercent(item.rate)}：${item.price} / ${item.quantity} / ${stopLabel}`
+      `档位${formatMartinConcessionPercent(item.rate)}：${item.price} / ${item.quantity} / ${stopLabel}`
     )),
     `参考止盈：${refTakeProfitLabel}`,
     `时间范围：${timeRangeLabel}`,
   ].join('\n');
 }
 
-function buildMartinStrategy(startPrice, endPrice, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces, tradeMode = getTradeMode()) {
+function buildMartinStrategy(startPrice, stopPrice, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces, tradeMode = getTradeMode()) {
   const timeframe = getTimeframeMode();
   const unitMin = getTimeframeMinutes(timeframe);
   const spanMinutes = unitMin * STRATEGY_DURATION_PERIODS;
-  const diff = Math.abs(endPrice - startPrice);
-  const stopLoss = calcMartinStopLossPrice(startPrice, endPrice, priceDecimalPlaces);
+  const diff = Math.abs(stopPrice - startPrice);
 
   const nameEl = document.getElementById('name-input');
   const name = String(nameEl?.value ?? '').trim();
-  const side = endPrice > stopLoss ? 'long' : 'short';
+  const side = startPrice < stopPrice ? 'short' : 'long';
   const alarmName = name || 'test';
   const sideLabel = formatStrategyCardTitle(alarmName);
   const startAt = getStartDateTime(startTimeValue);
@@ -1445,19 +1460,16 @@ function buildMartinStrategy(startPrice, endPrice, startTimeValue, startTimeLabe
   const timeRangeLabel = `${startDisplay} — ${endDisplay}`;
 
   const startLabel = formatTrimmedFixedDecimals(startPrice, priceDecimalPlaces);
-  const endLabel = formatTrimmedFixedDecimals(endPrice, priceDecimalPlaces);
-  const stopLabel = formatTrimmedFixedDecimals(stopLoss, priceDecimalPlaces);
-  const tp = calcTakeProfit(endPrice, stopLoss, TAKE_PROFIT_R_MULTIPLE);
-  const tpLabel = formatTrimmedFixedDecimals(tp, priceDecimalPlaces);
-  const refTakeProfitLabel = buildReferenceTakeProfitLabel(endPrice, stopLoss, priceDecimalPlaces);
-  const concessionItems = buildMartinConcessionItems(startPrice, endPrice, openCost, priceDecimalPlaces);
-  const primaryItem = concessionItems[0];
-  const qty = primaryItem?.quantity ?? '';
+  const stopLabel = formatTrimmedFixedDecimals(stopPrice, priceDecimalPlaces);
+  const tpLabel = '0';
+  const refTakeProfitLabel = buildReferenceTakeProfitLabel(startPrice, stopPrice, priceDecimalPlaces);
+  const concessionItems = buildMartinConcessionItems(startPrice, stopPrice, openCost, priceDecimalPlaces);
+  const baselineItem = concessionItems.find((item) => Number(item.rate) === 0);
+  const qty = baselineItem?.quantity ?? '';
 
   const plain = buildMartinStrategyPlainText({
     sideLabel,
     startLabel,
-    endLabel,
     stopLabel,
     refTakeProfitLabel,
     concessionItems,
@@ -1467,18 +1479,19 @@ function buildMartinStrategy(startPrice, endPrice, startTimeValue, startTimeLabe
     side,
     alarmName,
     stopLabel,
-    stopHeaderLabel: '止损',
+    stopHeaderLabel: '止损价格',
     refTakeProfitLabel,
     concessionItems,
     timeRangeLabel,
+    formatRate: formatMartinConcessionPercent,
   });
 
   const record = {
     strategyName: alarmName,
     positionSide: side,
     inputPrice: startLabel,
-    inputStopLoss: endLabel,
-    entryPrice: endLabel,
+    inputStopLoss: stopLabel,
+    entryPrice: startLabel,
     quantity: qty,
     takeProfitPrice: tpLabel,
     stopLossPrice: stopLabel,
@@ -1538,17 +1551,13 @@ function generate() {
   if (errEl) errEl.textContent = '';
 
   if (open === null || stop === null) {
-    if (errEl) errEl.textContent = martinMode
-      ? '请输入有效的开始价格与结束价格（数字）。'
-      : '请输入有效的价格与止损（数字）。';
+    if (errEl) errEl.textContent = '请输入有效的开始价格与止损价格（数字）。';
     clearStrategyState();
     return;
   }
 
   if (open <= 0 || stop <= 0) {
-    if (errEl) errEl.textContent = martinMode
-      ? '开始价格和结束价格须为大于 0 的数字。'
-      : '价格和止损须为大于 0 的数字。';
+    if (errEl) errEl.textContent = '开始价格和止损价格须为大于 0 的数字。';
     clearStrategyState();
     return;
   }
@@ -1567,8 +1576,8 @@ function generate() {
 
   if (open === stop) {
     if (errEl) errEl.textContent = martinMode
-      ? '开始价格与结束价格不能相同，无法计算差额。'
-      : '价格与止损不能相同，无法计算数量与方向。';
+      ? '开始价格与止损价格不能相同，无法计算差额。'
+      : '开始价格与止损价格不能相同，无法计算数量与方向。';
     clearStrategyState();
     return;
   }
@@ -1577,21 +1586,9 @@ function generate() {
   const stopRaw = stopEl && 'value' in stopEl ? String(stopEl.value) : '';
   const priceDecimals = Math.max(getDecimalPlacesFromInput(openRaw), getDecimalPlacesFromInput(stopRaw)) + 1;
   if (martinMode) {
-    const martinStopLoss = calcMartinStopLossPrice(open, stop, priceDecimals);
-    if (martinStopLoss == null) {
-      if (errEl) errEl.textContent = '马丁策略止损价无效，请检查开始价格与结束价格。';
-      clearStrategyState();
-      return;
-    }
-    const martinTakeProfit = calcTakeProfit(stop, martinStopLoss, TAKE_PROFIT_R_MULTIPLE);
-    if (!Number.isFinite(martinTakeProfit) || martinTakeProfit <= 0) {
-      if (errEl) errEl.textContent = '马丁策略止盈价无效，请检查开始价格与结束价格。';
-      clearStrategyState();
-      return;
-    }
     const martinItems = buildMartinConcessionItems(open, stop, openCost, priceDecimals);
     if (martinItems.length !== MARTIN_CONCESSION_RATES.length) {
-      if (errEl) errEl.textContent = '马丁策略档位价格无效，请检查开始价格与结束价格。';
+      if (errEl) errEl.textContent = '马丁策略档位价格无效，请检查开始价格与止损价格。';
       clearStrategyState();
       return;
     }
@@ -1599,7 +1596,7 @@ function generate() {
     const adjustedOpen = calcAdjustedOpenPrice(open, stop, priceDecimals);
     const takeProfit = calcTakeProfit(adjustedOpen, stop, TAKE_PROFIT_R_MULTIPLE);
     if (!Number.isFinite(adjustedOpen) || adjustedOpen <= 0 || !Number.isFinite(takeProfit) || takeProfit <= 0) {
-      if (errEl) errEl.textContent = '价格或止盈价无效，请检查价格与止损。';
+      if (errEl) errEl.textContent = '开始价格或止盈价无效，请检查开始价格与止损价格。';
       clearStrategyState();
       return;
     }
@@ -2434,13 +2431,14 @@ function buildAdminListItemHtml(row) {
   const stop = formatFixed2FromValue(row?.stopLossPrice) || '-';
   const concessions = buildAdminDisplayConcessions(row);
   const martinConcessions = isMartinConcessionSet(concessions);
+  const currentMartinConcessions = isCurrentMartinConcessionSet(concessions);
   const refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice);
   const refTakeProfitHtml = refTakeProfitLabel == null
     ? ''
     : renderReferenceTakeProfitHtml('admin-item__ref-tp', refTakeProfitLabel);
   const concessionsHtml = renderAdminConcessionsHtml(concessions, stop, {
-    stopHeaderLabel: '止损',
-    reversePriceQty: martinConcessions,
+    stopHeaderLabel: '止损价格',
+    formatRate: currentMartinConcessions ? formatMartinConcessionPercent : formatConcessionPercent,
   });
   const startAt = getStrategyStartAt(row);
   const endAt = getStrategyEndAt(row);
