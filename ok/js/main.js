@@ -163,8 +163,11 @@ const TIMEFRAME_LABELS = {
 
 const PRICE_ADJUSTMENT_RATE = 0.2;
 const CONCESSION_RATES_BY_TIER = {
+  3: [0.8, 0.5, 0.2],
   5: [0, 0.8, 0.5, 0.2, { rate: 0, display: true }, -0.2],
 };
+const TREND_TIER_COUNT_FIVE = 5;
+const TREND_TIER_COUNT_THREE = 3;
 const MARTIN_CONCESSION_RATES = [{ rate: 0, display: true }, 0.1, 0.3, 0.5, 0.7];
 const MARTIN_CONCESSION_RATES_LEGACY = [-0.5, -0.2, 0, 0.2, 0.5];
 const LEGACY_TIER_COUNTS = new Set([3, 6, 7]);
@@ -331,6 +334,20 @@ function buildAdminDisplayConcessions(row) {
     return savedConcessions;
   }
   return buildUnifiedConcessionsForRow(row) || savedConcessions;
+}
+
+function buildTrendAdminConcessions(row, tierCount = TREND_TIER_COUNT_FIVE) {
+  const entryPrice = toNumber(row?.entryPrice);
+  const stopLoss = toNumber(row?.stopLossPrice);
+  const openCostTotal = getOpenCostTotalFromRow(row);
+  if (entryPrice == null || stopLoss == null || !(openCostTotal > 0)) return [];
+
+  const decimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
+  const savedConcessions = buildAdminConcessionsForRow(row);
+  const reverse = inferReverseFromConcessions(entryPrice, stopLoss, savedConcessions, decimalPlaces);
+  const openCost = openCostTotal / tierCount;
+  const rates = getConcessionRates(tierCount);
+  return buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rates, reverse);
 }
 
 const SUPABASE_URL = 'https://rxggjijrfafcrmtkqkuv.supabase.co';
@@ -2159,6 +2176,33 @@ let isDeletingStrategies = false;
 let isAdminSelectionMode = false;
 let visibleAdminStrategyIds = [];
 let latestAdminRows = [];
+const adminTrendTierViewById = new Map();
+
+function getDefaultAdminTrendTierCount(row) {
+  return normalizeStrategyGrade(row?.grade) === STRATEGY_GRADE_PREMIUM
+    ? TREND_TIER_COUNT_THREE
+    : TREND_TIER_COUNT_FIVE;
+}
+
+function getAdminTrendTierCount(strategyId, row) {
+  const id = String(strategyId ?? '').trim();
+  if (adminTrendTierViewById.has(id)) {
+    return adminTrendTierViewById.get(id) === TREND_TIER_COUNT_THREE
+      ? TREND_TIER_COUNT_THREE
+      : TREND_TIER_COUNT_FIVE;
+  }
+  return getDefaultAdminTrendTierCount(row);
+}
+
+function toggleAdminTrendTierView(strategyId) {
+  const id = String(strategyId ?? '').trim();
+  if (!id) return;
+  const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
+  const nextTierCount = getAdminTrendTierCount(id, row) === TREND_TIER_COUNT_THREE
+    ? TREND_TIER_COUNT_FIVE
+    : TREND_TIER_COUNT_THREE;
+  adminTrendTierViewById.set(id, nextTierCount);
+}
 
 function getVisibleAdminStrategyIds() {
   const domIds = Array.from(document.querySelectorAll('#admin-list .admin-item__select'))
@@ -2431,6 +2475,7 @@ async function renderAdminList() {
 
 function buildAdminListItemHtml(row) {
   const rawId = String(row?.id ?? '').trim();
+  const id = escapeHtml(rawId);
   const sideRaw = String(row?.positionSide ?? '').trim();
   const nameRaw = String(row?.strategyName ?? '').trim();
   const sideMod = getPositionSideMod(sideRaw);
@@ -2451,8 +2496,11 @@ function buildAdminListItemHtml(row) {
   const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
   const priceDecimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
   const stop = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '-';
-  const concessions = buildAdminDisplayConcessions(row);
-  const martinConcessions = isMartinConcessionSet(concessions);
+  const isTrendStrategy = strategyType.type === 'trend';
+  const trendTierCount = isTrendStrategy ? getAdminTrendTierCount(rawId, row) : TREND_TIER_COUNT_FIVE;
+  const concessions = isTrendStrategy
+    ? buildTrendAdminConcessions(row, trendTierCount)
+    : buildAdminDisplayConcessions(row);
   const currentMartinConcessions = isCurrentMartinConcessionSet(concessions);
   const refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
   const refTakeProfitHtml = refTakeProfitLabel == null
@@ -2467,7 +2515,6 @@ function buildAdminListItemHtml(row) {
   const endAt = getStrategyEndAt(row);
   const timeRange = escapeHtml(formatAdminTimeRange(startAt, endAt));
   const expiresAt = endAt ? escapeHtml(endAt.toISOString()) : '';
-  const id = escapeHtml(rawId);
   const checked = rawId && selectedStrategyIds.has(rawId) ? ' checked' : '';
   const disabled = isDeletingStrategies ? ' disabled' : '';
   const selectorDisabled = isDeletingStrategies ? ' is-disabled' : '';
@@ -2504,7 +2551,14 @@ function buildAdminListItemHtml(row) {
       `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
       '</div>',
     ].join('');
-  const buttonsHtml = `<div class="admin-item__buttons">${outcomeStatusHtml}</div>`;
+  const tierToggleHtml = isTrendStrategy
+    ? [
+      `<button type="button" class="admin-outcome-status admin-outcome-status--pending admin-outcome-status--actionable admin-tier-toggle" data-id="${id}" data-tier-count="${trendTierCount}" aria-pressed="${trendTierCount === TREND_TIER_COUNT_THREE ? 'true' : 'false'}" aria-label="${trendTierCount === TREND_TIER_COUNT_THREE ? '当前3档位，点击切换为5档' : '当前5档位，点击切换为3档'}">`,
+      `<span class="admin-outcome-status__tag">${trendTierCount === TREND_TIER_COUNT_THREE ? '3档' : '5档'}</span>`,
+      '</button>',
+    ].join('')
+    : '';
+  const buttonsHtml = `<div class="admin-item__buttons">${tierToggleHtml}${outcomeStatusHtml}</div>`;
   return [
     `<article class="admin-item admin-item--${sideMod}">`,
     remarkStampHtml,
@@ -3581,6 +3635,15 @@ if (adminListEl) {
   adminListEl.addEventListener('click', async (e) => {
     const target = e.target instanceof HTMLElement ? e.target : null;
     if (!target) return;
+
+    const tierToggleBtn = target.closest('.admin-tier-toggle');
+    if (tierToggleBtn) {
+      const id = String(tierToggleBtn.getAttribute('data-id') ?? '').trim();
+      if (!id) return;
+      toggleAdminTrendTierView(id);
+      renderAdminListItems();
+      return;
+    }
 
     const outcomeStatusActionBtn = target.closest('.admin-outcome-status--actionable');
     if (outcomeStatusActionBtn) {
