@@ -36,7 +36,15 @@ function formatFixed2FromValue(value) {
 
 const ADMIN_DECIMAL_PLACES = 3;
 
-/** 后台价格/数量：最多 3 位小数，去掉尾随 0 */
+/** 后台价格：按输入/存储精度展示，去掉尾随 0 */
+function formatAdminPriceFromValue(value, decimalPlaces) {
+  const n = toNumber(value);
+  if (n == null) return String(value ?? '').trim();
+  const decimals = Math.max(0, Math.min(20, Math.floor(Number(decimalPlaces) || 0)));
+  return formatTrimmedFixedDecimals(n, decimals);
+}
+
+/** 后台数量：最多 3 位小数，去掉尾随 0 */
 function formatAdminDecimalFromValue(value, maxDecimals = ADMIN_DECIMAL_PLACES) {
   const n = toNumber(value);
   if (n == null) return String(value ?? '').trim();
@@ -1037,6 +1045,17 @@ function getPriceDecimalPlacesFromValues(...values) {
   }, 0);
 }
 
+function getAdminPriceDecimalPlacesFromRow(row) {
+  const inputDecimals = getPriceDecimalPlacesFromValues(row?.inputPrice, row?.inputStopLoss);
+  const storedDecimals = getPriceDecimalPlacesFromValues(
+    row?.entryPrice,
+    row?.stopLossPrice,
+    row?.takeProfitPrice,
+    ...(Array.isArray(row?.concessions) ? row.concessions.map((item) => item?.price) : []),
+  );
+  return Math.max(inputDecimals, storedDecimals);
+}
+
 function normalizeReferenceTakeProfitPrice(price) {
   const n = Number(price);
   if (!Number.isFinite(n) || n <= 0) return null;
@@ -1061,7 +1080,7 @@ function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces) {
   return lowLabel === highLabel ? lowLabel : `${lowLabel}-${highLabel}`;
 }
 
-function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss) {
+function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
   if (entry == null || stop == null || entry === stop) return '—';
@@ -1073,8 +1092,9 @@ function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss) {
   if (low == null && high == null) return '—';
   if (low == null) low = high;
   if (high == null) high = low;
-  const lowLabel = formatFixedDecimals(low, 2);
-  const highLabel = formatFixedDecimals(high, 2);
+  const decimals = Math.max(0, Math.min(20, Math.floor(Number(decimalPlaces) || 0)));
+  const lowLabel = formatTrimmedFixedDecimals(low, decimals);
+  const highLabel = formatTrimmedFixedDecimals(high, decimals);
   return lowLabel === highLabel ? lowLabel : `${lowLabel}-${highLabel}`;
 }
 
@@ -1292,20 +1312,21 @@ function buildStrategyPlainText({
   ].join('\n');
 }
 
-function formatAdminConcessionItems(items) {
+function formatAdminConcessionItems(items, priceDecimalPlaces = 0) {
   if (!Array.isArray(items)) return [];
   return items.map((item) => ({
     ...item,
-    price: formatAdminDecimalFromValue(item?.price),
+    price: formatAdminPriceFromValue(item?.price, priceDecimalPlaces),
     quantity: formatAdminDecimalFromValue(item?.quantity),
   }));
 }
 
 function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
+  const priceDecimalPlaces = options.priceDecimalPlaces ?? 0;
   return renderConcessionsHtml({
     prefix: 'admin',
-    items: formatAdminConcessionItems(concessions),
-    stopLabel: formatFixed2FromValue(stopLabel),
+    items: formatAdminConcessionItems(concessions, priceDecimalPlaces),
+    stopLabel: formatAdminPriceFromValue(stopLabel, priceDecimalPlaces),
     stopHeaderLabel: options.stopHeaderLabel,
     wrapperClass: 'admin-item__concessions',
     reversePriceQty: options.reversePriceQty === true,
@@ -2428,16 +2449,18 @@ function buildAdminListItemHtml(row) {
     '</div>',
   ].join('');
   const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
-  const stop = formatFixed2FromValue(row?.stopLossPrice) || '-';
+  const priceDecimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
+  const stop = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '-';
   const concessions = buildAdminDisplayConcessions(row);
   const martinConcessions = isMartinConcessionSet(concessions);
   const currentMartinConcessions = isCurrentMartinConcessionSet(concessions);
-  const refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice);
+  const refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
   const refTakeProfitHtml = refTakeProfitLabel == null
     ? ''
     : renderReferenceTakeProfitHtml('admin-item__ref-tp', refTakeProfitLabel);
   const concessionsHtml = renderAdminConcessionsHtml(concessions, stop, {
     stopHeaderLabel: '止损价格',
+    priceDecimalPlaces,
     formatRate: currentMartinConcessions ? formatMartinConcessionPercent : formatConcessionPercent,
   });
   const startAt = getStrategyStartAt(row);
