@@ -177,6 +177,8 @@ const TRADE_MODE_REVERSE = 'reverse';
 const OPEN_COST_TOTAL_DEFAULT = 200;
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
+const PRIMARY_TIER_OPEN_COST_SHARE = 0.5;
+const TREND_PRIMARY_TIER_RATE = 0.8;
 const REF_TAKE_PROFIT_R_LOW = 3;
 const REF_TAKE_PROFIT_R_HIGH = 5;
 const STRATEGY_DURATION_PERIODS = 10;
@@ -280,9 +282,8 @@ function buildUnifiedConcessionsForRow(row) {
   );
   const currentConcessions = buildAdminConcessionsForRow(row);
   const reverse = inferReverseFromConcessions(entryPrice, stopLoss, currentConcessions, decimalPlaces);
-  const openCost = openCostTotal / DEFAULT_TIER_COUNT;
   const rates = getConcessionRates(DEFAULT_TIER_COUNT);
-  return buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rates, reverse);
+  return buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces, rates, reverse);
 }
 
 function getSortedDisplayRates(concessions) {
@@ -345,14 +346,25 @@ function buildTrendAdminConcessions(row, tierCount = TREND_TIER_COUNT_FIVE) {
   const decimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
   const savedConcessions = buildAdminConcessionsForRow(row);
   const reverse = inferReverseFromConcessions(entryPrice, stopLoss, savedConcessions, decimalPlaces);
-  const openCost = openCostTotal / tierCount;
   const rates = getConcessionRates(tierCount);
-  return buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rates, reverse);
+  return buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces, rates, reverse);
+}
+
+function buildMartinAdminConcessions(row) {
+  const startPrice = toNumber(row?.entryPrice);
+  const stopPrice = toNumber(row?.stopLossPrice);
+  const openCostTotal = getOpenCostTotalFromRow(row);
+  if (startPrice == null || stopPrice == null || !(openCostTotal > 0)) return [];
+
+  const decimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
+  return buildMartinConcessionItems(startPrice, stopPrice, openCostTotal, decimalPlaces);
 }
 
 const SUPABASE_URL = 'https://rxggjijrfafcrmtkqkuv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_8B1PLTeHhtPou4lPt9cl6w_O2hipMVY';
 const AUTH_STORAGE_KEY = 'ok_supabase_session';
+const AUTH_REFRESH_LEAD_MS = 10 * 60 * 1000;
+const AUTH_ACCESS_TOKEN_SKEW_MS = 2 * 60 * 1000;
 const LOGIN_EMAIL_SUFFIX = '@ok.local';
 const AUTH_ENDPOINT = `${SUPABASE_URL}/auth/v1/token`;
 const STRATEGIES_ENDPOINT = `${SUPABASE_URL}/rest/v1/strategies`;
@@ -446,6 +458,8 @@ const METHODOLOGY_SECTIONS = [
 let authSession = null;
 let isLoggingIn = false;
 let isAuthReady = false;
+let authRefreshTimer = null;
+let authRefreshInFlight = null;
 
 function loadAuthSession() {
   try {
@@ -465,9 +479,14 @@ function saveAuthSession(session) {
   authSession = session;
   if (!session) {
     localStorage.removeItem(AUTH_STORAGE_KEY);
+    if (authRefreshTimer) {
+      clearTimeout(authRefreshTimer);
+      authRefreshTimer = null;
+    }
     return;
   }
   localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+  scheduleAuthRefresh();
 }
 
 function clearAuthSession() {
@@ -476,7 +495,43 @@ function clearAuthSession() {
 
 function isAccessTokenValid() {
   if (!authSession?.access_token || !authSession?.expires_at) return false;
-  return Date.now() < authSession.expires_at - 60_000;
+  return Date.now() < authSession.expires_at - AUTH_ACCESS_TOKEN_SKEW_MS;
+}
+
+function isAuthRefreshTokenInvalid(err) {
+  const code = String(err?.code ?? '').toLowerCase();
+  const msg = String(err?.message ?? '').toLowerCase();
+  return code === 'invalid_grant'
+    || msg.includes('invalid refresh token')
+    || msg.includes('refresh token not found')
+    || msg.includes('token is expired')
+    || msg.includes('session not found');
+}
+
+function scheduleAuthRefresh() {
+  if (authRefreshTimer) {
+    clearTimeout(authRefreshTimer);
+    authRefreshTimer = null;
+  }
+  if (!authSession?.refresh_token || !authSession?.expires_at) return;
+  const refreshAt = authSession.expires_at - AUTH_REFRESH_LEAD_MS;
+  const delay = Math.max(refreshAt - Date.now(), 1000);
+  authRefreshTimer = setTimeout(() => {
+    refreshAuthSessionSafe().catch(() => {});
+  }, delay);
+}
+
+function syncAuthSessionFromStorage() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.access_token) return;
+    authSession = parsed;
+    scheduleAuthRefresh();
+  } catch {
+    // ignore cross-tab parse errors
+  }
 }
 
 function buildAuthSessionFromTokenResponse(data) {
@@ -501,7 +556,9 @@ async function authTokenRequest(grantType, payload) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data?.error_description || data?.msg || data?.message || '登录失败');
+    const err = new Error(data?.error_description || data?.msg || data?.message || '登录失败');
+    err.code = data?.error || data?.error_code || '';
+    throw err;
   }
   return data;
 }
@@ -517,10 +574,24 @@ async function refreshAuthSession() {
   return nextSession;
 }
 
+async function refreshAuthSessionSafe() {
+  if (authRefreshInFlight) return authRefreshInFlight;
+  authRefreshInFlight = refreshAuthSession()
+    .finally(() => {
+      authRefreshInFlight = null;
+    });
+  return authRefreshInFlight;
+}
+
 async function ensureAuthSession() {
   if (isAccessTokenValid()) return authSession;
-  if (authSession?.refresh_token) return refreshAuthSession();
+  if (authSession?.refresh_token) return refreshAuthSessionSafe();
   throw new Error('未登录');
+}
+
+function forceLogout(message = '登录已过期，请重新登录') {
+  clearAuthSession();
+  showLoginPage(message);
 }
 
 function normalizeLoginEmail(account) {
@@ -574,8 +645,15 @@ function getSupabaseHeaders(extra = {}) {
   };
 }
 
-async function supabaseFetch(input, init = {}) {
-  await ensureAuthSession();
+async function supabaseFetch(input, init = {}, retried = false) {
+  try {
+    await ensureAuthSession();
+  } catch (err) {
+    if (isAuthRefreshTokenInvalid(err)) {
+      forceLogout();
+    }
+    throw err;
+  }
   const hasBody = init.body !== undefined && init.body !== null && init.body !== '';
   const headers = {
     ...getSupabaseHeaders(),
@@ -590,9 +668,20 @@ async function supabaseFetch(input, init = {}) {
     delete headers['content-type'];
   }
   const res = await fetch(input, { ...init, headers });
+  if (res.status === 401 && !retried && authSession?.refresh_token) {
+    try {
+      await refreshAuthSessionSafe();
+      return supabaseFetch(input, init, true);
+    } catch (err) {
+      if (isAuthRefreshTokenInvalid(err)) {
+        forceLogout();
+        throw new Error('登录已过期，请重新登录');
+      }
+      throw err;
+    }
+  }
   if (res.status === 401) {
-    clearAuthSession();
-    showLoginPage('登录已过期，请重新登录');
+    forceLogout();
     throw new Error('登录已过期，请重新登录');
   }
   return res;
@@ -640,9 +729,20 @@ async function initApp() {
       showApp();
       setPage('admin');
       return;
-    } catch {
-      clearAuthSession();
+    } catch (err) {
+      if (isAuthRefreshTokenInvalid(err)) {
+        clearAuthSession();
+      } else if (isAccessTokenValid()) {
+        scheduleAuthRefresh();
+        showApp();
+        setPage('admin');
+        return;
+      }
     }
+  } else if (authSession?.access_token && isAccessTokenValid()) {
+    showApp();
+    setPage('admin');
+    return;
   }
   showLoginPage();
 }
@@ -1145,6 +1245,37 @@ function calcQuantityByRisk(openCost, entryPrice, stopLoss) {
   return openCost / stopDiff;
 }
 
+function isDisplayRateConfig(rateConfig) {
+  const { rate, display } = normalizeConcessionRateConfig(rateConfig);
+  return Number(rate) !== 0 || display === true;
+}
+
+function countDisplayRateConfigs(rates) {
+  if (!Array.isArray(rates)) return 0;
+  return rates.filter(isDisplayRateConfig).length;
+}
+
+function getTierOpenCostBudget(openCostTotal, tierCount, isPrimaryTier) {
+  const total = Number(openCostTotal);
+  const count = Number(tierCount);
+  if (!(total > 0) || !(count > 0)) return null;
+  if (count === 1) return total;
+  if (isPrimaryTier) return total * PRIMARY_TIER_OPEN_COST_SHARE;
+  return (total * (1 - PRIMARY_TIER_OPEN_COST_SHARE)) / (count - 1);
+}
+
+function isTrendPrimaryTierRate(rate) {
+  return Math.abs(Number(rate) - TREND_PRIMARY_TIER_RATE) < 1e-9;
+}
+
+function isMartinPrimaryTierRate(rate) {
+  return Math.abs(Number(rate)) < 1e-9;
+}
+
+function getTierOpenCostBudgetForRate(openCostTotal, rates, rate, isPrimaryRate) {
+  return getTierOpenCostBudget(openCostTotal, countDisplayRateConfigs(rates), isPrimaryRate(rate));
+}
+
 function formatConcessionPercent(rate) {
   return `${Math.round(rate * 100)}%`;
 }
@@ -1179,12 +1310,14 @@ function normalizeConcessionRateConfig(rateConfig) {
   };
 }
 
-function buildConcessionItems(entryPrice, stopLoss, openCost, decimalPlaces, rates = getConcessionRates(), reverse = false) {
+function buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces, rates = getConcessionRates(), reverse = false, options = {}) {
+  const isPrimaryRate = options.isPrimaryRate ?? isTrendPrimaryTierRate;
   const items = [];
   for (const rateConfig of rates) {
     const { rate, display } = normalizeConcessionRateConfig(rateConfig);
     const price = calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces, reverse);
-    const qty = price == null ? null : calcQuantityByRisk(openCost, price, stopLoss);
+    const tierOpenCost = getTierOpenCostBudgetForRate(openCostTotal, rates, rate, isPrimaryRate);
+    const qty = price == null ? null : calcQuantityByRisk(tierOpenCost, price, stopLoss);
     if (price == null || qty == null) continue;
     const item = {
       rate,
@@ -1205,14 +1338,15 @@ function calcMartinLevelPrice(startPrice, stopPrice, rate, decimalPlaces) {
   return Number(formatFixedDecimals(price, decimalPlaces));
 }
 
-function buildMartinConcessionItems(startPrice, stopPrice, openCost, decimalPlaces, rates = MARTIN_CONCESSION_RATES) {
+function buildMartinConcessionItems(startPrice, stopPrice, openCostTotal, decimalPlaces, rates = MARTIN_CONCESSION_RATES) {
   if (!(stopPrice > 0)) return [];
   const stopLoss = Number(formatFixedDecimals(stopPrice, decimalPlaces));
   const items = [];
   for (const rateConfig of rates) {
     const { rate, display } = normalizeConcessionRateConfig(rateConfig);
     const price = calcMartinLevelPrice(startPrice, stopPrice, rate, decimalPlaces);
-    const qty = price == null ? null : calcQuantityByRisk(openCost, price, stopLoss);
+    const tierOpenCost = getTierOpenCostBudgetForRate(openCostTotal, rates, rate, isMartinPrimaryTierRate);
+    const qty = price == null ? null : calcQuantityByRisk(tierOpenCost, price, stopLoss);
     if (price == null || qty == null) continue;
     const item = {
       rate,
@@ -1379,6 +1513,7 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
   const spanMinutes = unitMin * STRATEGY_DURATION_PERIODS;
   const reverse = false;
   const adjustedOpen = calcAdjustedOpenPrice(open, stop, priceDecimalPlaces);
+  const openCostTotal = getOpenCostTotal() ?? openCost * DEFAULT_TIER_COUNT;
   const quantity = calcQuantityByRisk(openCost, adjustedOpen, stop);
   const primaryConcessionalPrice = calcConcessionalEntryPrice(adjustedOpen, stop, PRICE_ADJUSTMENT_RATE, priceDecimalPlaces, reverse);
   const priceAdjustment = primaryConcessionalPrice == null ? 0 : Math.abs(adjustedOpen - primaryConcessionalPrice);
@@ -1401,9 +1536,10 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
   const stopLabel = formatPrice(stop);
   const refTakeProfitLabel = buildReferenceTakeProfitLabel(adjustedOpen, stop, priceDecimalPlaces);
   const concessionRates = getConcessionRates(DEFAULT_TIER_COUNT);
-  const concessionItems = buildConcessionItems(adjustedOpen, stop, openCost, priceDecimalPlaces, concessionRates, reverse);
+  const concessionItems = buildConcessionItems(adjustedOpen, stop, openCostTotal, priceDecimalPlaces, concessionRates, reverse);
+  const primaryItem = concessionItems.find((item) => isTrendPrimaryTierRate(item.rate));
   const baselineItem = concessionItems.find((item) => Number(item.rate) === 0);
-  const qty = baselineItem?.quantity ?? formatQuantity(quantity);
+  const qty = primaryItem?.quantity ?? baselineItem?.quantity ?? formatQuantity(quantity);
 
   const plain = buildStrategyPlainText({
     sideLabel,
@@ -1501,7 +1637,8 @@ function buildMartinStrategy(startPrice, stopPrice, startTimeValue, startTimeLab
   const stopLabel = formatTrimmedFixedDecimals(stopPrice, priceDecimalPlaces);
   const tpLabel = '0';
   const refTakeProfitLabel = buildReferenceTakeProfitLabel(startPrice, stopPrice, priceDecimalPlaces);
-  const concessionItems = buildMartinConcessionItems(startPrice, stopPrice, openCost, priceDecimalPlaces);
+  const openCostTotal = getOpenCostTotal() ?? openCost * DEFAULT_TIER_COUNT;
+  const concessionItems = buildMartinConcessionItems(startPrice, stopPrice, openCostTotal, priceDecimalPlaces);
   const baselineItem = concessionItems.find((item) => Number(item.rate) === 0);
   const qty = baselineItem?.quantity ?? '';
 
@@ -1624,7 +1761,8 @@ function generate() {
   const stopRaw = stopEl && 'value' in stopEl ? String(stopEl.value) : '';
   const priceDecimals = Math.max(getDecimalPlacesFromInput(openRaw), getDecimalPlacesFromInput(stopRaw)) + 1;
   if (martinMode) {
-    const martinItems = buildMartinConcessionItems(open, stop, openCost, priceDecimals);
+    const openCostTotal = getOpenCostTotal();
+    const martinItems = buildMartinConcessionItems(open, stop, openCostTotal, priceDecimals);
     if (martinItems.length !== MARTIN_CONCESSION_RATES.length) {
       if (errEl) errEl.textContent = '马丁策略档位价格无效，请检查开始价格与止损价格。';
       clearStrategyState();
@@ -2500,7 +2638,9 @@ function buildAdminListItemHtml(row) {
   const trendTierCount = isTrendStrategy ? getAdminTrendTierCount(rawId, row) : TREND_TIER_COUNT_FIVE;
   const concessions = isTrendStrategy
     ? buildTrendAdminConcessions(row, trendTierCount)
-    : buildAdminDisplayConcessions(row);
+    : strategyType.type === 'martin'
+      ? buildMartinAdminConcessions(row)
+      : buildAdminDisplayConcessions(row);
   const currentMartinConcessions = isCurrentMartinConcessionSet(concessions);
   const refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
   const refTakeProfitHtml = refTakeProfitLabel == null
@@ -3691,6 +3831,28 @@ document.addEventListener('keydown', (e) => {
 const loginForm = document.getElementById('login-form');
 if (loginForm) loginForm.addEventListener('submit', (e) => {
   handleLoginSubmit(e).catch(() => {});
+});
+
+window.addEventListener('storage', (e) => {
+  if (e.key !== AUTH_STORAGE_KEY) return;
+  if (!e.newValue) {
+    authSession = null;
+    if (authRefreshTimer) {
+      clearTimeout(authRefreshTimer);
+      authRefreshTimer = null;
+    }
+    return;
+  }
+  syncAuthSessionFromStorage();
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !authSession?.refresh_token) return;
+  if (!isAccessTokenValid()) {
+    refreshAuthSessionSafe().catch((err) => {
+      if (isAuthRefreshTokenInvalid(err)) forceLogout();
+    });
+  }
 });
 
 initApp().catch(() => showLoginPage());
