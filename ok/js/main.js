@@ -209,38 +209,10 @@ function isMartinTradeMode(mode = getTradeMode()) {
 function updateTradeModeAppearance() {
   const openLabel = document.getElementById('open-price-label');
   const stopLabel = document.getElementById('stop-price-label');
+  const costLabel = document.getElementById('open-cost-label');
   if (openLabel) openLabel.textContent = '开始价格';
   if (stopLabel) stopLabel.textContent = '止损价格';
-}
-
-function updateFrontStrategySwitch() {
-  const toMartin = currentPage === 'martin';
-  const btnTrend = document.getElementById('btn-front-trend');
-  const btnMartin = document.getElementById('btn-front-martin');
-  if (btnTrend) {
-    btnTrend.classList.toggle('is-active', !toMartin);
-    btnTrend.setAttribute('aria-selected', !toMartin ? 'true' : 'false');
-  }
-  if (btnMartin) {
-    btnMartin.classList.toggle('is-active', toMartin);
-    btnMartin.setAttribute('aria-selected', toMartin ? 'true' : 'false');
-  }
-}
-
-function setFrontStrategyMode(mode) {
-  const normalized = mode === 'martin' ? 'martin' : 'trend';
-  if (!FRONT_PAGES.includes(currentPage)) {
-    setPage(normalized);
-    return;
-  }
-  if (currentPage === normalized) {
-    updateFrontStrategySwitch();
-    return;
-  }
-  currentPage = normalized;
-  updateFrontStrategySwitch();
-  updateTradeModeAppearance();
-  autoGenerateIfReady();
+  if (costLabel) costLabel.textContent = currentPage === 'martin' ? '开仓成本（马丁策略）' : '开仓成本';
 }
 
 function getOpenCostTotal() {
@@ -473,6 +445,7 @@ const METHODOLOGY_SECTIONS = [
       '让利润飞腾，无需太大的仓位。关键是时间和空间。',
       '螺旋上升没有必要，渐进增长是唯一解。',
       '要注意尽量避开非币圈的标的。传统股市和指数存在隔夜交易等不熟悉的因素，优先级低。',
+      '无明确信号的时候，不操作就是最好的操作。',
     ],
   },
   {
@@ -3451,12 +3424,13 @@ function setPage(mode) {
   const cases = document.getElementById('cases-page');
   const observations = document.getElementById('observations-page');
   const btnTrend = document.getElementById('btn-tab-trend');
+  const btnMartin = document.getElementById('btn-tab-martin');
   const btnAdmin = document.getElementById('btn-tab-admin');
   const btnStats = document.getElementById('btn-tab-stats');
   const btnMethodology = document.getElementById('btn-tab-methodology');
   const btnCases = document.getElementById('btn-tab-cases');
   const btnObservations = document.getElementById('btn-tab-observations');
-  if (!front || !admin || !stats || !methodology || !cases || !observations || !btnTrend || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations) return;
+  if (!front || !admin || !stats || !methodology || !cases || !observations || !btnTrend || !btnMartin || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations) return;
 
   const allowedPages = ['admin', 'stats', 'methodology', 'cases', 'observations', ...FRONT_PAGES];
   const normalizedMode = allowedPages.includes(mode) ? mode : 'trend';
@@ -3466,6 +3440,8 @@ function setPage(mode) {
   const toMethodology = normalizedMode === 'methodology';
   const toCases = normalizedMode === 'cases';
   const toObservations = normalizedMode === 'observations';
+  const toTrend = normalizedMode === 'trend';
+  const toMartin = normalizedMode === 'martin';
   const toFront = FRONT_PAGES.includes(normalizedMode);
 
   currentPage = normalizedMode;
@@ -3477,8 +3453,10 @@ function setPage(mode) {
   cases.hidden = !toCases;
   observations.hidden = !toObservations;
 
-  btnTrend.classList.toggle('is-active', toFront);
-  btnTrend.setAttribute('aria-selected', toFront ? 'true' : 'false');
+  btnTrend.classList.toggle('is-active', toTrend);
+  btnTrend.setAttribute('aria-selected', toTrend ? 'true' : 'false');
+  btnMartin.classList.toggle('is-active', toMartin);
+  btnMartin.setAttribute('aria-selected', toMartin ? 'true' : 'false');
   btnAdmin.classList.toggle('is-active', toAdmin);
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   btnStats.classList.toggle('is-active', toStats);
@@ -3518,7 +3496,6 @@ function setPage(mode) {
   } else if (toFront) {
     resetAdminPageState();
     if (!wasFront) resetFrontPage();
-    updateFrontStrategySwitch();
     updateTradeModeAppearance();
     autoGenerateIfReady();
   }
@@ -3662,10 +3639,8 @@ if (btnClear) btnClear.addEventListener('click', clearAll);
 
 const btnTabTrend = document.getElementById('btn-tab-trend');
 if (btnTabTrend) btnTabTrend.addEventListener('click', () => setPage('trend'));
-const btnFrontMartin = document.getElementById('btn-front-martin');
-if (btnFrontMartin) btnFrontMartin.addEventListener('click', () => setFrontStrategyMode('martin'));
-const btnFrontTrend = document.getElementById('btn-front-trend');
-if (btnFrontTrend) btnFrontTrend.addEventListener('click', () => setFrontStrategyMode('trend'));
+const btnTabMartin = document.getElementById('btn-tab-martin');
+if (btnTabMartin) btnTabMartin.addEventListener('click', () => setPage('martin'));
 const btnTabAdmin = document.getElementById('btn-tab-admin');
 if (btnTabAdmin) btnTabAdmin.addEventListener('click', () => setPage('admin'));
 const btnTabStats = document.getElementById('btn-tab-stats');

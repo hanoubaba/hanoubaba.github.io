@@ -42,10 +42,6 @@
     </header>
 
     <section id="front-page" hidden>
-    <nav id="front-strategy-shortcuts" class="admin-shortcuts front-strategy-shortcuts" role="tablist" aria-label="策略切换">
-      <button id="btn-front-martin" type="button" class="admin-shortcut" role="tab" aria-selected="false" data-front-strategy="martin">马丁策略</button>
-      <button id="btn-front-trend" type="button" class="admin-shortcut is-active" role="tab" aria-selected="true" data-front-strategy="trend">趋势跟随</button>
-    </nav>
     <section class="panel" aria-label="参数输入">
       <div class="field">
         <span class="field-label" id="open-cost-label" aria-live="polite">开仓成本</span>
@@ -86,6 +82,7 @@
 
     <section id="admin-page" class="panel admin-page" aria-label="后台管理">
       <nav class="admin-shortcuts" aria-label="快捷入口">
+        <button id="btn-tab-martin" type="button" class="admin-shortcut" role="tab" aria-selected="false">马丁策略</button>
         <button id="btn-tab-stats" type="button" class="admin-shortcut">数据统计</button>
         <button id="btn-tab-methodology" type="button" class="admin-shortcut">方法论</button>
         <button id="btn-tab-cases" type="button" class="admin-shortcut">典型案例</button>
