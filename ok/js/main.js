@@ -174,7 +174,7 @@ const LEGACY_TIER_COUNTS = new Set([3, 6, 7]);
 const DEFAULT_TIER_COUNT = 5;
 const TRADE_MODE_NORMAL = 'normal';
 const TRADE_MODE_REVERSE = 'reverse';
-const OPEN_COST_TOTAL_DEFAULT = 200;
+const OPEN_COST_TOTAL_DEFAULT = 300;
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const PRIMARY_TIER_OPEN_COST_SHARE = 0.5;
@@ -211,6 +211,36 @@ function updateTradeModeAppearance() {
   const stopLabel = document.getElementById('stop-price-label');
   if (openLabel) openLabel.textContent = '开始价格';
   if (stopLabel) stopLabel.textContent = '止损价格';
+}
+
+function updateFrontStrategySwitch() {
+  const toMartin = currentPage === 'martin';
+  const btnTrend = document.getElementById('btn-front-trend');
+  const btnMartin = document.getElementById('btn-front-martin');
+  if (btnTrend) {
+    btnTrend.classList.toggle('is-active', !toMartin);
+    btnTrend.setAttribute('aria-selected', !toMartin ? 'true' : 'false');
+  }
+  if (btnMartin) {
+    btnMartin.classList.toggle('is-active', toMartin);
+    btnMartin.setAttribute('aria-selected', toMartin ? 'true' : 'false');
+  }
+}
+
+function setFrontStrategyMode(mode) {
+  const normalized = mode === 'martin' ? 'martin' : 'trend';
+  if (!FRONT_PAGES.includes(currentPage)) {
+    setPage(normalized);
+    return;
+  }
+  if (currentPage === normalized) {
+    updateFrontStrategySwitch();
+    return;
+  }
+  currentPage = normalized;
+  updateFrontStrategySwitch();
+  updateTradeModeAppearance();
+  autoGenerateIfReady();
 }
 
 function getOpenCostTotal() {
@@ -431,9 +461,9 @@ const METHODOLOGY_SECTIONS = [
     title: '12、操作手法',
     items: [
       '确定性第一，风险第二，盈亏比第三。浮亏浮盈是最后。',
-      '集中力量做确定性最高的龙头。',
       '最大止损不超过50%，最大止盈不超过一个数量级。',
       '风险很小的策略，等待时间和空间。',
+      '保持自己正确的盘感，不要觊觎其他体系的力量。',
       '观测变为4小时，范围扩展到0.5亿交易量。',
       '只要前三，分清主次。',
       '风险厌恶，浮亏影响判断。时机比点位更重要。',
@@ -451,6 +481,7 @@ const METHODOLOGY_SECTIONS = [
       '博弈中盈亏比与确定性互斥。盈亏比高的情况往往是还没走向确定，等确定性很高了往往也没有多少盈亏比。',
       '做多赢得多，做空盈利快。',
       '盈亏同源。',
+      '多军和空军都不好过，日内30%基本是极限。',
     ],
   },
 ];
@@ -1863,7 +1894,7 @@ function resetFrontPage() {
   rebuildStartTimeOptions();
   if (openInput) openInput.value = '';
   if (stopInput) stopInput.value = '';
-  // 重置开仓成本为默认值200
+  // 重置开仓成本为默认值300
   const costBtns = document.querySelectorAll('#cost-switch .cost-switch__btn');
   costBtns.forEach((btn) => {
     const isDefault = btn.getAttribute('data-cost') === String(OPEN_COST_TOTAL_DEFAULT);
@@ -3420,13 +3451,12 @@ function setPage(mode) {
   const cases = document.getElementById('cases-page');
   const observations = document.getElementById('observations-page');
   const btnTrend = document.getElementById('btn-tab-trend');
-  const btnMartin = document.getElementById('btn-tab-martin');
   const btnAdmin = document.getElementById('btn-tab-admin');
   const btnStats = document.getElementById('btn-tab-stats');
   const btnMethodology = document.getElementById('btn-tab-methodology');
   const btnCases = document.getElementById('btn-tab-cases');
   const btnObservations = document.getElementById('btn-tab-observations');
-  if (!front || !admin || !stats || !methodology || !cases || !observations || !btnTrend || !btnMartin || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations) return;
+  if (!front || !admin || !stats || !methodology || !cases || !observations || !btnTrend || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations) return;
 
   const allowedPages = ['admin', 'stats', 'methodology', 'cases', 'observations', ...FRONT_PAGES];
   const normalizedMode = allowedPages.includes(mode) ? mode : 'trend';
@@ -3436,9 +3466,7 @@ function setPage(mode) {
   const toMethodology = normalizedMode === 'methodology';
   const toCases = normalizedMode === 'cases';
   const toObservations = normalizedMode === 'observations';
-  const toTrend = normalizedMode === 'trend';
-  const toMartin = normalizedMode === 'martin';
-  const toFront = toTrend || toMartin;
+  const toFront = FRONT_PAGES.includes(normalizedMode);
 
   currentPage = normalizedMode;
 
@@ -3449,10 +3477,8 @@ function setPage(mode) {
   cases.hidden = !toCases;
   observations.hidden = !toObservations;
 
-  btnTrend.classList.toggle('is-active', toTrend);
-  btnTrend.setAttribute('aria-selected', toTrend ? 'true' : 'false');
-  btnMartin.classList.toggle('is-active', toMartin);
-  btnMartin.setAttribute('aria-selected', toMartin ? 'true' : 'false');
+  btnTrend.classList.toggle('is-active', toFront);
+  btnTrend.setAttribute('aria-selected', toFront ? 'true' : 'false');
   btnAdmin.classList.toggle('is-active', toAdmin);
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   btnStats.classList.toggle('is-active', toStats);
@@ -3492,6 +3518,7 @@ function setPage(mode) {
   } else if (toFront) {
     resetAdminPageState();
     if (!wasFront) resetFrontPage();
+    updateFrontStrategySwitch();
     updateTradeModeAppearance();
     autoGenerateIfReady();
   }
@@ -3635,8 +3662,10 @@ if (btnClear) btnClear.addEventListener('click', clearAll);
 
 const btnTabTrend = document.getElementById('btn-tab-trend');
 if (btnTabTrend) btnTabTrend.addEventListener('click', () => setPage('trend'));
-const btnTabMartin = document.getElementById('btn-tab-martin');
-if (btnTabMartin) btnTabMartin.addEventListener('click', () => setPage('martin'));
+const btnFrontMartin = document.getElementById('btn-front-martin');
+if (btnFrontMartin) btnFrontMartin.addEventListener('click', () => setFrontStrategyMode('martin'));
+const btnFrontTrend = document.getElementById('btn-front-trend');
+if (btnFrontTrend) btnFrontTrend.addEventListener('click', () => setFrontStrategyMode('trend'));
 const btnTabAdmin = document.getElementById('btn-tab-admin');
 if (btnTabAdmin) btnTabAdmin.addEventListener('click', () => setPage('admin'));
 const btnTabStats = document.getElementById('btn-tab-stats');
