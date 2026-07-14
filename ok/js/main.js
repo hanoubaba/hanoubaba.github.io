@@ -164,7 +164,7 @@ const TIMEFRAME_LABELS = {
 const PRICE_ADJUSTMENT_RATE = 0;
 const CONCESSION_RATES = [
   { rate: 0.8, costShare: 0.2 },
-  { rate: 0.4, costShare: 0.3 },
+  { rate: 0.3, costShare: 0.3 },
   { rate: 0, display: true, costShare: 0.5 },
 ];
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
@@ -298,7 +298,7 @@ function isMartinConcessionSet(concessions) {
 }
 
 function isCurrentTrendConcessionSet(concessions) {
-  return ratesMatch(getSortedDisplayRates(concessions), [0, 0.4, 0.8]);
+  return ratesMatch(getSortedDisplayRates(concessions), [0, 0.3, 0.8]);
 }
 
 function getAdminStrategyTypeInfo(row) {
