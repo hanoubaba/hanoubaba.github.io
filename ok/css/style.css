@@ -1021,7 +1021,7 @@ body.login-mode {
 
 .admin-concession {
   display: grid;
-  grid-template-columns: 42px 1fr 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   align-items: center;
   padding: 5px 8px;
@@ -1039,12 +1039,6 @@ body.login-mode {
   font-weight: 700;
 }
 
-.admin-concession__rate {
-  color: var(--primary-strong);
-  font-weight: 700;
-}
-
-.admin-concession--head .admin-concession__rate,
 .admin-concession--head .admin-concession__price,
 .admin-concession--head .admin-concession__qty,
 .admin-concession--head .admin-concession__stop {
@@ -1054,12 +1048,23 @@ body.login-mode {
 .admin-concession__price,
 .admin-concession__qty,
 .admin-concession__stop {
-  text-align: right;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   font-size: 14px;
   color: var(--text);
   word-break: break-all;
+}
+
+.admin-concession__price {
+  text-align: left;
+}
+
+.admin-concession__qty {
+  text-align: center;
+}
+
+.admin-concession__stop {
+  text-align: right;
 }
 
 .admin-item__actions {
@@ -1423,7 +1428,7 @@ body.login-mode {
 
 .strategy-concession {
   display: grid;
-  grid-template-columns: 42px 1fr 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   align-items: center;
   padding: 5px 8px;
@@ -1441,12 +1446,6 @@ body.login-mode {
   font-weight: 700;
 }
 
-.strategy-concession__rate {
-  color: var(--primary-strong);
-  font-weight: 700;
-}
-
-.strategy-concession--head .strategy-concession__rate,
 .strategy-concession--head .strategy-concession__price,
 .strategy-concession--head .strategy-concession__qty,
 .strategy-concession--head .strategy-concession__stop {
@@ -1456,12 +1455,23 @@ body.login-mode {
 .strategy-concession__price,
 .strategy-concession__qty,
 .strategy-concession__stop {
-  text-align: right;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   font-size: 14px;
   color: var(--text);
   word-break: break-all;
+}
+
+.strategy-concession__price {
+  text-align: left;
+}
+
+.strategy-concession__qty {
+  text-align: center;
+}
+
+.strategy-concession__stop {
+  text-align: right;
 }
 
 .strategy-card__time {
@@ -2223,11 +2233,11 @@ body.login-mode {
   }
 
   .admin-concession {
-    grid-template-columns: 36px minmax(54px, 1fr) minmax(42px, 1fr) minmax(54px, 1fr);
+    grid-template-columns: minmax(58px, 1fr) minmax(46px, 1fr) minmax(58px, 1fr);
     gap: 6px;
     padding: 4px 7px;
     font-size: 12px;
-    min-width: 268px;
+    min-width: 210px;
   }
 
   .admin-concession__price,
@@ -2336,7 +2346,7 @@ body.login-mode {
   }
 
   .strategy-concession {
-    grid-template-columns: 36px 1fr 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
     padding: 4px 7px;
     font-size: 12px;

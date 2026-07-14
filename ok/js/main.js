@@ -1314,7 +1314,7 @@ function reverseConcessionPriceQty(displayItems) {
   }));
 }
 
-function renderConcessionsHtml({ prefix, items, stopLabel, stopHeaderLabel = '止损价格', wrapperClass, reverseOrder = false, reversePriceQty = false, formatRate = formatConcessionPercent }) {
+function renderConcessionsHtml({ prefix, items, stopLabel, stopHeaderLabel = '止损价格', wrapperClass, reverseOrder = false, reversePriceQty = false }) {
   let displayItems = getDisplayConcessionItems(items);
   if (reverseOrder) displayItems = displayItems.slice().reverse();
   if (reversePriceQty) displayItems = reverseConcessionPriceQty(displayItems);
@@ -1324,7 +1324,6 @@ function renderConcessionsHtml({ prefix, items, stopLabel, stopHeaderLabel = '�
   const rowClass = `${prefix}-concession`;
   const rows = displayItems.map((item) => [
     `<div class="${rowClass}">`,
-    `<span class="${rowClass}__rate">${escapeHtml(formatRate(item.rate))}</span>`,
     `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`,
     `<span class="${rowClass}__qty">${escapeHtml(item.quantity)}</span>`,
     `<span class="${rowClass}__stop">${stop}</span>`,
@@ -1333,7 +1332,6 @@ function renderConcessionsHtml({ prefix, items, stopLabel, stopHeaderLabel = '�
   return [
     `<div class="${wrapperClass}" aria-label="让利档位">`,
     `<div class="${rowClass} ${rowClass}--head">`,
-    `<span class="${rowClass}__rate">让利</span>`,
     `<span class="${rowClass}__price">价格</span>`,
     `<span class="${rowClass}__qty">数量</span>`,
     `<span class="${rowClass}__stop">${stopHeader}</span>`,
@@ -1351,7 +1349,6 @@ function renderStrategyConcessionsHtml(items, stopLabel, options = {}) {
     stopHeaderLabel: options.stopHeaderLabel,
     wrapperClass: 'strategy-card__concessions',
     reverseOrder: options.reverseOrder === true,
-    formatRate: options.formatRate,
   });
 }
 
@@ -1363,7 +1360,6 @@ function buildStrategyDisplayHtml({
   refTakeProfitLabel,
   concessionItems,
   timeRangeLabel,
-  formatRate,
   reverseOrder = false,
 }) {
   const sideMod = getPositionSideMod(side);
@@ -1378,7 +1374,6 @@ function buildStrategyDisplayHtml({
     '</div>',
     renderStrategyConcessionsHtml(concessionItems, stopLabel, {
       stopHeaderLabel,
-      formatRate,
       reverseOrder,
     }),
     refTakeProfitHtml,
@@ -1424,7 +1419,6 @@ function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
     wrapperClass: 'admin-item__concessions',
     reversePriceQty: options.reversePriceQty === true,
     reverseOrder: options.reverseOrder === true,
-    formatRate: options.formatRate,
   });
 }
 
