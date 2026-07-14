@@ -162,7 +162,11 @@ const TIMEFRAME_LABELS = {
 };
 
 const PRICE_ADJUSTMENT_RATE = 0;
-const CONCESSION_RATES = [0.8, 0.5, { rate: 0, display: true }];
+const CONCESSION_RATES = [
+  { rate: 0.8, costShare: 0.2 },
+  { rate: 0.4, costShare: 0.3 },
+  { rate: 0, display: true, costShare: 0.5 },
+];
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
 const TRADE_MODE_NORMAL = 'normal';
@@ -294,7 +298,7 @@ function isMartinConcessionSet(concessions) {
 }
 
 function isCurrentTrendConcessionSet(concessions) {
-  return ratesMatch(getSortedDisplayRates(concessions), [0, 0.5, 0.8]);
+  return ratesMatch(getSortedDisplayRates(concessions), [0, 0.4, 0.8]);
 }
 
 function getAdminStrategyTypeInfo(row) {
@@ -1244,11 +1248,11 @@ function countDisplayRateConfigs(rates) {
   return rates.filter(isDisplayRateConfig).length;
 }
 
-function getTierOpenCostBudget(openCostTotal, tierCount) {
+function getTierOpenCostBudget(openCostTotal, costShare) {
   const total = Number(openCostTotal);
-  const count = Number(tierCount);
-  if (!(total > 0) || !(count > 0)) return null;
-  return total / count;
+  const share = Number(costShare);
+  if (!(total > 0) || !(share > 0)) return null;
+  return total * share;
 }
 
 function formatConcessionPercent(rate) {
@@ -1262,14 +1266,17 @@ function getDisplayConcessionItems(items) {
 
 function normalizeConcessionRateConfig(rateConfig) {
   if (rateConfig && typeof rateConfig === 'object') {
+    const costShare = Number(rateConfig.costShare);
     return {
       rate: Number(rateConfig.rate),
       display: rateConfig.display === true,
+      costShare: Number.isFinite(costShare) && costShare > 0 ? costShare : null,
     };
   }
   return {
     rate: Number(rateConfig),
     display: false,
+    costShare: null,
   };
 }
 
@@ -1277,9 +1284,10 @@ function buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces
   const displayCount = countDisplayRateConfigs(rates);
   const items = [];
   for (const rateConfig of rates) {
-    const { rate, display } = normalizeConcessionRateConfig(rateConfig);
+    const { rate, display, costShare } = normalizeConcessionRateConfig(rateConfig);
     const price = calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces, reverse);
-    const tierOpenCost = getTierOpenCostBudget(openCostTotal, displayCount);
+    const share = costShare != null ? costShare : (displayCount > 0 ? 1 / displayCount : null);
+    const tierOpenCost = getTierOpenCostBudget(openCostTotal, share);
     const qty = price == null ? null : calcQuantityByRisk(tierOpenCost, price, stopLoss);
     if (price == null || qty == null) continue;
     const item = {
