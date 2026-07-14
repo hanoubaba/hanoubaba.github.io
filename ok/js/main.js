@@ -170,7 +170,7 @@ const CONCESSION_RATES = [
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
 const TRADE_MODE_NORMAL = 'normal';
-const OPEN_COST_TOTAL_DEFAULT = 300;
+const OPEN_COST_TOTAL_DEFAULT = 200;
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R_LOW = 3;
@@ -1692,7 +1692,7 @@ function resetFrontPage() {
   rebuildStartTimeOptions();
   if (openInput) openInput.value = '';
   if (stopInput) stopInput.value = '';
-  // 重置开仓成本为默认值300
+  // 重置开仓成本为默认值200
   const costBtns = document.querySelectorAll('#cost-switch .cost-switch__btn');
   costBtns.forEach((btn) => {
     const isDefault = btn.getAttribute('data-cost') === String(OPEN_COST_TOTAL_DEFAULT);
@@ -2422,13 +2422,9 @@ function buildAdminListItemHtml(row) {
   const title = escapeHtml(formatStrategyCardTitle(nameRaw));
   const titleLabel = escapeHtml(formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark));
   const strategyType = getAdminStrategyTypeInfo(row);
-  const gradeBadgeHtml = normalizeStrategyGrade(row?.grade) === STRATEGY_GRADE_PREMIUM
-    ? '<span class="admin-item__grade admin-item__grade--premium">优质</span>'
-    : '';
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
-    gradeBadgeHtml,
     '</div>',
   ].join('');
   const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
