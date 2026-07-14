@@ -161,8 +161,8 @@ const TIMEFRAME_LABELS = {
   '4h': '4小时',
 };
 
-const PRICE_ADJUSTMENT_RATE = 0.2;
-const CONCESSION_RATES = [0.8, 0.5, 0.2];
+const PRICE_ADJUSTMENT_RATE = 0;
+const CONCESSION_RATES = [0.8, 0.5, { rate: 0, display: true }];
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
 const TRADE_MODE_NORMAL = 'normal';
@@ -294,7 +294,7 @@ function isMartinConcessionSet(concessions) {
 }
 
 function isCurrentTrendConcessionSet(concessions) {
-  return ratesMatch(getSortedDisplayRates(concessions), [0.2, 0.5, 0.8]);
+  return ratesMatch(getSortedDisplayRates(concessions), [0, 0.5, 0.8]);
 }
 
 function getAdminStrategyTypeInfo(row) {
