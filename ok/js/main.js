@@ -162,23 +162,13 @@ const TIMEFRAME_LABELS = {
 };
 
 const PRICE_ADJUSTMENT_RATE = 0.2;
-const CONCESSION_RATES_BY_TIER = {
-  3: [0.8, 0.5, 0.2],
-  5: [0, 0.8, 0.5, 0.2, { rate: 0, display: true }, -0.2],
-};
-const TREND_TIER_COUNT_FIVE = 5;
-const TREND_TIER_COUNT_THREE = 3;
-const MARTIN_CONCESSION_RATES = [{ rate: 0, display: true }, 0.1, 0.3, 0.5, 0.7];
-const MARTIN_CONCESSION_RATES_LEGACY = [-0.5, -0.2, 0, 0.2, 0.5];
-const LEGACY_TIER_COUNTS = new Set([3, 6, 7]);
-const DEFAULT_TIER_COUNT = 5;
+const CONCESSION_RATES = [0.8, 0.5, 0.2];
+const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
+const DEFAULT_TIER_COUNT = 3;
 const TRADE_MODE_NORMAL = 'normal';
-const TRADE_MODE_REVERSE = 'reverse';
 const OPEN_COST_TOTAL_DEFAULT = 300;
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
-const PRIMARY_TIER_OPEN_COST_SHARE = 0.5;
-const TREND_PRIMARY_TIER_RATE = 0.8;
 const REF_TAKE_PROFIT_R_LOW = 3;
 const REF_TAKE_PROFIT_R_HIGH = 5;
 const STRATEGY_DURATION_PERIODS = 10;
@@ -196,14 +186,10 @@ function getTimeframeLabel(mode) {
   return TIMEFRAME_LABELS[value] || value;
 }
 
-const FRONT_PAGES = ['trend', 'martin'];
+const FRONT_PAGES = ['trend'];
 
 function getTradeMode() {
-  return currentPage === 'martin' ? TRADE_MODE_REVERSE : TRADE_MODE_NORMAL;
-}
-
-function isMartinTradeMode(mode = getTradeMode()) {
-  return mode === TRADE_MODE_REVERSE;
+  return TRADE_MODE_NORMAL;
 }
 
 function updateTradeModeAppearance() {
@@ -212,7 +198,7 @@ function updateTradeModeAppearance() {
   const costLabel = document.getElementById('open-cost-label');
   if (openLabel) openLabel.textContent = '开始价格';
   if (stopLabel) stopLabel.textContent = '止损价格';
-  if (costLabel) costLabel.textContent = currentPage === 'martin' ? '开仓成本（马丁策略）' : '开仓成本';
+  if (costLabel) costLabel.textContent = '开仓成本';
 }
 
 function getOpenCostTotal() {
@@ -222,12 +208,12 @@ function getOpenCostTotal() {
   return n !== null && n > 0 ? n : null;
 }
 
-function getConcessionRates(tierCount = DEFAULT_TIER_COUNT) {
-  return CONCESSION_RATES_BY_TIER[tierCount] ?? CONCESSION_RATES_BY_TIER[DEFAULT_TIER_COUNT];
+function getConcessionRates() {
+  return CONCESSION_RATES;
 }
 
 function isKnownTierCount(tierCount) {
-  return Boolean(CONCESSION_RATES_BY_TIER[tierCount]) || LEGACY_TIER_COUNTS.has(tierCount);
+  return tierCount === DEFAULT_TIER_COUNT || LEGACY_TIER_COUNTS.has(tierCount);
 }
 
 function getOpenCost() {
@@ -247,6 +233,8 @@ function getTierCountFromRow(row) {
 }
 
 function getOpenCostTotalFromRow(row) {
+  const storedTotal = toNumber(row?.openCostTotal);
+  if (storedTotal != null && storedTotal > 0) return storedTotal;
   const tierCount = getTierCountFromRow(row);
   const openCost = toNumber(row?.openCost);
   if (openCost != null && openCost > 0) return openCost * tierCount;
@@ -284,8 +272,7 @@ function buildUnifiedConcessionsForRow(row) {
   );
   const currentConcessions = buildAdminConcessionsForRow(row);
   const reverse = inferReverseFromConcessions(entryPrice, stopLoss, currentConcessions, decimalPlaces);
-  const rates = getConcessionRates(DEFAULT_TIER_COUNT);
-  return buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces, rates, reverse);
+  return buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces, getConcessionRates(), reverse);
 }
 
 function getSortedDisplayRates(concessions) {
@@ -303,11 +290,11 @@ function ratesMatch(actual, expected) {
 function isMartinConcessionSet(concessions) {
   const rates = getSortedDisplayRates(concessions);
   return ratesMatch(rates, [0, 0.1, 0.3, 0.5, 0.7])
-    || ratesMatch(rates, MARTIN_CONCESSION_RATES_LEGACY);
+    || ratesMatch(rates, [-0.5, -0.2, 0, 0.2, 0.5]);
 }
 
 function isCurrentTrendConcessionSet(concessions) {
-  return ratesMatch(getSortedDisplayRates(concessions), [-0.2, 0, 0.2, 0.5, 0.8]);
+  return ratesMatch(getSortedDisplayRates(concessions), [0.2, 0.5, 0.8]);
 }
 
 function getAdminStrategyTypeInfo(row) {
@@ -333,13 +320,16 @@ function getAdminStrategyTypeInfo(row) {
 
 function buildAdminDisplayConcessions(row) {
   const savedConcessions = buildAdminConcessionsForRow(row);
-  if (isMartinConcessionSet(savedConcessions) || isCurrentTrendConcessionSet(savedConcessions)) {
+  if (isMartinConcessionSet(savedConcessions)) {
+    return savedConcessions;
+  }
+  if (isCurrentTrendConcessionSet(savedConcessions)) {
     return savedConcessions;
   }
   return buildUnifiedConcessionsForRow(row) || savedConcessions;
 }
 
-function buildTrendAdminConcessions(row, tierCount = TREND_TIER_COUNT_FIVE) {
+function buildTrendAdminConcessions(row) {
   const entryPrice = toNumber(row?.entryPrice);
   const stopLoss = toNumber(row?.stopLossPrice);
   const openCostTotal = getOpenCostTotalFromRow(row);
@@ -348,18 +338,7 @@ function buildTrendAdminConcessions(row, tierCount = TREND_TIER_COUNT_FIVE) {
   const decimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
   const savedConcessions = buildAdminConcessionsForRow(row);
   const reverse = inferReverseFromConcessions(entryPrice, stopLoss, savedConcessions, decimalPlaces);
-  const rates = getConcessionRates(tierCount);
-  return buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces, rates, reverse);
-}
-
-function buildMartinAdminConcessions(row) {
-  const startPrice = toNumber(row?.entryPrice);
-  const stopPrice = toNumber(row?.stopLossPrice);
-  const openCostTotal = getOpenCostTotalFromRow(row);
-  if (startPrice == null || stopPrice == null || !(openCostTotal > 0)) return [];
-
-  const decimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
-  return buildMartinConcessionItems(startPrice, stopPrice, openCostTotal, decimalPlaces);
+  return buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces, getConcessionRates(), reverse);
 }
 
 const SUPABASE_URL = 'https://rxggjijrfafcrmtkqkuv.supabase.co';
@@ -397,7 +376,13 @@ const SAVE_LOG_PREFIX = '[strategy-save]';
 const METHODOLOGY_SECTIONS = [
   {
     title: '1、核心理念',
-    items: ['右侧交易，趋势跟随，见好就收。', '风控第一，收益第二，策略唯一。'],
+    items: [
+      '右侧交易，趋势跟随，见好就收。',
+      '风控第一，收益第二，策略唯一。',
+      '简化操作，行情很简单，复杂的是人心。',
+      '挂单交易，能成交就做，不能成交就算了，机会不止一个。',
+      '在限定的范围内做正确的事。',
+    ],
   },
   { title: '2、选择标准', items: ['形态上三线齐飞，交叉在同一个时间维度。', '交易量过亿。', '盈亏比', '胜率'] },
   { title: '3、档位', paragraphs: ['三档挂单，兼顾风险和收益。'] },
@@ -1095,7 +1080,7 @@ function renderMethodologyPage() {
         .join('');
     } else if (section.items?.length) {
       body = `<ul class="methodology-section__list">${section.items
-        .map((item) => `<li>${escapeHtml(item)}</li>`)
+        .map((item) => `<li>${escapeHtml(item).replace(/\n/g, '<br>')}</li>`)
         .join('')}</ul>`;
     }
     return `<article class="methodology-section"><h3 class="methodology-section__title">${escapeHtml(section.title)}</h3><div class="methodology-section__body">${body}</div></article>`;
@@ -1260,41 +1245,15 @@ function countDisplayRateConfigs(rates) {
   return rates.filter(isDisplayRateConfig).length;
 }
 
-function getTierOpenCostBudget(openCostTotal, tierCount, isPrimaryTier) {
+function getTierOpenCostBudget(openCostTotal, tierCount) {
   const total = Number(openCostTotal);
   const count = Number(tierCount);
   if (!(total > 0) || !(count > 0)) return null;
-  if (count === 1) return total;
-  if (isPrimaryTier) return total * PRIMARY_TIER_OPEN_COST_SHARE;
-  return (total * (1 - PRIMARY_TIER_OPEN_COST_SHARE)) / (count - 1);
-}
-
-function isTrendPrimaryTierRate(rate) {
-  return Math.abs(Number(rate) - TREND_PRIMARY_TIER_RATE) < 1e-9;
-}
-
-function isMartinPrimaryTierRate(rate) {
-  return Math.abs(Number(rate)) < 1e-9;
-}
-
-function getTierOpenCostBudgetForRate(openCostTotal, rates, rate, isPrimaryRate) {
-  return getTierOpenCostBudget(openCostTotal, countDisplayRateConfigs(rates), isPrimaryRate(rate));
+  return total / count;
 }
 
 function formatConcessionPercent(rate) {
   return `${Math.round(rate * 100)}%`;
-}
-
-function formatMartinConcessionPercent(rate) {
-  const n = Number(rate);
-  if (!Number.isFinite(n)) return '';
-  if (n === 0) return '0%';
-  if (n > 0) return `-${Math.round(n * 100)}%`;
-  return formatConcessionPercent(n);
-}
-
-function isCurrentMartinConcessionSet(concessions) {
-  return ratesMatch(getSortedDisplayRates(concessions), [0, 0.1, 0.3, 0.5, 0.7]);
 }
 
 function getDisplayConcessionItems(items) {
@@ -1315,42 +1274,13 @@ function normalizeConcessionRateConfig(rateConfig) {
   };
 }
 
-function buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces, rates = getConcessionRates(), reverse = false, options = {}) {
-  const isPrimaryRate = options.isPrimaryRate ?? isTrendPrimaryTierRate;
+function buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces, rates = getConcessionRates(), reverse = false) {
+  const displayCount = countDisplayRateConfigs(rates);
   const items = [];
   for (const rateConfig of rates) {
     const { rate, display } = normalizeConcessionRateConfig(rateConfig);
     const price = calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces, reverse);
-    const tierOpenCost = getTierOpenCostBudgetForRate(openCostTotal, rates, rate, isPrimaryRate);
-    const qty = price == null ? null : calcQuantityByRisk(tierOpenCost, price, stopLoss);
-    if (price == null || qty == null) continue;
-    const item = {
-      rate,
-      price: formatTrimmedFixedDecimals(price, decimalPlaces),
-      quantity: formatQuantity(qty),
-    };
-    if (display) item.display = true;
-    items.push(item);
-  }
-  return items;
-}
-
-function calcMartinLevelPrice(startPrice, stopPrice, rate, decimalPlaces) {
-  const diff = stopPrice - startPrice;
-  if (!Number.isFinite(diff) || diff === 0 || !Number.isFinite(rate)) return null;
-  const price = startPrice + rate * diff;
-  if (!(price > 0)) return null;
-  return Number(formatFixedDecimals(price, decimalPlaces));
-}
-
-function buildMartinConcessionItems(startPrice, stopPrice, openCostTotal, decimalPlaces, rates = MARTIN_CONCESSION_RATES) {
-  if (!(stopPrice > 0)) return [];
-  const stopLoss = Number(formatFixedDecimals(stopPrice, decimalPlaces));
-  const items = [];
-  for (const rateConfig of rates) {
-    const { rate, display } = normalizeConcessionRateConfig(rateConfig);
-    const price = calcMartinLevelPrice(startPrice, stopPrice, rate, decimalPlaces);
-    const tierOpenCost = getTierOpenCostBudgetForRate(openCostTotal, rates, rate, isMartinPrimaryTierRate);
+    const tierOpenCost = getTierOpenCostBudget(openCostTotal, displayCount);
     const qty = price == null ? null : calcQuantityByRisk(tierOpenCost, price, stopLoss);
     if (price == null || qty == null) continue;
     const item = {
@@ -1540,11 +1470,10 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
   const tpLabel = formatTrimmedFixedDecimals(tp, tpDecimals);
   const stopLabel = formatPrice(stop);
   const refTakeProfitLabel = buildReferenceTakeProfitLabel(adjustedOpen, stop, priceDecimalPlaces);
-  const concessionRates = getConcessionRates(DEFAULT_TIER_COUNT);
+  const concessionRates = getConcessionRates();
   const concessionItems = buildConcessionItems(adjustedOpen, stop, openCostTotal, priceDecimalPlaces, concessionRates, reverse);
-  const primaryItem = concessionItems.find((item) => isTrendPrimaryTierRate(item.rate));
-  const baselineItem = concessionItems.find((item) => Number(item.rate) === 0);
-  const qty = primaryItem?.quantity ?? baselineItem?.quantity ?? formatQuantity(quantity);
+  const primaryItem = concessionItems.find((item) => Math.abs(Number(item.rate) - PRICE_ADJUSTMENT_RATE) < 1e-9);
+  const qty = primaryItem?.quantity ?? formatQuantity(quantity);
 
   const plain = buildStrategyPlainText({
     sideLabel,
@@ -1601,106 +1530,7 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
   return { plain, html, copyText, record };
 }
 
-function buildMartinStrategyPlainText({
-  sideLabel,
-  startLabel,
-  stopLabel,
-  refTakeProfitLabel,
-  concessionItems,
-  timeRangeLabel,
-}) {
-  return [
-    sideLabel,
-    `开始价格：${startLabel}`,
-    `止损价格：${stopLabel}`,
-    ...concessionItems.map((item) => (
-      `档位${formatMartinConcessionPercent(item.rate)}：${item.price} / ${item.quantity} / ${stopLabel}`
-    )),
-    `参考止盈：${refTakeProfitLabel}`,
-    `时间范围：${timeRangeLabel}`,
-  ].join('\n');
-}
-
-function buildMartinStrategy(startPrice, stopPrice, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces, tradeMode = getTradeMode()) {
-  const timeframe = getTimeframeMode();
-  const unitMin = getTimeframeMinutes(timeframe);
-  const spanMinutes = unitMin * STRATEGY_DURATION_PERIODS;
-  const diff = Math.abs(stopPrice - startPrice);
-
-  const nameEl = document.getElementById('name-input');
-  const name = String(nameEl?.value ?? '').trim();
-  const side = startPrice < stopPrice ? 'short' : 'long';
-  const alarmName = name || 'test';
-  const sideLabel = formatStrategyCardTitle(alarmName);
-  const startAt = getStartDateTime(startTimeValue);
-  const endAt = addPeriodToStart(startTimeValue, spanMinutes);
-  const startDisplay = startAt ? formatFullDateTimeLabel(startAt) : (startTimeLabel || startTimeValue);
-  const endDisplay = endAt ? formatFullDateTimeLabel(endAt) : '—';
-  const timeRangeLabel = `${startDisplay} — ${endDisplay}`;
-
-  const startLabel = formatTrimmedFixedDecimals(startPrice, priceDecimalPlaces);
-  const stopLabel = formatTrimmedFixedDecimals(stopPrice, priceDecimalPlaces);
-  const tpLabel = '0';
-  const refTakeProfitLabel = buildReferenceTakeProfitLabel(startPrice, stopPrice, priceDecimalPlaces);
-  const openCostTotal = getOpenCostTotal() ?? openCost * DEFAULT_TIER_COUNT;
-  const concessionItems = buildMartinConcessionItems(startPrice, stopPrice, openCostTotal, priceDecimalPlaces);
-  const baselineItem = concessionItems.find((item) => Number(item.rate) === 0);
-  const qty = baselineItem?.quantity ?? '';
-
-  const plain = buildMartinStrategyPlainText({
-    sideLabel,
-    startLabel,
-    stopLabel,
-    refTakeProfitLabel,
-    concessionItems,
-    timeRangeLabel,
-  });
-  const html = buildStrategyDisplayHtml({
-    side,
-    alarmName,
-    stopLabel,
-    stopHeaderLabel: '止损价格',
-    refTakeProfitLabel,
-    concessionItems,
-    timeRangeLabel,
-    formatRate: formatMartinConcessionPercent,
-  });
-
-  const record = {
-    strategyName: alarmName,
-    positionSide: side,
-    inputPrice: startLabel,
-    inputStopLoss: stopLabel,
-    entryPrice: startLabel,
-    quantity: qty,
-    takeProfitPrice: tpLabel,
-    stopLossPrice: stopLabel,
-    openCost,
-    openCostTotal: getOpenCostTotal(),
-    tierCount: DEFAULT_TIER_COUNT,
-    tradeMode,
-    grade: getStrategyGradeFromOpenCost(openCost, getOpenCostTotal(), DEFAULT_TIER_COUNT),
-    priceAdjustmentRate: 0,
-    priceAdjustment: formatTrimmedFixedDecimals(diff, priceDecimalPlaces),
-    concessions: concessionItems,
-    takeProfitRMultiple: TAKE_PROFIT_R_MULTIPLE,
-    timeframe,
-    timeframeMinutes: unitMin,
-    timeframeLabel: getTimeframeLabel(timeframe),
-    validPeriods: STRATEGY_DURATION_PERIODS,
-    durationMinutes: spanMinutes,
-    startAt: startAt ? startAt.toISOString() : null,
-    expiresAt: endAt ? endAt.toISOString() : null,
-    outcomeStatus: 'pending',
-  };
-
-  return { plain, html, copyText: plain, record };
-}
-
 function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces, tradeMode = getTradeMode()) {
-  if (isMartinTradeMode(tradeMode)) {
-    return buildMartinStrategy(open, stop, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces, tradeMode);
-  }
   return buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces, tradeMode);
 }
 
@@ -1726,7 +1556,6 @@ function generate() {
   const startTime = timeEl && 'value' in timeEl ? String(timeEl.value).trim() : '';
   const startTimeLabel = timeEl ? String(timeEl.selectedOptions?.[0]?.textContent ?? '').trim() : '';
   const tradeMode = getTradeMode();
-  const martinMode = isMartinTradeMode(tradeMode);
 
   if (errEl) errEl.textContent = '';
 
@@ -1755,9 +1584,7 @@ function generate() {
   }
 
   if (open === stop) {
-    if (errEl) errEl.textContent = martinMode
-      ? '开始价格与止损价格不能相同，无法计算差额。'
-      : '开始价格与止损价格不能相同，无法计算数量与方向。';
+    if (errEl) errEl.textContent = '开始价格与止损价格不能相同，无法计算数量与方向。';
     clearStrategyState();
     return;
   }
@@ -1765,22 +1592,12 @@ function generate() {
   const openRaw = openEl && 'value' in openEl ? String(openEl.value) : '';
   const stopRaw = stopEl && 'value' in stopEl ? String(stopEl.value) : '';
   const priceDecimals = Math.max(getDecimalPlacesFromInput(openRaw), getDecimalPlacesFromInput(stopRaw)) + 1;
-  if (martinMode) {
-    const openCostTotal = getOpenCostTotal();
-    const martinItems = buildMartinConcessionItems(open, stop, openCostTotal, priceDecimals);
-    if (martinItems.length !== MARTIN_CONCESSION_RATES.length) {
-      if (errEl) errEl.textContent = '马丁策略档位价格无效，请检查开始价格与止损价格。';
-      clearStrategyState();
-      return;
-    }
-  } else {
-    const adjustedOpen = calcAdjustedOpenPrice(open, stop, priceDecimals);
-    const takeProfit = calcTakeProfit(adjustedOpen, stop, TAKE_PROFIT_R_MULTIPLE);
-    if (!Number.isFinite(adjustedOpen) || adjustedOpen <= 0 || !Number.isFinite(takeProfit) || takeProfit <= 0) {
-      if (errEl) errEl.textContent = '开始价格或止盈价无效，请检查开始价格与止损价格。';
-      clearStrategyState();
-      return;
-    }
+  const adjustedOpen = calcAdjustedOpenPrice(open, stop, priceDecimals);
+  const takeProfit = calcTakeProfit(adjustedOpen, stop, TAKE_PROFIT_R_MULTIPLE);
+  if (!Number.isFinite(adjustedOpen) || adjustedOpen <= 0 || !Number.isFinite(takeProfit) || takeProfit <= 0) {
+    if (errEl) errEl.textContent = '开始价格或止盈价无效，请检查开始价格与止损价格。';
+    clearStrategyState();
+    return;
   }
   const strategy = buildStrategy(open, stop, startTime, startTimeLabel, openCost, priceDecimals, tradeMode);
   setStrategyState(strategy);
@@ -2319,33 +2136,6 @@ let isDeletingStrategies = false;
 let isAdminSelectionMode = false;
 let visibleAdminStrategyIds = [];
 let latestAdminRows = [];
-const adminTrendTierViewById = new Map();
-
-function getDefaultAdminTrendTierCount(row) {
-  return normalizeStrategyGrade(row?.grade) === STRATEGY_GRADE_PREMIUM
-    ? TREND_TIER_COUNT_THREE
-    : TREND_TIER_COUNT_FIVE;
-}
-
-function getAdminTrendTierCount(strategyId, row) {
-  const id = String(strategyId ?? '').trim();
-  if (adminTrendTierViewById.has(id)) {
-    return adminTrendTierViewById.get(id) === TREND_TIER_COUNT_THREE
-      ? TREND_TIER_COUNT_THREE
-      : TREND_TIER_COUNT_FIVE;
-  }
-  return getDefaultAdminTrendTierCount(row);
-}
-
-function toggleAdminTrendTierView(strategyId) {
-  const id = String(strategyId ?? '').trim();
-  if (!id) return;
-  const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
-  const nextTierCount = getAdminTrendTierCount(id, row) === TREND_TIER_COUNT_THREE
-    ? TREND_TIER_COUNT_FIVE
-    : TREND_TIER_COUNT_THREE;
-  adminTrendTierViewById.set(id, nextTierCount);
-}
 
 function getVisibleAdminStrategyIds() {
   const domIds = Array.from(document.querySelectorAll('#admin-list .admin-item__select'))
@@ -2625,14 +2415,12 @@ function buildAdminListItemHtml(row) {
   const title = escapeHtml(formatStrategyCardTitle(nameRaw));
   const titleLabel = escapeHtml(formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark));
   const strategyType = getAdminStrategyTypeInfo(row);
-  const strategyTypeBadgeHtml = `<span class="admin-item__strategy-type admin-item__strategy-type--${strategyType.type}">${escapeHtml(strategyType.label)}</span>`;
   const gradeBadgeHtml = normalizeStrategyGrade(row?.grade) === STRATEGY_GRADE_PREMIUM
     ? '<span class="admin-item__grade admin-item__grade--premium">优质</span>'
     : '';
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
-    strategyTypeBadgeHtml,
     gradeBadgeHtml,
     '</div>',
   ].join('');
@@ -2640,13 +2428,9 @@ function buildAdminListItemHtml(row) {
   const priceDecimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
   const stop = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '-';
   const isTrendStrategy = strategyType.type === 'trend';
-  const trendTierCount = isTrendStrategy ? getAdminTrendTierCount(rawId, row) : TREND_TIER_COUNT_FIVE;
   const concessions = isTrendStrategy
-    ? buildTrendAdminConcessions(row, trendTierCount)
-    : strategyType.type === 'martin'
-      ? buildMartinAdminConcessions(row)
-      : buildAdminDisplayConcessions(row);
-  const currentMartinConcessions = isCurrentMartinConcessionSet(concessions);
+    ? buildTrendAdminConcessions(row)
+    : buildAdminDisplayConcessions(row);
   const refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
   const refTakeProfitHtml = refTakeProfitLabel == null
     ? ''
@@ -2654,7 +2438,6 @@ function buildAdminListItemHtml(row) {
   const concessionsHtml = renderAdminConcessionsHtml(concessions, stop, {
     stopHeaderLabel: '止损价格',
     priceDecimalPlaces,
-    formatRate: currentMartinConcessions ? formatMartinConcessionPercent : formatConcessionPercent,
   });
   const startAt = getStrategyStartAt(row);
   const endAt = getStrategyEndAt(row);
@@ -2696,14 +2479,7 @@ function buildAdminListItemHtml(row) {
       `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
       '</div>',
     ].join('');
-  const tierToggleHtml = isTrendStrategy
-    ? [
-      `<button type="button" class="admin-outcome-status admin-outcome-status--pending admin-outcome-status--actionable admin-tier-toggle" data-id="${id}" data-tier-count="${trendTierCount}" aria-pressed="${trendTierCount === TREND_TIER_COUNT_THREE ? 'true' : 'false'}" aria-label="${trendTierCount === TREND_TIER_COUNT_THREE ? '当前3档位，点击切换为5档' : '当前5档位，点击切换为3档'}">`,
-      `<span class="admin-outcome-status__tag">${trendTierCount === TREND_TIER_COUNT_THREE ? '3档' : '5档'}</span>`,
-      '</button>',
-    ].join('')
-    : '';
-  const buttonsHtml = `<div class="admin-item__buttons">${tierToggleHtml}${outcomeStatusHtml}</div>`;
+  const buttonsHtml = `<div class="admin-item__buttons">${outcomeStatusHtml}</div>`;
   return [
     `<article class="admin-item admin-item--${sideMod}">`,
     remarkStampHtml,
@@ -3425,13 +3201,12 @@ function setPage(mode) {
   const cases = document.getElementById('cases-page');
   const observations = document.getElementById('observations-page');
   const btnTrend = document.getElementById('btn-tab-trend');
-  const btnMartin = document.getElementById('btn-tab-martin');
   const btnAdmin = document.getElementById('btn-tab-admin');
   const btnStats = document.getElementById('btn-tab-stats');
   const btnMethodology = document.getElementById('btn-tab-methodology');
   const btnCases = document.getElementById('btn-tab-cases');
   const btnObservations = document.getElementById('btn-tab-observations');
-  if (!front || !admin || !stats || !methodology || !cases || !observations || !btnTrend || !btnMartin || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations) return;
+  if (!front || !admin || !stats || !methodology || !cases || !observations || !btnTrend || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations) return;
 
   const allowedPages = ['admin', 'stats', 'methodology', 'cases', 'observations', ...FRONT_PAGES];
   const normalizedMode = allowedPages.includes(mode) ? mode : 'trend';
@@ -3442,7 +3217,6 @@ function setPage(mode) {
   const toCases = normalizedMode === 'cases';
   const toObservations = normalizedMode === 'observations';
   const toTrend = normalizedMode === 'trend';
-  const toMartin = normalizedMode === 'martin';
   const toFront = FRONT_PAGES.includes(normalizedMode);
 
   currentPage = normalizedMode;
@@ -3456,8 +3230,6 @@ function setPage(mode) {
 
   btnTrend.classList.toggle('is-active', toTrend);
   btnTrend.setAttribute('aria-selected', toTrend ? 'true' : 'false');
-  btnMartin.classList.toggle('is-active', toMartin);
-  btnMartin.setAttribute('aria-selected', toMartin ? 'true' : 'false');
   btnAdmin.classList.toggle('is-active', toAdmin);
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   btnStats.classList.toggle('is-active', toStats);
@@ -3640,8 +3412,6 @@ if (btnClear) btnClear.addEventListener('click', clearAll);
 
 const btnTabTrend = document.getElementById('btn-tab-trend');
 if (btnTabTrend) btnTabTrend.addEventListener('click', () => setPage('trend'));
-const btnTabMartin = document.getElementById('btn-tab-martin');
-if (btnTabMartin) btnTabMartin.addEventListener('click', () => setPage('martin'));
 const btnTabAdmin = document.getElementById('btn-tab-admin');
 if (btnTabAdmin) btnTabAdmin.addEventListener('click', () => setPage('admin'));
 const btnTabStats = document.getElementById('btn-tab-stats');
@@ -3780,15 +3550,6 @@ if (adminListEl) {
   adminListEl.addEventListener('click', async (e) => {
     const target = e.target instanceof HTMLElement ? e.target : null;
     if (!target) return;
-
-    const tierToggleBtn = target.closest('.admin-tier-toggle');
-    if (tierToggleBtn) {
-      const id = String(tierToggleBtn.getAttribute('data-id') ?? '').trim();
-      if (!id) return;
-      toggleAdminTrendTierView(id);
-      renderAdminListItems();
-      return;
-    }
 
     const outcomeStatusActionBtn = target.closest('.admin-outcome-status--actionable');
     if (outcomeStatusActionBtn) {
