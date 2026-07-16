@@ -2485,16 +2485,14 @@ function buildAdminListItemHtml(row) {
   const title = escapeHtml(formatStrategyCardTitle(nameRaw));
   const titleLabel = escapeHtml(formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark));
   const strategyType = getAdminStrategyTypeInfo(row);
-  const titleGroupHtml = [
-    '<div class="admin-item__title-wrap">',
-    `<span class="admin-item__title">${title}</span>`,
-    '</div>',
-  ].join('');
   const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
   const priceDecimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
   const stop = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '-';
   const isTrendStrategy = strategyType.type === 'trend';
   const costMultiplier = getAdminOpenCostMultiplier(rawId, row);
+  const multiplierHtml = rawId && isTrendStrategy
+    ? buildAdminCostMultiplierHtml(rawId, costMultiplier)
+    : '';
   const concessions = isTrendStrategy
     ? buildTrendAdminConcessions(row, costMultiplier)
     : buildAdminDisplayConcessions(row);
@@ -2546,17 +2544,25 @@ function buildAdminListItemHtml(row) {
       `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
       '</div>',
     ].join('');
-  const multiplierHtml = rawId && isTrendStrategy
-    ? buildAdminCostMultiplierHtml(rawId, costMultiplier)
-    : '';
-  const buttonsHtml = `<div class="admin-item__buttons">${multiplierHtml}${outcomeStatusHtml}</div>`;
+  const titleGroupHtml = [
+    '<div class="admin-item__title-wrap">',
+    `<span class="admin-item__title">${title}</span>`,
+    '</div>',
+  ].join('');
+  const headRightHtml = [
+    '<div class="admin-item__head-right">',
+    outcomeStatusHtml,
+    timeBadgeHtml,
+    '</div>',
+  ].join('');
+  const buttonsHtml = `<div class="admin-item__buttons">${multiplierHtml}</div>`;
   return [
     `<article class="admin-item admin-item--${sideMod}">`,
     remarkStampHtml,
     '<header class="admin-item__head">',
     selectHtml,
     titleGroupHtml,
-    timeBadgeHtml,
+    headRightHtml,
     '</header>',
     concessionsHtml,
     refTakeProfitHtml,

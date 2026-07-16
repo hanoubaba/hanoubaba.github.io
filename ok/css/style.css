@@ -807,6 +807,14 @@ body.login-mode {
   gap: 6px;
 }
 
+.admin-item__head-right {
+  flex: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .admin-item__title {
   flex: 0 1 auto;
   min-width: 0;
@@ -867,7 +875,7 @@ body.login-mode {
   flex: none;
   display: flex;
   align-items: center;
-  margin: 0 0 0 auto;
+  margin: 0;
 }
 
 .admin-time-status__tag {
@@ -1183,6 +1191,7 @@ body.login-mode {
   border-radius: 6px;
   overflow: hidden;
   background: #fff;
+  box-sizing: border-box;
 }
 
 .admin-cost-multiplier__btn {
@@ -1205,7 +1214,7 @@ body.login-mode {
 
 .admin-cost-multiplier__btn:hover:not(:disabled) {
   background: #f0f0f0;
-  color: var(--primary);
+  color: rgba(0, 0, 0, 0.88);
 }
 
 .admin-cost-multiplier__btn:disabled {
@@ -2249,7 +2258,11 @@ body.login-mode {
 
   .admin-time-status {
     flex: none;
-    margin-left: auto;
+    margin-left: 0;
+  }
+
+  .admin-item__head-right {
+    gap: 5px;
   }
 
   .admin-time-status__tag {
