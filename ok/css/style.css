@@ -815,6 +815,17 @@ body.login-mode {
   gap: 6px;
 }
 
+.admin-item__head-right .admin-outcome-status,
+.admin-item__head-right .admin-time-status {
+  height: 26px;
+}
+
+.admin-item__head-right .admin-outcome-status__tag,
+.admin-item__head-right .admin-time-status__tag {
+  height: 26px;
+  min-height: 26px;
+}
+
 .admin-item__title {
   flex: 0 1 auto;
   min-width: 0;
@@ -881,23 +892,26 @@ body.login-mode {
 .admin-time-status__tag {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   white-space: nowrap;
-  border-radius: 999px;
-  padding: 4px 10px;
+  border-radius: 6px;
+  padding: 4px 9px;
+  min-height: 26px;
+  min-width: 4.5em;
   font-size: 12px;
   font-weight: 700;
   line-height: 1.2;
+  border: 1px solid transparent;
   background: #f0fdf4;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-  min-width: 4.5em;
-  justify-content: center;
 }
 
 .admin-time-status--active .admin-time-status__tag {
   background: var(--long-soft);
   color: var(--primary-deep);
-  border: 1px solid var(--border);
+  border-color: var(--border);
   animation: admin-time-status-pulse 1s ease-in-out infinite;
 }
 
@@ -908,7 +922,7 @@ body.login-mode {
 .admin-time-status--urgent .admin-time-status__tag {
   background: #fff7ed;
   color: #c2410c;
-  border: 1px solid #fdba74;
+  border-color: #fdba74;
   animation: admin-time-status-blink 1.2s ease-in-out infinite;
 }
 
@@ -2265,9 +2279,23 @@ body.login-mode {
     gap: 5px;
   }
 
+  .admin-item__head-right .admin-outcome-status,
+  .admin-item__head-right .admin-time-status {
+    height: 26px;
+  }
+
+  .admin-item__head-right .admin-outcome-status__tag,
+  .admin-item__head-right .admin-time-status__tag {
+    height: 26px;
+    min-height: 26px;
+    padding: 4px 9px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+
   .admin-time-status__tag {
-    padding: 3px 8px;
-    font-size: 11px;
+    padding: 4px 9px;
+    font-size: 12px;
   }
 
   .admin-item__concessions {
@@ -2333,6 +2361,7 @@ body.login-mode {
   }
 
   .admin-outcome-status__tag {
+    height: 26px;
     min-height: 26px;
     min-width: 0;
     padding: 4px 9px;
