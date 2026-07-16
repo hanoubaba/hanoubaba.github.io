@@ -163,19 +163,61 @@ const TIMEFRAME_LABELS = {
 
 const PRICE_ADJUSTMENT_RATE = 0;
 const CONCESSION_RATES = [
-  { rate: 0.8, costShare: 0.2 },
-  { rate: 0.3, costShare: 0.3 },
-  { rate: 0, display: true, costShare: 0.5 },
+  { rate: 0.8, costShare: 0.3 },
+  { rate: 0.3, costShare: 0.5 },
+  { rate: 0, display: true, costShare: 0.2 },
 ];
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
 const TRADE_MODE_NORMAL = 'normal';
-const OPEN_COST_TOTAL_DEFAULT = 200;
+const OPEN_COST_BASE = 100;
+const OPEN_COST_MULTIPLIER_MIN = 1;
+const OPEN_COST_MULTIPLIER_MAX = 10;
+const OPEN_COST_MULTIPLIER_DEFAULT = 2;
+const OPEN_COST_MULTIPLIER_CACHE_KEY = 'ok_admin_open_cost_multipliers';
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R_LOW = 3;
 const REF_TAKE_PROFIT_R_HIGH = 5;
 const STRATEGY_DURATION_PERIODS = 10;
+
+function clampOpenCostMultiplier(value) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return OPEN_COST_MULTIPLIER_DEFAULT;
+  return Math.min(OPEN_COST_MULTIPLIER_MAX, Math.max(OPEN_COST_MULTIPLIER_MIN, n));
+}
+
+function loadAdminOpenCostMultipliers() {
+  try {
+    const raw = localStorage.getItem(OPEN_COST_MULTIPLIER_CACHE_KEY);
+    if (!raw) return new Map();
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return new Map();
+    const map = new Map();
+    Object.entries(parsed).forEach(([id, value]) => {
+      const key = String(id ?? '').trim();
+      if (!key) return;
+      map.set(key, clampOpenCostMultiplier(value));
+    });
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+function saveAdminOpenCostMultipliers() {
+  try {
+    const payload = {};
+    adminOpenCostMultiplierById.forEach((value, id) => {
+      payload[id] = clampOpenCostMultiplier(value);
+    });
+    localStorage.setItem(OPEN_COST_MULTIPLIER_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore
+  }
+}
+
+const adminOpenCostMultiplierById = loadAdminOpenCostMultipliers();
 
 function getTimeframeMode() {
   return DEFAULT_TIMEFRAME;
@@ -199,17 +241,46 @@ function getTradeMode() {
 function updateTradeModeAppearance() {
   const openLabel = document.getElementById('open-price-label');
   const stopLabel = document.getElementById('stop-price-label');
-  const costLabel = document.getElementById('open-cost-label');
   if (openLabel) openLabel.textContent = '开始价格';
   if (stopLabel) stopLabel.textContent = '止损价格';
-  if (costLabel) costLabel.textContent = '开仓成本';
 }
 
-function getOpenCostTotal() {
-  const activeBtn = document.querySelector('#cost-switch .cost-switch__btn.is-active');
-  if (!activeBtn) return null;
-  const n = toNumber(activeBtn.getAttribute('data-cost'));
-  return n !== null && n > 0 ? n : null;
+function getOpenCostTotal(multiplier = OPEN_COST_MULTIPLIER_DEFAULT) {
+  return OPEN_COST_BASE * clampOpenCostMultiplier(multiplier);
+}
+
+function getAdminOpenCostMultiplier(strategyId, row) {
+  const id = String(strategyId ?? '').trim();
+  if (id && adminOpenCostMultiplierById.has(id)) {
+    return adminOpenCostMultiplierById.get(id);
+  }
+  const storedTotal = getOpenCostTotalFromRow(row);
+  if (storedTotal != null && storedTotal > 0) {
+    return clampOpenCostMultiplier(storedTotal / OPEN_COST_BASE);
+  }
+  return OPEN_COST_MULTIPLIER_DEFAULT;
+}
+
+function setAdminOpenCostMultiplier(strategyId, value) {
+  const id = String(strategyId ?? '').trim();
+  if (!id) return;
+  adminOpenCostMultiplierById.set(id, clampOpenCostMultiplier(value));
+  saveAdminOpenCostMultipliers();
+  renderAdminListItems();
+}
+
+function buildAdminCostMultiplierHtml(strategyId, multiplier) {
+  const id = escapeHtml(String(strategyId ?? '').trim());
+  const value = clampOpenCostMultiplier(multiplier);
+  const minusDisabled = value <= OPEN_COST_MULTIPLIER_MIN ? ' disabled' : '';
+  const plusDisabled = value >= OPEN_COST_MULTIPLIER_MAX ? ' disabled' : '';
+  return [
+    `<div class="admin-cost-multiplier__stepper" role="group" aria-label="成本倍数" data-id="${id}">`,
+    `<button type="button" class="admin-cost-multiplier__btn" data-cost-multiplier-delta="-1" data-id="${id}" aria-label="减少倍数"${minusDisabled}>−</button>`,
+    `<span class="admin-cost-multiplier__value" aria-live="polite">${value}</span>`,
+    `<button type="button" class="admin-cost-multiplier__btn" data-cost-multiplier-delta="1" data-id="${id}" aria-label="增加倍数"${plusDisabled}>+</button>`,
+    '</div>',
+  ].join('');
 }
 
 function getConcessionRates() {
@@ -333,10 +404,10 @@ function buildAdminDisplayConcessions(row) {
   return buildUnifiedConcessionsForRow(row) || savedConcessions;
 }
 
-function buildTrendAdminConcessions(row) {
+function buildTrendAdminConcessions(row, multiplier = OPEN_COST_MULTIPLIER_DEFAULT) {
   const entryPrice = toNumber(row?.entryPrice);
   const stopLoss = toNumber(row?.stopLossPrice);
-  const openCostTotal = getOpenCostTotalFromRow(row);
+  const openCostTotal = getOpenCostTotal(multiplier);
   if (entryPrice == null || stopLoss == null || !(openCostTotal > 0)) return [];
 
   const decimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
@@ -1100,9 +1171,20 @@ function renderMethodologyPage() {
 let currentStrategyCopyText = '';
 let currentStrategyRecord = null;
 
+function clearStrategyOutput(outEl = document.getElementById('strategy-output')) {
+  if (!outEl) return;
+  outEl.textContent = '';
+}
+
+function renderStrategyOutput(outEl, { html }) {
+  if (!outEl) return;
+  outEl.innerHTML = html || '';
+}
+
 function clearStrategyState() {
   currentStrategyCopyText = '';
   currentStrategyRecord = null;
+  clearStrategyOutput();
 }
 
 function setStrategyState(strategy) {
@@ -1112,6 +1194,7 @@ function setStrategyState(strategy) {
   }
   currentStrategyCopyText = String(strategy.copyText ?? '').trim();
   currentStrategyRecord = strategy.record ?? null;
+  renderStrategyOutput(document.getElementById('strategy-output'), strategy);
 }
 
 function getPositionSideMod(side) {
@@ -1634,20 +1717,6 @@ const openInput = document.getElementById('open-price-input');
 const stopInput = document.getElementById('stop-price-input');
 const startTimeSelect = document.getElementById('start-time');
 
-// 开仓成本按钮切换
-const costBtns = document.querySelectorAll('#cost-switch .cost-switch__btn');
-costBtns.forEach((btn) => {
-  btn.addEventListener('click', () => {
-    costBtns.forEach((b) => {
-      b.classList.remove('is-active');
-      b.setAttribute('aria-selected', 'false');
-    });
-    btn.classList.add('is-active');
-    btn.setAttribute('aria-selected', 'true');
-    autoGenerateIfReady();
-  });
-});
-
 function onEnter(e) {
   if (e.key === 'Enter') generate();
 }
@@ -1693,13 +1762,6 @@ function resetFrontPage() {
   rebuildStartTimeOptions();
   if (openInput) openInput.value = '';
   if (stopInput) stopInput.value = '';
-  // 重置开仓成本为默认值200
-  const costBtns = document.querySelectorAll('#cost-switch .cost-switch__btn');
-  costBtns.forEach((btn) => {
-    const isDefault = btn.getAttribute('data-cost') === String(OPEN_COST_TOTAL_DEFAULT);
-    btn.classList.toggle('is-active', isDefault);
-    btn.setAttribute('aria-selected', isDefault ? 'true' : 'false');
-  });
   if (nameInput) nameInput.value = '';
   const errEl = document.getElementById('error');
   if (errEl) errEl.textContent = '';
@@ -2432,8 +2494,9 @@ function buildAdminListItemHtml(row) {
   const priceDecimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
   const stop = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '-';
   const isTrendStrategy = strategyType.type === 'trend';
+  const costMultiplier = getAdminOpenCostMultiplier(rawId, row);
   const concessions = isTrendStrategy
-    ? buildTrendAdminConcessions(row)
+    ? buildTrendAdminConcessions(row, costMultiplier)
     : buildAdminDisplayConcessions(row);
   const refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
   const refTakeProfitHtml = refTakeProfitLabel == null
@@ -2483,7 +2546,10 @@ function buildAdminListItemHtml(row) {
       `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
       '</div>',
     ].join('');
-  const buttonsHtml = `<div class="admin-item__buttons">${outcomeStatusHtml}</div>`;
+  const multiplierHtml = rawId && isTrendStrategy
+    ? buildAdminCostMultiplierHtml(rawId, costMultiplier)
+    : '';
+  const buttonsHtml = `<div class="admin-item__buttons">${multiplierHtml}${outcomeStatusHtml}</div>`;
   return [
     `<article class="admin-item admin-item--${sideMod}">`,
     remarkStampHtml,
@@ -3554,6 +3620,19 @@ if (adminListEl) {
   adminListEl.addEventListener('click', async (e) => {
     const target = e.target instanceof HTMLElement ? e.target : null;
     if (!target) return;
+
+    const multiplierBtn = target.closest('[data-cost-multiplier-delta]');
+    if (multiplierBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = String(multiplierBtn.getAttribute('data-id') ?? '').trim();
+      const delta = Number(multiplierBtn.getAttribute('data-cost-multiplier-delta'));
+      if (!id || !Number.isFinite(delta)) return;
+      const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
+      const current = getAdminOpenCostMultiplier(id, row);
+      setAdminOpenCostMultiplier(id, current + delta);
+      return;
+    }
 
     const outcomeStatusActionBtn = target.closest('.admin-outcome-status--actionable');
     if (outcomeStatusActionBtn) {
