@@ -526,6 +526,13 @@ const METHODOLOGY_SECTIONS = [
       '严格选品，耐心等待，保守前进。',
     ],
   },
+  {
+    title: '15、放弃的艺术',
+    items: [
+      '不纠结，越轻松越赚钱。',
+      '1小时强背离可以退出避险。',
+    ],
+  },
 ];
 
 let authSession = null;
