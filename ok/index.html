@@ -49,6 +49,15 @@
       </label>
 
       <div class="field field--spaced">
+        <span class="field-label">时间维度</span>
+        <div class="tabs timeframe-tabs" role="tablist" aria-label="时间维度" data-tablist="timeframe">
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="1h">1h</button>
+          <button type="button" class="tab-btn is-active" role="tab" aria-selected="true" data-value="4h">4h</button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-value="1d">1d</button>
+        </div>
+      </div>
+
+      <div class="field field--spaced">
         <span class="field-label" id="start-time-label">开始时间</span>
         <select id="start-time" class="field-input field-input--select" aria-labelledby="start-time-label" autocomplete="off">
           <option value="">请选择</option>
@@ -78,6 +87,7 @@
         <button id="btn-tab-methodology" type="button" class="admin-shortcut">方法论</button>
         <button id="btn-tab-cases" type="button" class="admin-shortcut">典型案例</button>
       </nav>
+      <div id="admin-timeframe-filter-tabs" class="admin-filter-tabs" role="tablist" aria-label="时间维度筛选"></div>
       <div id="admin-filter-tabs" class="admin-filter-tabs" role="tablist" aria-label="时间状态筛选"></div>
       <div id="admin-active-names" class="admin-active-names" hidden aria-label="当前筛选策略名称"></div>
       <div id="admin-selection" class="admin-selection" hidden>
@@ -178,13 +188,11 @@
     <div class="status-picker__backdrop" data-obs-form-dismiss="true"></div>
     <div class="status-picker__sheet obs-form-picker__sheet" role="dialog" aria-modal="true" aria-label="新增观测记录">
       <div class="obs-form-picker__grabber" aria-hidden="true"></div>
-      <div class="obs-form-list__head">
-        <span>名称</span>
-        <span>等级</span>
-        <span class="obs-form-list__head-spacer" aria-hidden="true"></span>
+      <div class="obs-form-picker__header">
+        <h2 class="obs-form-picker__title">新增观测</h2>
+        <p class="obs-form-picker__desc">填写名称和描述，保存后进入观测日志。</p>
       </div>
       <div id="obs-form-list" class="obs-form-list"></div>
-      <button id="obs-form-add-row" type="button" class="obs-form-add-row">新增</button>
       <p id="obs-form-error" class="status-picker__error" role="alert" aria-live="polite"></p>
       <div class="status-picker__actions">
         <button id="obs-form-cancel" type="button" class="status-picker__cancel">取消</button>

@@ -129,6 +129,16 @@ function formatSlotLabel(at, now = new Date()) {
   return `${at.getMonth() + 1}/${at.getDate()} ${time}`;
 }
 
+function formatSlotLabelForMode(at, now, mode) {
+  if (normalizeTimeframeMode(mode) === '1d') {
+    if (isSameDate(at, now)) return '今天';
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
+    if (isSameDate(at, yesterday)) return '昨天';
+    return `${at.getMonth() + 1}/${at.getDate()}`;
+  }
+  return formatSlotLabel(at, now);
+}
+
 function floorDateToStep(d, stepMinutes) {
   const mins = d.getHours() * 60 + d.getMinutes();
   const slotMins = Math.floor(mins / stepMinutes) * stepMinutes;
@@ -154,12 +164,25 @@ const DEFAULT_TIMEFRAME = '4h';
 const TIMEFRAME_MINUTES = {
   '1h': 60,
   '4h': 240,
+  '1d': 1440,
 };
 
 const TIMEFRAME_LABELS = {
   '1h': '1小时',
   '4h': '4小时',
+  '1d': '1天',
 };
+
+function normalizeTimeframeMode(mode) {
+  const value = String(mode ?? '').trim();
+  return TIMEFRAME_MINUTES[value] ? value : DEFAULT_TIMEFRAME;
+}
+
+let frontTimeframeMode = DEFAULT_TIMEFRAME;
+
+function setFrontTimeframeMode(mode) {
+  frontTimeframeMode = normalizeTimeframeMode(mode);
+}
 
 const PRICE_ADJUSTMENT_RATE = 0;
 const CONCESSION_RATES = [
@@ -174,7 +197,6 @@ const OPEN_COST_BASE = 100;
 const OPEN_COST_MULTIPLIER_MIN = 1;
 const OPEN_COST_MULTIPLIER_MAX = 10;
 const OPEN_COST_MULTIPLIER_DEFAULT = 2;
-const OPEN_COST_MULTIPLIER_CACHE_KEY = 'ok_admin_open_cost_multipliers';
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R_LOW = 3;
@@ -187,40 +209,8 @@ function clampOpenCostMultiplier(value) {
   return Math.min(OPEN_COST_MULTIPLIER_MAX, Math.max(OPEN_COST_MULTIPLIER_MIN, n));
 }
 
-function loadAdminOpenCostMultipliers() {
-  try {
-    const raw = localStorage.getItem(OPEN_COST_MULTIPLIER_CACHE_KEY);
-    if (!raw) return new Map();
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return new Map();
-    const map = new Map();
-    Object.entries(parsed).forEach(([id, value]) => {
-      const key = String(id ?? '').trim();
-      if (!key) return;
-      map.set(key, clampOpenCostMultiplier(value));
-    });
-    return map;
-  } catch {
-    return new Map();
-  }
-}
-
-function saveAdminOpenCostMultipliers() {
-  try {
-    const payload = {};
-    adminOpenCostMultiplierById.forEach((value, id) => {
-      payload[id] = clampOpenCostMultiplier(value);
-    });
-    localStorage.setItem(OPEN_COST_MULTIPLIER_CACHE_KEY, JSON.stringify(payload));
-  } catch {
-    // ignore
-  }
-}
-
-const adminOpenCostMultiplierById = loadAdminOpenCostMultipliers();
-
 function getTimeframeMode() {
-  return DEFAULT_TIMEFRAME;
+  return frontTimeframeMode;
 }
 
 function getTimeframeMinutes(mode = getTimeframeMode()) {
@@ -230,6 +220,26 @@ function getTimeframeMinutes(mode = getTimeframeMode()) {
 function getTimeframeLabel(mode) {
   const value = String(mode ?? '').trim();
   return TIMEFRAME_LABELS[value] || value;
+}
+
+function getAdminTimeframeDisplayLabel(row) {
+  const fromField = normalizeTimeframeMode(row?.timeframe);
+  if (row?.timeframe && TIMEFRAME_MINUTES[fromField]) return fromField;
+  const mins = Number(row?.timeframeMinutes);
+  if (Number.isFinite(mins)) {
+    const match = Object.entries(TIMEFRAME_MINUTES).find(([, value]) => value === mins);
+    if (match) return match[0];
+  }
+  return fromField;
+}
+
+function renderAdminTimeframeBadgeHtml(row) {
+  const label = getAdminTimeframeDisplayLabel(row);
+  return [
+    '<div class="admin-outcome-status admin-outcome-status--timeframe" aria-label="时间维度">',
+    `<span class="admin-outcome-status__tag">${escapeHtml(label)}</span>`,
+    '</div>',
+  ].join('');
 }
 
 const FRONT_PAGES = ['trend'];
@@ -250,9 +260,9 @@ function getOpenCostTotal(multiplier = OPEN_COST_MULTIPLIER_DEFAULT) {
 }
 
 function getAdminOpenCostMultiplier(strategyId, row) {
-  const id = String(strategyId ?? '').trim();
-  if (id && adminOpenCostMultiplierById.has(id)) {
-    return adminOpenCostMultiplierById.get(id);
+  const storedMultiplier = toNumber(row?.openCostMultiplier);
+  if (storedMultiplier != null && storedMultiplier > 0) {
+    return clampOpenCostMultiplier(storedMultiplier);
   }
   const storedTotal = getOpenCostTotalFromRow(row);
   if (storedTotal != null && storedTotal > 0) {
@@ -261,19 +271,53 @@ function getAdminOpenCostMultiplier(strategyId, row) {
   return OPEN_COST_MULTIPLIER_DEFAULT;
 }
 
-function setAdminOpenCostMultiplier(strategyId, value) {
+function setAdminRowCostFields(row, multiplier) {
+  if (!row) return null;
+  const nextMultiplier = clampOpenCostMultiplier(multiplier);
+  const openCostTotal = getOpenCostTotal(nextMultiplier);
+  const tierCount = getTierCountFromRow(row);
+  const nextRow = {
+    ...row,
+    openCostMultiplier: nextMultiplier,
+    openCostTotal,
+    openCost: openCostTotal / tierCount,
+    grade: getStrategyGradeFromOpenCost(openCostTotal / tierCount, openCostTotal, tierCount),
+  };
+  if (getAdminStrategyTypeInfo(row).type === 'trend') {
+    nextRow.concessions = buildTrendAdminConcessions(nextRow, nextMultiplier);
+    const primaryItem = nextRow.concessions.find((item) => Math.abs(Number(item.rate)) < 1e-9);
+    if (primaryItem?.quantity) nextRow.quantity = primaryItem.quantity;
+  }
+  return nextRow;
+}
+
+async function setAdminOpenCostMultiplier(strategyId, value, row) {
   const id = String(strategyId ?? '').trim();
-  if (!id) return;
-  adminOpenCostMultiplierById.set(id, clampOpenCostMultiplier(value));
-  saveAdminOpenCostMultipliers();
+  if (!id || updatingAdminCostIds.has(id)) return;
+  const nextMultiplier = clampOpenCostMultiplier(value);
+  const nextRow = setAdminRowCostFields(row, nextMultiplier);
+  if (!nextRow) return;
+  updatingAdminCostIds.add(id);
   renderAdminListItems();
+  try {
+    await updateStrategyOpenCost(id, nextRow);
+    latestAdminRows = latestAdminRows.map((item) => (
+      String(item?.id ?? '').trim() === id ? nextRow : item
+    ));
+  } finally {
+    updatingAdminCostIds.delete(id);
+    renderAdminListItems();
+    renderAdminActiveNames();
+  }
 }
 
 function buildAdminCostMultiplierHtml(strategyId, multiplier) {
-  const id = escapeHtml(String(strategyId ?? '').trim());
+  const rawId = String(strategyId ?? '').trim();
+  const id = escapeHtml(rawId);
   const value = clampOpenCostMultiplier(multiplier);
-  const minusDisabled = value <= OPEN_COST_MULTIPLIER_MIN ? ' disabled' : '';
-  const plusDisabled = value >= OPEN_COST_MULTIPLIER_MAX ? ' disabled' : '';
+  const isSyncing = updatingAdminCostIds.has(rawId);
+  const minusDisabled = isSyncing || value <= OPEN_COST_MULTIPLIER_MIN ? ' disabled' : '';
+  const plusDisabled = isSyncing || value >= OPEN_COST_MULTIPLIER_MAX ? ' disabled' : '';
   return [
     `<div class="admin-cost-multiplier__stepper" role="group" aria-label="成本倍数" data-id="${id}">`,
     `<button type="button" class="admin-cost-multiplier__btn" data-cost-multiplier-delta="-1" data-id="${id}" aria-label="减少倍数"${minusDisabled}>−</button>`,
@@ -310,6 +354,10 @@ function getTierCountFromRow(row) {
 function getOpenCostTotalFromRow(row) {
   const storedTotal = toNumber(row?.openCostTotal);
   if (storedTotal != null && storedTotal > 0) return storedTotal;
+  const storedMultiplier = toNumber(row?.openCostMultiplier);
+  if (storedMultiplier != null && storedMultiplier > 0) {
+    return getOpenCostTotal(storedMultiplier);
+  }
   const tierCount = getTierCountFromRow(row);
   const openCost = toNumber(row?.openCost);
   if (openCost != null && openCost > 0) return openCost * tierCount;
@@ -427,8 +475,6 @@ const STRATEGIES_ENDPOINT = `${SUPABASE_URL}/rest/v1/strategies`;
 const STRATEGY_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_strategy_stats`;
 const RECENT_10_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_recent_10_stats`;
 const OBSERVATIONS_ENDPOINT = `${SUPABASE_URL}/rest/v1/observation_records`;
-const OBS_GRADE_OPTIONS = ['优质', '普通', '观测中'];
-const OBS_DEFAULT_GRADE = '普通';
 const STRATEGY_GRADE_PREMIUM = '优质';
 const STRATEGY_GRADE_NORMAL = '普通';
 function getStrategyGradeFromOpenCost(openCost, openCostTotal, tierCount = DEFAULT_TIER_COUNT) {
@@ -446,7 +492,6 @@ function normalizeStrategyGrade(grade) {
   return STRATEGY_GRADE_NORMAL;
 }
 
-const OBS_FORM_DEFAULT_ROWS = 3;
 const SAVE_LOG_PREFIX = '[strategy-save]';
 const METHODOLOGY_SECTIONS = [
   {
@@ -461,7 +506,17 @@ const METHODOLOGY_SECTIONS = [
       '严格选品，耐心等待，保守前进。',
     ],
   },
-  { title: '2、选择标准', items: ['形态上三线齐飞，交叉在同一个时间维度。', '交易量过亿。', '止损位置往前数10个标的内的插针极限。'] },
+  {
+    title: '2、选择标准',
+    items: [
+      '三线齐飞是信号，三线统一是根源，看大做小是方法。',
+      '只研究热度前20即可，时间维度切换1/4/24。',
+      '大维度是主方向，小维度打配合。统一方向10，背离参考也是10。',
+      '做日内趋势明显的小时右侧单。',
+      '交易量过亿。',
+      '止损位置往前数10个标的内的插针极限。',
+    ],
+  },
   { title: '3、档位', paragraphs: ['三档挂单，兼顾风险和收益。'] },
   { title: '4、仓位', paragraphs: ['3目标 x 3档位 = 9仓位'] },
   { title: '5、平仓', items: ['时间参考：九尾和十尾', '空间参考：3倍和5倍'] },
@@ -910,7 +965,9 @@ function fromDbRecord(row) {
     takeProfitPrice: dbValueToString(row.take_profit_price),
     stopLossPrice: dbValueToString(row.stop_loss_price),
     openCost: row.open_cost,
-    grade: normalizeStrategyGrade(row.grade ?? getStrategyGradeFromOpenCost(row.open_cost)),
+    openCostMultiplier: row.open_cost_multiplier,
+    openCostTotal: row.open_cost_total,
+    grade: normalizeStrategyGrade(row.grade ?? getStrategyGradeFromOpenCost(row.open_cost, row.open_cost_total)),
     priceAdjustmentRate: row.price_adjustment_rate,
     priceAdjustment: row.price_adjustment,
     concessions: parseConcessionsFromDb(row.concessions),
@@ -930,6 +987,8 @@ function fromDbRecord(row) {
 function toDbRecord(record) {
   const startAt = parseDateValue(record.startAt);
   const expiresAt = parseDateValue(record.expiresAt);
+  const openCostTotal = Number(record.openCostTotal) || getOpenCostTotal(record.openCostMultiplier);
+  const openCostMultiplier = clampOpenCostMultiplier(record.openCostMultiplier ?? openCostTotal / OPEN_COST_BASE);
   return {
     strategy_name: record.strategyName,
     position_side: record.positionSide,
@@ -940,15 +999,17 @@ function toDbRecord(record) {
     take_profit_price: toNumber(record.takeProfitPrice),
     stop_loss_price: toNumber(record.stopLossPrice),
     open_cost: Number(record.openCost),
-    grade: normalizeStrategyGrade(record.grade ?? getStrategyGradeFromOpenCost(record.openCost, record.openCostTotal)),
+    open_cost_multiplier: openCostMultiplier,
+    open_cost_total: openCostTotal,
+    grade: normalizeStrategyGrade(record.grade ?? getStrategyGradeFromOpenCost(record.openCost, openCostTotal)),
     price_adjustment_rate: Number(record.priceAdjustmentRate),
     price_adjustment: toNumber(record.priceAdjustment),
     concessions: hasConcessions(record.concessions)
       ? normalizeConcessions(record.concessions)
       : [],
     take_profit_r_multiple: Number(record.takeProfitRMultiple),
-    timeframe: record.timeframe,
-    timeframe_minutes: Number(record.timeframeMinutes),
+    timeframe: normalizeTimeframeMode(record.timeframe),
+    timeframe_minutes: Number(record.timeframeMinutes) || getTimeframeMinutes(record.timeframe),
     valid_periods: Number(record.validPeriods),
     duration_minutes: Number(record.durationMinutes),
     start_at: startAt ? startAt.toISOString() : null,
@@ -963,14 +1024,15 @@ function isMobileTimePickerEnabled() {
 
 function getTimeSlotsByMode(mode) {
   const slots = [];
-  const stepMinutes = getTimeframeMinutes(mode);
+  const normalizedMode = normalizeTimeframeMode(mode);
+  const stepMinutes = getTimeframeMinutes(normalizedMode);
   const now = new Date();
   const currentSlot = floorDateToStep(now, stepMinutes);
   for (let i = START_TIME_SLOT_COUNT - 1; i >= 0; i -= 1) {
     const at = new Date(currentSlot.getTime() - i * stepMinutes * 60 * 1000);
     slots.push({
       value: formatStartSlotValue(at),
-      label: formatSlotLabel(at, now),
+      label: formatSlotLabelForMode(at, now, normalizedMode),
       time: formatHHMM(at.getHours(), at.getMinutes()),
       at,
     });
@@ -1228,14 +1290,42 @@ function renderAdminRemarkStampHtml(remark) {
   return `<div class="admin-item__remark-stamp" aria-label="备注：${escapeHtml(note)}">${escapeHtml(note)}</div>`;
 }
 
-function buildStrategyCopyText({ name, price, quantity, takeProfit, stopLoss }) {
+function buildStrategyCopyText({ name, price, quantity, takeProfit, stopLoss, timeframe }) {
+  const mode = normalizeTimeframeMode(timeframe ?? getTimeframeMode());
+  const timeframeLine = `时间维度：${getTimeframeLabel(mode)}（${mode}）`;
   return [
     formatStrategyCardTitle(name),
+    timeframeLine,
     `开始价格：${String(price ?? '').trim()}`,
     `数量：${String(quantity ?? '').trim()}`,
     `止盈：${String(takeProfit ?? '').trim()}`,
     `止损价格：${String(stopLoss ?? '').trim()}`,
   ].join('\n');
+}
+
+function enrichStrategyRecordForSubmit(record) {
+  if (!record) return null;
+  const timeframe = getTimeframeMode();
+  const timeframeMinutes = getTimeframeMinutes(timeframe);
+  const validPeriods = Number(record.validPeriods) || STRATEGY_DURATION_PERIODS;
+  const durationMinutes = timeframeMinutes * validPeriods;
+  const next = {
+    ...record,
+    timeframe,
+    timeframeMinutes,
+    timeframeLabel: getTimeframeLabel(timeframe),
+    validPeriods,
+    durationMinutes,
+  };
+  const timeEl = document.getElementById('start-time');
+  const startValue = timeEl && 'value' in timeEl ? String(timeEl.value).trim() : '';
+  if (startValue) {
+    const startAt = getStartDateTime(startValue);
+    const endAt = addPeriodToStart(startValue, durationMinutes);
+    next.startAt = startAt ? startAt.toISOString() : next.startAt;
+    next.expiresAt = endAt ? endAt.toISOString() : next.expiresAt;
+  }
+  return next;
 }
 
 /** 止盈价：盈利 = multiplier×开仓成本 → 价差移动 = multiplier×|价格-止损| */
@@ -1549,7 +1639,8 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
   const spanMinutes = unitMin * STRATEGY_DURATION_PERIODS;
   const reverse = false;
   const adjustedOpen = calcAdjustedOpenPrice(open, stop, priceDecimalPlaces);
-  const openCostTotal = getOpenCostTotal() ?? openCost * DEFAULT_TIER_COUNT;
+  const openCostMultiplier = OPEN_COST_MULTIPLIER_DEFAULT;
+  const openCostTotal = getOpenCostTotal(openCostMultiplier) ?? openCost * DEFAULT_TIER_COUNT;
   const quantity = calcQuantityByRisk(openCost, adjustedOpen, stop);
   const primaryConcessionalPrice = calcConcessionalEntryPrice(adjustedOpen, stop, PRICE_ADJUSTMENT_RATE, priceDecimalPlaces, reverse);
   const priceAdjustment = primaryConcessionalPrice == null ? 0 : Math.abs(adjustedOpen - primaryConcessionalPrice);
@@ -1599,6 +1690,7 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
     quantity: qty,
     takeProfit: tpLabel,
     stopLoss: stopLabel,
+    timeframe,
   });
   const record = {
     strategyName: alarmName,
@@ -1610,10 +1702,11 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
     takeProfitPrice: tpLabel,
     stopLossPrice: stopLabel,
     openCost,
-    openCostTotal: getOpenCostTotal(),
+    openCostMultiplier,
+    openCostTotal,
     tierCount: DEFAULT_TIER_COUNT,
     tradeMode,
-    grade: getStrategyGradeFromOpenCost(openCost, getOpenCostTotal(), DEFAULT_TIER_COUNT),
+    grade: getStrategyGradeFromOpenCost(openCost, openCostTotal, DEFAULT_TIER_COUNT),
     priceAdjustmentRate: PRICE_ADJUSTMENT_RATE,
     priceAdjustment: formatTrimmedFixedDecimals(priceAdjustment, priceDecimalPlaces),
     concessions: concessionItems,
@@ -1715,11 +1808,21 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     const tablist = btn.closest('[role="tablist"]');
     if (tablist?.getAttribute('data-locked') === 'true') return;
     setTabsActive(btn);
+    if (tablist?.getAttribute('data-tablist') === 'timeframe') {
+      const next = normalizeTimeframeMode(btn.getAttribute('data-value'));
+      if (next !== getTimeframeMode()) {
+        setFrontTimeframeMode(next);
+        startTimeUserPicked = false;
+        rebuildStartTimeOptions();
+        updateStartTimeTriggerLabel();
+      }
+    }
     autoGenerateIfReady();
   });
 });
 
 let startTimeUserPicked = false;
+setTablistValue('timeframe', getTimeframeMode());
 rebuildStartTimeOptions();
 bindMobileTimePickerEvents();
 
@@ -1832,6 +1935,10 @@ function buildStrategiesQuery(filterValue = 'all') {
     params.push(`created_at=gte.${encodeURIComponent(start.toISOString())}`);
     params.push(`created_at=lt.${encodeURIComponent(end.toISOString())}`);
   }
+  const timeframeFilter = normalizeAdminTimeframeFilter(adminTimeframeFilter);
+  if (timeframeFilter !== 'all') {
+    params.push(`timeframe=eq.${encodeURIComponent(timeframeFilter)}`);
+  }
   return params.join('&');
 }
 
@@ -1863,9 +1970,12 @@ function fromStatsRecord(row) {
 function buildStrategyStatsPayload(filterValue = 'all', options = {}) {
   const { ignoreAdminFilters = false } = options;
   const timeFilter = normalizeAdminTimeFilter(filterValue);
+  const timeframeFilter = ignoreAdminFilters
+    ? 'all'
+    : normalizeAdminTimeframeFilter(adminTimeframeFilter);
   const payload = {
     p_name_search: ignoreAdminFilters ? null : normalizeAdminNameSearch(adminNameSearch) || null,
-    p_timeframe: null,
+    p_timeframe: timeframeFilter === 'all' ? null : timeframeFilter,
     p_outcome_status: null,
     p_time_filter: timeFilter,
     p_today_start: null,
@@ -1956,6 +2066,33 @@ async function deleteStrategies(ids) {
   const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=in.${idFilter}`, {
     method: 'DELETE',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+async function updateStrategyOpenCost(id, row) {
+  const encodedId = encodeURIComponent(id);
+  const openCostMultiplier = clampOpenCostMultiplier(row?.openCostMultiplier);
+  const openCostTotal = getOpenCostTotal(openCostMultiplier);
+  const tierCount = getTierCountFromRow(row);
+  const openCost = openCostTotal / tierCount;
+  const concessions = getAdminStrategyTypeInfo(row).type === 'trend'
+    ? buildTrendAdminConcessions(row, openCostMultiplier)
+    : normalizeConcessions(row?.concessions);
+  const primaryItem = concessions.find((item) => Math.abs(Number(item.rate)) < 1e-9);
+  const nextQuantity = primaryItem?.quantity ? toNumber(primaryItem.quantity) : toNumber(row?.quantity);
+  const payload = {
+    open_cost_multiplier: openCostMultiplier,
+    open_cost_total: openCostTotal,
+    open_cost: openCost,
+    grade: getStrategyGradeFromOpenCost(openCost, openCostTotal, tierCount),
+    concessions,
+  };
+  if (nextQuantity != null && nextQuantity > 0) payload.quantity = nextQuantity;
+  const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
+    method: 'PATCH',
+    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(await res.text());
 }
@@ -2052,9 +2189,18 @@ const ADMIN_TIME_FILTER_LABELS = {
   dueToday: '今日到期',
 };
 
+const ADMIN_TIMEFRAME_FILTER_LABELS = {
+  all: '全部',
+  '1h': '1h',
+  '4h': '4h',
+  '1d': '1d',
+};
+
 const DEFAULT_ADMIN_TIME_FILTER = 'active';
+const DEFAULT_ADMIN_TIMEFRAME_FILTER = 'all';
 
 let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
+let adminTimeframeFilter = DEFAULT_ADMIN_TIMEFRAME_FILTER;
 let adminNameSearch = '';
 let adminNameFilter = '';
 let adminSortByExpiresAsc = false;
@@ -2117,6 +2263,10 @@ function normalizeAdminTimeFilter(value) {
   return normalizeAdminFilter(value, ADMIN_TIME_FILTER_LABELS);
 }
 
+function normalizeAdminTimeframeFilter(value) {
+  return normalizeAdminFilter(value, ADMIN_TIMEFRAME_FILTER_LABELS);
+}
+
 function normalizeAdminNameSearch(value) {
   return String(value ?? '').trim().replace(/\s+/g, ' ');
 }
@@ -2124,6 +2274,16 @@ function normalizeAdminNameSearch(value) {
 function renderAdminFilterTabs() {
   const tabsEl = document.getElementById('admin-filter-tabs');
   renderAdminTabGroup(tabsEl, ADMIN_TIME_FILTER_LABELS, normalizeAdminTimeFilter(adminTimeFilter), 'admin-time-filter');
+}
+
+function renderAdminTimeframeFilterTabs() {
+  const tabsEl = document.getElementById('admin-timeframe-filter-tabs');
+  renderAdminTabGroup(
+    tabsEl,
+    ADMIN_TIMEFRAME_FILTER_LABELS,
+    normalizeAdminTimeframeFilter(adminTimeframeFilter),
+    'admin-timeframe-filter',
+  );
 }
 
 function renderAdminTabGroup(tabsEl, labels, activeValue, dataAttr) {
@@ -2155,6 +2315,14 @@ function collectAdminNameCounts(rows) {
   return order.map((key) => counts.get(key));
 }
 
+function getAdminVisibleMultiplierTotal(rows = latestAdminRows) {
+  return getFilteredAdminRows(rows).reduce((sum, row) => {
+    if (getAdminStrategyTypeInfo(row).type !== 'trend') return sum;
+    const id = String(row?.id ?? '').trim();
+    return sum + getAdminOpenCostMultiplier(id, row);
+  }, 0);
+}
+
 function shouldShowAdminNameSummary() {
   return normalizeAdminTimeFilter(adminTimeFilter) !== 'all';
 }
@@ -2169,7 +2337,18 @@ function renderAdminActiveNames(rows = latestAdminRows) {
   }
   const nameCounts = collectAdminNameCounts(rows);
   const uniqueTotal = nameCounts.length;
+  const showMultiplierTotal = normalizeAdminTimeFilter(adminTimeFilter) === 'active';
+  const multiplierTotal = showMultiplierTotal ? getAdminVisibleMultiplierTotal(rows) : null;
+  const costTotal = multiplierTotal == null ? null : multiplierTotal * OPEN_COST_BASE;
   el.hidden = false;
+  const multiplierHtml = showMultiplierTotal
+    ? [
+      '<span class="admin-active-names__metric" title="当前进行中的趋势单成本合计">',
+      '<span class="admin-active-names__metric-label">累计成本</span>',
+      `<span class="admin-active-names__metric-value">${costTotal}</span>`,
+      '</span>',
+    ].join('')
+    : '';
   const sortHtml = [
     `<button type="button" class="admin-active-names__sort${adminSortByExpiresAsc ? ' is-active' : ''}" data-admin-sort-expires aria-pressed="${adminSortByExpiresAsc ? 'true' : 'false'}" aria-label="按截止时间由近到远排序，${uniqueTotal} 个名称">`,
     `排序 ${uniqueTotal}`,
@@ -2189,10 +2368,11 @@ function renderAdminActiveNames(rows = latestAdminRows) {
       '</button>',
     ].join('');
   }).join('');
-  el.innerHTML = `${sortHtml}${namesHtml}`;
+  el.innerHTML = `${sortHtml}${namesHtml}${multiplierHtml}`;
 }
 
 function renderAdminControls() {
+  renderAdminTimeframeFilterTabs();
   renderAdminFilterTabs();
   renderAdminActiveNames();
 }
@@ -2200,6 +2380,7 @@ function renderAdminControls() {
 function resetAdminPageState() {
   closeOutcomeStatusPicker();
   adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
+  adminTimeframeFilter = DEFAULT_ADMIN_TIMEFRAME_FILTER;
   adminNameSearch = '';
   adminNameFilter = '';
   adminSortByExpiresAsc = false;
@@ -2207,6 +2388,7 @@ function resetAdminPageState() {
   selectedStrategyIds.clear();
   visibleAdminStrategyIds = [];
   isDeletingStrategies = false;
+  updatingAdminCostIds.clear();
   renderAdminControls();
   updateAdminSelectionControls();
 }
@@ -2216,6 +2398,7 @@ let isDeletingStrategies = false;
 let isAdminSelectionMode = false;
 let visibleAdminStrategyIds = [];
 let latestAdminRows = [];
+let updatingAdminCostIds = new Set();
 
 function getVisibleAdminStrategyIds() {
   const domIds = Array.from(document.querySelectorAll('#admin-list .admin-item__select'))
@@ -2476,6 +2659,7 @@ async function renderAdminList() {
     selectedStrategyIds.clear();
     visibleAdminStrategyIds = [];
     latestAdminRows = [];
+    updatingAdminCostIds.clear();
     listEl.innerHTML = `<div class="admin-sync-error">${escapeHtml(String(err?.message || '同步失败'))}</div>`;
     renderAdminActiveNames([]);
     updateAdminSelectionControls();
@@ -2557,6 +2741,7 @@ function buildAdminListItemHtml(row) {
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
+    renderAdminTimeframeBadgeHtml(row),
     '</div>',
   ].join('');
   const headRightHtml = [
@@ -2856,45 +3041,74 @@ async function renderCasesPage() {
   requestAnimationFrame(() => goToCaseSlide(0, { animate: false }));
 }
 
-function getObsGradeClass(grade) {
-  const map = {
-    观测中: 'pending',
-    普通: 'normal',
-    优质: 'premium',
-  };
-  return map[grade] || 'normal';
+let observationContentColumnAvailable = true;
+
+function isMissingObservationContentColumnError(errorText) {
+  return /content/i.test(String(errorText ?? ''))
+    && /(column|schema cache|could not find|not found)/i.test(String(errorText ?? ''));
 }
 
 function normalizeObservationItems(items) {
   const source = Array.isArray(items) ? items : [];
   return source
-    .map((item) => ({
-      name: String(item?.name ?? '').trim(),
-      grade: normalizeObservationGrade(item?.grade),
-    }))
+    .map((item) => {
+      const legacyDescription = item?.grade == null ? '' : `等级：${String(item.grade).trim()}`;
+      return {
+        name: String(item?.name ?? '').trim(),
+        description: String(item?.description ?? item?.desc ?? item?.note ?? legacyDescription).trim(),
+      };
+    })
     .filter((item) => item.name);
 }
 
+function parseLegacyObservationContent(content) {
+  const lines = String(content ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!lines.length) return [];
+  const [first, ...rest] = lines;
+  const colonIndex = first.indexOf(':');
+  if (colonIndex > 0 && !rest.length) {
+    return [{
+      name: first.slice(0, colonIndex).trim(),
+      description: first.slice(colonIndex + 1).trim(),
+    }];
+  }
+  return [{
+    name: first,
+    description: rest.join('\n'),
+  }];
+}
+
 function fromObservationRecord(row) {
-  let items = [];
-  if (Array.isArray(row?.items)) {
-    items = row.items;
-  } else if (typeof row?.content === 'string' && row.content.trim()) {
-    items = [{ name: row.content.trim(), grade: OBS_DEFAULT_GRADE }];
+  let items = Array.isArray(row?.items) ? normalizeObservationItems(row.items) : [];
+  if (!items.length && typeof row?.content === 'string' && row.content.trim()) {
+    items = normalizeObservationItems(parseLegacyObservationContent(row.content));
   }
   return {
     id: String(row?.id ?? '').trim(),
     createdAt: row?.created_at ?? null,
-    items: normalizeObservationItems(items),
+    items,
   };
 }
 
 async function fetchObservationRecords() {
-  const params = 'select=id,created_at,items&order=created_at.desc';
+  const selectFields = observationContentColumnAvailable
+    ? 'id,created_at,items,content'
+    : 'id,created_at,items';
+  const params = `select=${selectFields}&order=created_at.desc`;
   const res = await supabaseFetch(`${OBSERVATIONS_ENDPOINT}?${params}`, {
     headers: getSupabaseHeaders(),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const errorText = await res.text();
+    if (observationContentColumnAvailable && isMissingObservationContentColumnError(errorText)) {
+      observationContentColumnAvailable = false;
+      return fetchObservationRecords();
+    }
+    throw new Error(errorText);
+  }
   const rows = await res.json();
   return Array.isArray(rows) ? rows.map(fromObservationRecord) : [];
 }
@@ -2902,16 +3116,31 @@ async function fetchObservationRecords() {
 async function createObservationRecord(items) {
   const normalizedItems = normalizeObservationItems(items);
   if (!normalizedItems.length) throw new Error('记录内容不能为空');
+  const legacyContent = normalizedItems
+    .map((item) => [item.name, item.description].filter(Boolean).join('\n'))
+    .join('\n\n');
   const payload = {
     items: normalizedItems,
-    content: normalizedItems.map((item) => `${item.name}:${item.grade}`).join('\n'),
+    content: legacyContent,
   };
   const res = await supabaseFetch(OBSERVATIONS_ENDPOINT, {
     method: 'POST',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify(payload),
+    body: JSON.stringify(observationContentColumnAvailable ? payload : { items: normalizedItems }),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (res.ok) return;
+  const errorText = await res.text();
+  if (observationContentColumnAvailable && isMissingObservationContentColumnError(errorText)) {
+    observationContentColumnAvailable = false;
+    const retryRes = await supabaseFetch(OBSERVATIONS_ENDPOINT, {
+      method: 'POST',
+      headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+      body: JSON.stringify({ items: normalizedItems }),
+    });
+    if (retryRes.ok) return;
+    throw new Error(await retryRes.text());
+  }
+  throw new Error(errorText);
 }
 
 async function deleteObservationRecords(ids) {
@@ -2935,42 +3164,23 @@ function formatObservationRecordDate(isoString) {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-function renderObsGradeBadge(grade) {
-  const cls = getObsGradeClass(grade);
-  return `<span class="obs-grade obs-grade--${cls}">${escapeHtml(grade)}</span>`;
-}
-
-function normalizeObservationGrade(grade) {
-  const raw = String(grade ?? '').trim();
-  const legacyMap = {
-    优秀: '优质',
-    良好: '普通',
-    及格: '普通',
-    待观测: '观测中',
-  };
-  const normalized = legacyMap[raw] || raw;
-  return OBS_GRADE_OPTIONS.includes(normalized) ? normalized : OBS_DEFAULT_GRADE;
-}
-
 function renderObservationTemplateDisplay(items) {
   const normalizedItems = normalizeObservationItems(items);
   if (!normalizedItems.length) {
-    return '<p class="obs-template-empty">暂无币种记录</p>';
+    return '<p class="obs-template-empty">暂无观测记录</p>';
   }
   const rows = normalizedItems
     .map((item) => [
       '<div class="obs-template__row">',
-      `<span class="obs-template__name">${escapeHtml(item.name)}</span>`,
-      renderObsGradeBadge(item.grade),
+      `<h3 class="obs-template__name">${escapeHtml(item.name)}</h3>`,
+      item.description
+        ? `<p class="obs-template__desc">${escapeHtml(item.description)}</p>`
+        : '<p class="obs-template__desc obs-template__desc--empty">暂无描述</p>',
       '</div>',
     ].join(''))
     .join('');
   return [
     '<div class="obs-template">',
-    '<div class="obs-template__row obs-template__head">',
-    '<span>名称</span>',
-    '<span>等级</span>',
-    '</div>',
     rows,
     '</div>',
   ].join('');
@@ -2978,68 +3188,37 @@ function renderObservationTemplateDisplay(items) {
 
 function renderObservationFormRow(item = {}) {
   const name = escapeHtml(String(item?.name ?? ''));
-  const grade = normalizeObservationGrade(item?.grade);
-  const options = OBS_GRADE_OPTIONS.map((option) => {
-    const selected = option === grade ? ' selected' : '';
-    return `<option value="${escapeHtml(option)}"${selected}>${escapeHtml(option)}</option>`;
-  }).join('');
+  const description = escapeHtml(String(item?.description ?? ''));
   return [
     '<div class="obs-form-row">',
-    `<input class="obs-form-row__name" type="text" value="${name}" placeholder="请输入名称" autocomplete="off" autocapitalize="characters" spellcheck="false" />`,
-    `<select class="obs-form-row__grade" aria-label="等级">${options}</select>`,
-    '<button type="button" class="obs-form-row__remove" aria-label="删除">×</button>',
+    '<label class="obs-form-field obs-form-field--name">',
+    '<span class="obs-form-field__label">名称</span>',
+    `<input class="obs-form-row__name" type="text" value="${name}" placeholder="例如 BTC、ETH、纳指" autocomplete="off" autocapitalize="characters" spellcheck="false" />`,
+    '</label>',
+    '<label class="obs-form-field obs-form-field--description">',
+    '<span class="obs-form-field__label">描述</span>',
+    `<textarea class="obs-form-row__description" rows="5" placeholder="记录形态、位置、成交量、计划或需要复盘的点。">${description}</textarea>`,
+    '</label>',
     '</div>',
   ].join('');
-}
-
-function renderObservationFormEmptyHint() {
-  return '<p class="obs-form-empty">点击「新增」添加币种记录。</p>';
 }
 
 function renderObservationFormList() {
   const listEl = document.getElementById('obs-form-list');
   if (!listEl) return;
-  listEl.innerHTML = Array.from({ length: OBS_FORM_DEFAULT_ROWS }, () => (
-    renderObservationFormRow({ grade: OBS_DEFAULT_GRADE })
-  )).join('');
-}
-
-function syncObservationFormEmptyHint() {
-  const listEl = document.getElementById('obs-form-list');
-  if (!listEl) return;
-  const hasRows = listEl.querySelector('.obs-form-row');
-  const emptyEl = listEl.querySelector('.obs-form-empty');
-  if (hasRows) {
-    emptyEl?.remove();
-    return;
-  }
-  if (!emptyEl) listEl.innerHTML = renderObservationFormEmptyHint();
-}
-
-function addObservationFormRow(focusName = true) {
-  const listEl = document.getElementById('obs-form-list');
-  if (!listEl) return;
-  listEl.querySelector('.obs-form-empty')?.remove();
-  listEl.insertAdjacentHTML('beforeend', renderObservationFormRow({ grade: OBS_DEFAULT_GRADE }));
-  if (focusName) {
-    const rows = listEl.querySelectorAll('.obs-form-row__name');
-    rows[rows.length - 1]?.focus();
-  }
-}
-
-function removeObservationFormRow(rowEl) {
-  if (!(rowEl instanceof HTMLElement)) return;
-  rowEl.remove();
-  syncObservationFormEmptyHint();
+  listEl.innerHTML = renderObservationFormRow();
+  requestAnimationFrame(() => {
+    listEl.querySelector('.obs-form-row__name')?.focus();
+  });
 }
 
 function collectObservationFormItems() {
   return Array.from(document.querySelectorAll('#obs-form-list .obs-form-row'))
     .map((row) => ({
       name: String(row.querySelector('.obs-form-row__name')?.value ?? '').trim(),
-      grade: normalizeObservationGrade(row.querySelector('.obs-form-row__grade')?.value),
+      description: String(row.querySelector('.obs-form-row__description')?.value ?? '').trim(),
     }))
-    .filter((item) => item.name);
+    .filter((item) => item.name || item.description);
 }
 
 function renderObservationRecordItem(record) {
@@ -3247,7 +3426,19 @@ async function submitObservationForm() {
   const submitBtn = document.getElementById('obs-form-submit');
   const items = collectObservationFormItems();
   if (!items.length) {
-    if (errorEl) errorEl.textContent = '请至少新增一条币种记录。';
+    if (errorEl) errorEl.textContent = '请填写名称和描述。';
+    document.querySelector('#obs-form-list .obs-form-row__name')?.focus();
+    return;
+  }
+  const item = items[0];
+  if (!item.name) {
+    if (errorEl) errorEl.textContent = '请填写名称。';
+    document.querySelector('#obs-form-list .obs-form-row__name')?.focus();
+    return;
+  }
+  if (!item.description) {
+    if (errorEl) errorEl.textContent = '请填写描述。';
+    document.querySelector('#obs-form-list .obs-form-row__description')?.focus();
     return;
   }
   if (errorEl) errorEl.textContent = '';
@@ -3437,7 +3628,7 @@ async function copyStrategyOutput() {
       flashCopyStrategyBtn(btn, '保存失败');
       return;
     }
-    const record = currentStrategyRecord;
+    const record = enrichStrategyRecordForSubmit(currentStrategyRecord);
     logSave('info', 'record 已就绪', record);
     try {
       await createStrategy(record);
@@ -3551,17 +3742,9 @@ if (obsFormPicker) {
     if (!target) return;
     if (target.getAttribute('data-obs-form-dismiss') === 'true') {
       closeObservationFormPicker();
-      return;
-    }
-    const removeBtn = target.closest('.obs-form-row__remove');
-    if (removeBtn) {
-      removeObservationFormRow(removeBtn.closest('.obs-form-row'));
     }
   });
 }
-
-const obsFormAddRow = document.getElementById('obs-form-add-row');
-if (obsFormAddRow) obsFormAddRow.addEventListener('click', () => addObservationFormRow(true));
 
 const obsFormCancel = document.getElementById('obs-form-cancel');
 if (obsFormCancel) obsFormCancel.addEventListener('click', closeObservationFormPicker);
@@ -3579,6 +3762,20 @@ if (adminFilterTabsEl) {
     const nextFilter = normalizeAdminTimeFilter(target.getAttribute('data-admin-time-filter'));
     if (adminTimeFilter === nextFilter) return;
     adminTimeFilter = nextFilter;
+    adminNameFilter = '';
+    adminSortByExpiresAsc = false;
+    renderAdminList().catch(() => {});
+  });
+}
+
+const adminTimeframeFilterTabsEl = document.getElementById('admin-timeframe-filter-tabs');
+if (adminTimeframeFilterTabsEl) {
+  adminTimeframeFilterTabsEl.addEventListener('click', (e) => {
+    const target = e.target instanceof HTMLElement ? e.target.closest('[data-admin-timeframe-filter]') : null;
+    if (!target) return;
+    const nextFilter = normalizeAdminTimeframeFilter(target.getAttribute('data-admin-timeframe-filter'));
+    if (adminTimeframeFilter === nextFilter) return;
+    adminTimeframeFilter = nextFilter;
     adminNameFilter = '';
     adminSortByExpiresAsc = false;
     renderAdminList().catch(() => {});
@@ -3645,8 +3842,16 @@ if (adminListEl) {
       const delta = Number(multiplierBtn.getAttribute('data-cost-multiplier-delta'));
       if (!id || !Number.isFinite(delta)) return;
       const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
+      if (!row) return;
       const current = getAdminOpenCostMultiplier(id, row);
-      setAdminOpenCostMultiplier(id, current + delta);
+      multiplierBtn.disabled = true;
+      try {
+        await setAdminOpenCostMultiplier(id, current + delta, row);
+      } catch (err) {
+        console.error('[admin-cost-sync]', err);
+        showToast('成本同步失败');
+        renderAdminListItems();
+      }
       return;
     }
 

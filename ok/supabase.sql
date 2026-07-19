@@ -27,6 +27,8 @@ create table if not exists public.strategies (
   stop_loss_price numeric not null,
 
   open_cost numeric not null,
+  open_cost_multiplier integer not null default 2,
+  open_cost_total numeric not null default 200,
   price_adjustment_rate numeric not null default 0,
   price_adjustment numeric not null,
   concessions jsonb not null default '[]'::jsonb,
@@ -46,7 +48,7 @@ create table if not exists public.strategies (
   constraint strategies_position_side_check
     check (position_side in ('long', 'short')),
   constraint strategies_timeframe_check
-    check (timeframe in ('1h', '4h')),
+    check (timeframe in ('1h', '4h', '1d')),
   constraint strategies_outcome_status_check
     check (outcome_status in ('pending', 'profit', 'loss', 'not_filled')),
   constraint strategies_positive_values_check
@@ -59,6 +61,8 @@ create table if not exists public.strategies (
       and take_profit_price >= 0
       and stop_loss_price > 0
       and open_cost > 0
+      and open_cost_multiplier between 1 and 10
+      and open_cost_total > 0
       and price_adjustment_rate >= 0
       and take_profit_r_multiple > 0
       and timeframe_minutes > 0
@@ -366,9 +370,52 @@ add column if not exists outcome_remark text not null default '';
 alter table public.strategies
 add column if not exists grade text not null default '普通';
 
+alter table public.strategies
+add column if not exists open_cost_multiplier integer;
+
+alter table public.strategies
+add column if not exists open_cost_total numeric;
+
+update public.strategies
+set open_cost_total = coalesce(
+  nullif(open_cost_total, 0),
+  open_cost * greatest(
+    case
+      when jsonb_typeof(concessions) = 'array' and jsonb_array_length(concessions) > 0
+        then jsonb_array_length(concessions)
+      else 3
+    end,
+    1
+  ),
+  200
+)
+where open_cost_total is null
+  or open_cost_total <= 0;
+
+update public.strategies
+set open_cost_multiplier = least(10, greatest(1, round(open_cost_total / 100)::integer))
+where open_cost_multiplier is null
+  or open_cost_multiplier < 1
+  or open_cost_multiplier > 10;
+
+update public.strategies
+set open_cost_total = open_cost_multiplier * 100;
+
+alter table public.strategies
+alter column open_cost_multiplier set default 2;
+
+alter table public.strategies
+alter column open_cost_multiplier set not null;
+
+alter table public.strategies
+alter column open_cost_total set default 200;
+
+alter table public.strategies
+alter column open_cost_total set not null;
+
 update public.strategies
 set grade = case
-  when open_cost = 150 or round(open_cost * 3) in (500, 1000) then '优质'
+  when open_cost = 150 or round(open_cost_total) in (500, 1000) then '优质'
   else '普通'
 end;
 
@@ -392,9 +439,28 @@ begin
       and column_name = 'content'
   ) then
     update public.observation_records
-    set items = jsonb_build_array(
-      jsonb_build_object('name', trim(content), 'grade', '观测中')
-    )
+    set items = case
+      when content like '%:%' then coalesce(
+        (
+          select jsonb_agg(
+            jsonb_build_object(
+              'name', trim(split_part(line, ':', 1)),
+              'description', trim(substr(line, strpos(line, ':') + 1))
+            )
+          )
+          from regexp_split_to_table(content, E'\\r?\\n') as legacy(line)
+          where length(trim(line)) > 0
+            and strpos(line, ':') > 1
+        ),
+        jsonb_build_array(jsonb_build_object('name', trim(content), 'description', ''))
+      )
+      else jsonb_build_array(
+        jsonb_build_object(
+          'name', trim((regexp_split_to_array(content, E'\\r?\\n'))[1]),
+          'description', trim(regexp_replace(content, '^[^\r\n]*(\r?\n)?', ''))
+        )
+      )
+    end
     where jsonb_array_length(items) = 0
       and content is not null
       and length(trim(content)) > 0;
@@ -439,6 +505,8 @@ check (
   and take_profit_price >= 0
   and stop_loss_price > 0
   and open_cost > 0
+  and open_cost_multiplier between 1 and 10
+  and open_cost_total > 0
   and price_adjustment_rate >= 0
   and take_profit_r_multiple > 0
   and timeframe_minutes > 0
@@ -455,5 +523,12 @@ check (
   (position_side = 'long' and (take_profit_price = 0 or take_profit_price > entry_price))
   or (position_side = 'short' and (take_profit_price = 0 or take_profit_price < entry_price))
 );
+
+alter table public.strategies
+drop constraint if exists strategies_timeframe_check;
+
+alter table public.strategies
+add constraint strategies_timeframe_check
+check (timeframe in ('1h', '4h', '1d'));
 
 notify pgrst, 'reload schema';
