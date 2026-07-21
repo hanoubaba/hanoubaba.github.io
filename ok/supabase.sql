@@ -259,6 +259,7 @@ create table if not exists public.observation_records (
   updated_at timestamptz not null default now(),
 
   items jsonb not null default '[]'::jsonb,
+  pinned boolean not null default false,
 
   constraint observation_records_items_not_empty_check
     check (jsonb_array_length(items) > 0)
@@ -266,6 +267,9 @@ create table if not exists public.observation_records (
 
 create index if not exists observation_records_created_at_idx
 on public.observation_records (created_at desc);
+
+create index if not exists observation_records_pinned_created_at_idx
+on public.observation_records (pinned desc, created_at desc);
 
 -- ------------------------------------------------------------
 -- 3. 公共触发器
@@ -530,5 +534,12 @@ drop constraint if exists strategies_timeframe_check;
 alter table public.strategies
 add constraint strategies_timeframe_check
 check (timeframe in ('1h', '4h', '1d'));
+
+-- 观测日志：置顶
+alter table public.observation_records
+add column if not exists pinned boolean not null default false;
+
+create index if not exists observation_records_pinned_created_at_idx
+on public.observation_records (pinned desc, created_at desc);
 
 notify pgrst, 'reload schema';

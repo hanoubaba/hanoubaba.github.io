@@ -2922,12 +2922,31 @@ body.login-mode {
   white-space: nowrap;
 }
 
+.obs-record__pin-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .obs-item {
   flex-shrink: 0;
   border: 1px solid var(--border-soft);
   border-radius: 12px;
   background: #fff;
   padding: 10px 12px;
+}
+
+.obs-record--pinned .obs-item {
+  border-color: #bfdbfe;
+  background: linear-gradient(180deg, #f8fbff 0%, #fff 52%);
 }
 
 .obs-template {
@@ -3087,6 +3106,30 @@ body.login-mode {
   font-weight: 500;
 }
 
+.obs-form-pin {
+  flex: none;
+  align-self: start;
+  min-width: 72px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.obs-form-pin.is-active,
+.obs-form-pin[aria-pressed="true"] {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
 .obs-form-picker__grabber {
   width: 36px;
   height: 4px;
@@ -3096,9 +3139,18 @@ body.login-mode {
 }
 
 .obs-form-picker__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.obs-form-picker__header-main {
   display: grid;
   gap: 4px;
-  margin-bottom: 14px;
+  min-width: 0;
+  flex: 1;
 }
 
 .obs-form-picker__title {

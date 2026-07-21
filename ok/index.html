@@ -179,8 +179,11 @@
     <div class="status-picker__sheet obs-form-picker__sheet" role="dialog" aria-modal="true" aria-label="新增观测记录">
       <div class="obs-form-picker__grabber" aria-hidden="true"></div>
       <div class="obs-form-picker__header">
-        <h2 class="obs-form-picker__title">新增观测</h2>
-        <p class="obs-form-picker__desc">填写名称和描述，保存后进入观测日志。</p>
+        <div class="obs-form-picker__header-main">
+          <h2 class="obs-form-picker__title">新增观测</h2>
+          <p class="obs-form-picker__desc">填写名称和描述，保存后进入观测日志。</p>
+        </div>
+        <button id="obs-form-pin" type="button" class="obs-form-pin" aria-pressed="false">置顶</button>
       </div>
       <div id="obs-form-list" class="obs-form-list"></div>
       <p id="obs-form-error" class="status-picker__error" role="alert" aria-live="polite"></p>

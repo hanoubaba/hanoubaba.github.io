@@ -2249,7 +2249,7 @@ function renderAdminActiveNames(rows = latestAdminRows) {
   const multiplierHtml = showMultiplierTotal
     ? [
       '<span class="admin-active-names__metric" title="当前进行中的趋势单成本合计">',
-      '<span class="admin-active-names__metric-label">累计成本</span>',
+      '<span class="admin-active-names__metric-label">已用本金</span>',
       `<span class="admin-active-names__metric-value">${costTotal}</span>`,
       '</span>',
     ].join('')
@@ -2944,9 +2944,15 @@ async function renderCasesPage() {
 }
 
 let observationContentColumnAvailable = true;
+let observationPinnedColumnAvailable = true;
 
 function isMissingObservationContentColumnError(errorText) {
   return /content/i.test(String(errorText ?? ''))
+    && /(column|schema cache|could not find|not found)/i.test(String(errorText ?? ''));
+}
+
+function isMissingObservationPinnedColumnError(errorText) {
+  return /pinned/i.test(String(errorText ?? ''))
     && /(column|schema cache|could not find|not found)/i.test(String(errorText ?? ''));
 }
 
@@ -2991,15 +2997,30 @@ function fromObservationRecord(row) {
   return {
     id: String(row?.id ?? '').trim(),
     createdAt: row?.created_at ?? null,
+    pinned: row?.pinned === true,
     items,
   };
 }
 
+function sortObservationRecords(records) {
+  return records.slice().sort((a, b) => {
+    const aPinned = a?.pinned === true;
+    const bPinned = b?.pinned === true;
+    if (aPinned !== bPinned) return aPinned ? -1 : 1;
+    const aTime = parseDateValue(a?.createdAt)?.getTime() ?? 0;
+    const bTime = parseDateValue(b?.createdAt)?.getTime() ?? 0;
+    return bTime - aTime;
+  });
+}
+
 async function fetchObservationRecords() {
-  const selectFields = observationContentColumnAvailable
-    ? 'id,created_at,items,content'
-    : 'id,created_at,items';
-  const params = `select=${selectFields}&order=created_at.desc`;
+  const fields = ['id', 'created_at', 'items'];
+  if (observationContentColumnAvailable) fields.push('content');
+  if (observationPinnedColumnAvailable) fields.push('pinned');
+  const order = observationPinnedColumnAvailable
+    ? 'pinned.desc,created_at.desc'
+    : 'created_at.desc';
+  const params = `select=${fields.join(',')}&order=${order}`;
   const res = await supabaseFetch(`${OBSERVATIONS_ENDPOINT}?${params}`, {
     headers: getSupabaseHeaders(),
   });
@@ -3009,38 +3030,47 @@ async function fetchObservationRecords() {
       observationContentColumnAvailable = false;
       return fetchObservationRecords();
     }
+    if (observationPinnedColumnAvailable && isMissingObservationPinnedColumnError(errorText)) {
+      observationPinnedColumnAvailable = false;
+      return fetchObservationRecords();
+    }
     throw new Error(errorText);
   }
   const rows = await res.json();
-  return Array.isArray(rows) ? rows.map(fromObservationRecord) : [];
+  const records = Array.isArray(rows) ? rows.map(fromObservationRecord) : [];
+  return sortObservationRecords(records);
 }
 
-async function createObservationRecord(items) {
+async function createObservationRecord(items, pinned = false) {
   const normalizedItems = normalizeObservationItems(items);
   if (!normalizedItems.length) throw new Error('记录内容不能为空');
   const legacyContent = normalizedItems
     .map((item) => [item.name, item.description].filter(Boolean).join('\n'))
     .join('\n\n');
-  const payload = {
-    items: normalizedItems,
-    content: legacyContent,
-  };
+  const shouldPin = pinned === true;
+  const basePayload = observationContentColumnAvailable
+    ? { items: normalizedItems, content: legacyContent }
+    : { items: normalizedItems };
+  const payload = observationPinnedColumnAvailable
+    ? { ...basePayload, pinned: shouldPin }
+    : basePayload;
   const res = await supabaseFetch(OBSERVATIONS_ENDPOINT, {
     method: 'POST',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify(observationContentColumnAvailable ? payload : { items: normalizedItems }),
+    body: JSON.stringify(payload),
   });
   if (res.ok) return;
   const errorText = await res.text();
   if (observationContentColumnAvailable && isMissingObservationContentColumnError(errorText)) {
     observationContentColumnAvailable = false;
-    const retryRes = await supabaseFetch(OBSERVATIONS_ENDPOINT, {
-      method: 'POST',
-      headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
-      body: JSON.stringify({ items: normalizedItems }),
-    });
-    if (retryRes.ok) return;
-    throw new Error(await retryRes.text());
+    return createObservationRecord(items, shouldPin);
+  }
+  if (observationPinnedColumnAvailable && isMissingObservationPinnedColumnError(errorText)) {
+    observationPinnedColumnAvailable = false;
+    if (shouldPin) {
+      throw new Error('数据库尚未支持置顶，请先执行 supabase.sql 中的 pinned 字段迁移。');
+    }
+    return createObservationRecord(items, false);
   }
   throw new Error(errorText);
 }
@@ -3109,6 +3139,7 @@ function renderObservationFormList() {
   const listEl = document.getElementById('obs-form-list');
   if (!listEl) return;
   listEl.innerHTML = renderObservationFormRow();
+  resetObservationFormPin(false);
   requestAnimationFrame(() => {
     listEl.querySelector('.obs-form-row__name')?.focus();
   });
@@ -3123,11 +3154,29 @@ function collectObservationFormItems() {
     .filter((item) => item.name || item.description);
 }
 
+function isObservationFormPinned() {
+  return document.getElementById('obs-form-pin')?.getAttribute('aria-pressed') === 'true';
+}
+
+function resetObservationFormPin(pinned = false) {
+  const btn = document.getElementById('obs-form-pin');
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
+  btn.classList.toggle('is-active', pinned);
+  btn.textContent = pinned ? '已置顶' : '置顶';
+}
+
+function toggleObservationFormPin(btn = document.getElementById('obs-form-pin')) {
+  if (!(btn instanceof HTMLElement)) return;
+  resetObservationFormPin(btn.getAttribute('aria-pressed') !== 'true');
+}
+
 function renderObservationRecordItem(record) {
   const rawId = String(record?.id ?? '').trim();
   const id = escapeHtml(rawId);
   const date = escapeHtml(formatObservationRecordDate(record.createdAt));
   const dateTime = escapeHtml(String(record?.createdAt ?? ''));
+  const pinned = record?.pinned === true;
   const templateHtml = renderObservationTemplateDisplay(record.items);
   const checked = rawId && selectedObservationIds.has(rawId) ? ' checked' : '';
   const disabled = isDeletingObservations ? ' disabled' : '';
@@ -3140,11 +3189,15 @@ function renderObservationRecordItem(record) {
       '</label>',
     ].join('')
     : '';
+  const pinBadgeHtml = pinned
+    ? '<span class="obs-record__pin-badge" aria-label="已置顶">置顶</span>'
+    : '';
   return [
-    '<article class="obs-record">',
+    `<article class="obs-record${pinned ? ' obs-record--pinned' : ''}">`,
     '<div class="obs-record__meta">',
     selectHtml,
     `<time class="obs-record__date" datetime="${dateTime}">${date}</time>`,
+    pinBadgeHtml,
     '</div>',
     '<div class="obs-item">',
     templateHtml,
@@ -3319,6 +3372,7 @@ function closeObservationFormPicker() {
   picker.hidden = true;
   if (listEl) listEl.innerHTML = '';
   if (errorEl) errorEl.textContent = '';
+  resetObservationFormPin(false);
 }
 
 let isSavingObservation = false;
@@ -3353,9 +3407,10 @@ async function submitObservationForm() {
   }
 
   try {
-    await createObservationRecord(items);
+    const pinned = isObservationFormPinned();
+    await createObservationRecord(items, pinned);
     closeObservationFormPicker();
-    showToast('记录已保存');
+    showToast(pinned ? '记录已保存并置顶' : '记录已保存');
     if (currentPage === 'observations') await renderObservationsPage();
   } catch (err) {
     if (errorEl) errorEl.textContent = `保存失败：${String(err?.message || '未知错误')}`;
@@ -3642,6 +3697,11 @@ if (obsFormPicker) {
   obsFormPicker.addEventListener('click', (e) => {
     const target = e.target instanceof HTMLElement ? e.target : null;
     if (!target) return;
+    const pinBtn = target.closest('#obs-form-pin, .obs-form-pin');
+    if (pinBtn) {
+      toggleObservationFormPin(pinBtn);
+      return;
+    }
     if (target.getAttribute('data-obs-form-dismiss') === 'true') {
       closeObservationFormPicker();
     }
