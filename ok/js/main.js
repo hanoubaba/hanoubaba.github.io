@@ -2944,16 +2944,43 @@ async function renderCasesPage() {
 }
 
 let observationContentColumnAvailable = true;
-let observationPinnedColumnAvailable = true;
+const OBS_DAILY_TIMEFRAME = '1d';
 
 function isMissingObservationContentColumnError(errorText) {
   return /content/i.test(String(errorText ?? ''))
     && /(column|schema cache|could not find|not found)/i.test(String(errorText ?? ''));
 }
 
-function isMissingObservationPinnedColumnError(errorText) {
-  return /pinned/i.test(String(errorText ?? ''))
-    && /(column|schema cache|could not find|not found)/i.test(String(errorText ?? ''));
+function getObservationDailyTimeSlots() {
+  return getTimeSlotsByMode(OBS_DAILY_TIMEFRAME);
+}
+
+function formatObservationTimeLabel(timeValue, timeLabel = '') {
+  const label = String(timeLabel ?? '').trim();
+  if (label) return label;
+  const value = String(timeValue ?? '').trim();
+  if (!value) return '';
+  const at = parseStartSlotValue(value);
+  if (!at) return value;
+  return formatSlotLabelForMode(at, new Date(), OBS_DAILY_TIMEFRAME);
+}
+
+function formatObservationDateLabel(d, base = new Date()) {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
+  return d.getFullYear() === base.getFullYear()
+    ? `${d.getMonth() + 1}月${d.getDate()}日`
+    : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+}
+
+function formatObservationTimeRange(timeValue, timeLabel = '') {
+  const startAt = parseStartSlotValue(String(timeValue ?? '').trim());
+  if (!startAt) {
+    return formatObservationTimeLabel(timeValue, timeLabel) || '—';
+  }
+  const spanMinutes = getTimeframeMinutes(OBS_DAILY_TIMEFRAME) * STRATEGY_DURATION_PERIODS;
+  const endAt = new Date(startAt.getTime() + spanMinutes * 60 * 1000);
+  const now = new Date();
+  return `${formatObservationDateLabel(startAt, now)} — ${formatObservationDateLabel(endAt, now)}`;
 }
 
 function normalizeObservationItems(items) {
@@ -2961,9 +2988,19 @@ function normalizeObservationItems(items) {
   return source
     .map((item) => {
       const legacyDescription = item?.grade == null ? '' : `等级：${String(item.grade).trim()}`;
+      const name = String(item?.name ?? '').trim();
+      const time = String(item?.time ?? '').trim();
+      const timeLabel = formatObservationTimeLabel(time, item?.timeLabel);
+      const price = String(item?.price ?? '').trim();
+      const stopLoss = String(item?.stopLoss ?? item?.stop ?? item?.stop_loss ?? '').trim();
+      const description = String(item?.description ?? item?.desc ?? item?.note ?? legacyDescription).trim();
       return {
-        name: String(item?.name ?? '').trim(),
-        description: String(item?.description ?? item?.desc ?? item?.note ?? legacyDescription).trim(),
+        name,
+        time,
+        timeLabel,
+        price,
+        stopLoss,
+        description,
       };
     })
     .filter((item) => item.name);
@@ -2997,30 +3034,15 @@ function fromObservationRecord(row) {
   return {
     id: String(row?.id ?? '').trim(),
     createdAt: row?.created_at ?? null,
-    pinned: row?.pinned === true,
     items,
   };
 }
 
-function sortObservationRecords(records) {
-  return records.slice().sort((a, b) => {
-    const aPinned = a?.pinned === true;
-    const bPinned = b?.pinned === true;
-    if (aPinned !== bPinned) return aPinned ? -1 : 1;
-    const aTime = parseDateValue(a?.createdAt)?.getTime() ?? 0;
-    const bTime = parseDateValue(b?.createdAt)?.getTime() ?? 0;
-    return bTime - aTime;
-  });
-}
-
 async function fetchObservationRecords() {
-  const fields = ['id', 'created_at', 'items'];
-  if (observationContentColumnAvailable) fields.push('content');
-  if (observationPinnedColumnAvailable) fields.push('pinned');
-  const order = observationPinnedColumnAvailable
-    ? 'pinned.desc,created_at.desc'
-    : 'created_at.desc';
-  const params = `select=${fields.join(',')}&order=${order}`;
+  const selectFields = observationContentColumnAvailable
+    ? 'id,created_at,items,content'
+    : 'id,created_at,items';
+  const params = `select=${selectFields}&order=created_at.desc`;
   const res = await supabaseFetch(`${OBSERVATIONS_ENDPOINT}?${params}`, {
     headers: getSupabaseHeaders(),
   });
@@ -3030,47 +3052,61 @@ async function fetchObservationRecords() {
       observationContentColumnAvailable = false;
       return fetchObservationRecords();
     }
-    if (observationPinnedColumnAvailable && isMissingObservationPinnedColumnError(errorText)) {
-      observationPinnedColumnAvailable = false;
-      return fetchObservationRecords();
-    }
     throw new Error(errorText);
   }
   const rows = await res.json();
-  const records = Array.isArray(rows) ? rows.map(fromObservationRecord) : [];
-  return sortObservationRecords(records);
+  return Array.isArray(rows) ? rows.map(fromObservationRecord) : [];
 }
 
-async function createObservationRecord(items, pinned = false) {
-  const normalizedItems = normalizeObservationItems(items);
-  if (!normalizedItems.length) throw new Error('记录内容不能为空');
-  const legacyContent = normalizedItems
-    .map((item) => [item.name, item.description].filter(Boolean).join('\n'))
+function buildObservationLegacyContent(items) {
+  return normalizeObservationItems(items)
+    .map((item) => {
+      if (item.time || item.price || item.stopLoss) {
+        const timeRange = formatObservationTimeRange(item.time, item.timeLabel);
+        return [
+          item.name,
+          timeRange ? `时间范围：${timeRange}` : '',
+          item.price ? `价格：${item.price}` : '',
+          item.stopLoss ? `止损：${item.stopLoss}` : '',
+        ].filter(Boolean).join('\n');
+      }
+      return [item.name, item.description].filter(Boolean).join('\n');
+    })
     .join('\n\n');
-  const shouldPin = pinned === true;
-  const basePayload = observationContentColumnAvailable
-    ? { items: normalizedItems, content: legacyContent }
-    : { items: normalizedItems };
-  const payload = observationPinnedColumnAvailable
-    ? { ...basePayload, pinned: shouldPin }
-    : basePayload;
+}
+
+async function createObservationRecord(items) {
+  const normalizedItems = normalizeObservationItems(items)
+    .map((item) => ({
+      name: item.name,
+      time: item.time,
+      timeLabel: item.timeLabel || formatObservationTimeLabel(item.time),
+      price: item.price,
+      stopLoss: item.stopLoss,
+    }))
+    .filter((item) => item.name && item.time && item.price && item.stopLoss);
+  if (!normalizedItems.length) throw new Error('记录内容不能为空');
+  const legacyContent = buildObservationLegacyContent(normalizedItems);
+  const payload = {
+    items: normalizedItems,
+    content: legacyContent,
+  };
   const res = await supabaseFetch(OBSERVATIONS_ENDPOINT, {
     method: 'POST',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify(payload),
+    body: JSON.stringify(observationContentColumnAvailable ? payload : { items: normalizedItems }),
   });
   if (res.ok) return;
   const errorText = await res.text();
   if (observationContentColumnAvailable && isMissingObservationContentColumnError(errorText)) {
     observationContentColumnAvailable = false;
-    return createObservationRecord(items, shouldPin);
-  }
-  if (observationPinnedColumnAvailable && isMissingObservationPinnedColumnError(errorText)) {
-    observationPinnedColumnAvailable = false;
-    if (shouldPin) {
-      throw new Error('数据库尚未支持置顶，请先执行 supabase.sql 中的 pinned 字段迁移。');
-    }
-    return createObservationRecord(items, false);
+    const retryRes = await supabaseFetch(OBSERVATIONS_ENDPOINT, {
+      method: 'POST',
+      headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+      body: JSON.stringify({ items: normalizedItems }),
+    });
+    if (retryRes.ok) return;
+    throw new Error(await retryRes.text());
   }
   throw new Error(errorText);
 }
@@ -3090,46 +3126,147 @@ async function deleteObservationRecords(ids) {
   if (!res.ok) throw new Error(await res.text());
 }
 
-function formatObservationRecordDate(isoString) {
-  const d = parseDateValue(isoString);
-  if (!d) return '—';
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+function renderObservationDailyFieldsHtml(price, stopLoss) {
+  const priceLabel = escapeHtml(String(price ?? '').trim() || '—');
+  const stopLabel = escapeHtml(String(stopLoss ?? '').trim() || '—');
+  return [
+    '<div class="admin-item__concessions admin-item__concessions--daily" aria-label="日线观测字段">',
+    '<div class="admin-concession admin-concession--daily-row">',
+    '<span class="admin-concession__label">价格</span>',
+    `<span class="admin-concession__value">${priceLabel}</span>`,
+    '</div>',
+    '<div class="admin-concession admin-concession--daily-row">',
+    '<span class="admin-concession__label">止损价格</span>',
+    `<span class="admin-concession__value">${stopLabel}</span>`,
+    '</div>',
+    '</div>',
+  ].join('');
 }
 
-function renderObservationTemplateDisplay(items) {
+function getObservationItemSide(item) {
+  const price = toNumber(item?.price);
+  const stopLoss = toNumber(item?.stopLoss);
+  if (price == null || stopLoss == null) return 'flat';
+  if (price === stopLoss) return 'flat';
+  return price > stopLoss ? 'long' : 'short';
+}
+
+function renderObservationLegacyBodyHtml(items) {
   const normalizedItems = normalizeObservationItems(items);
   if (!normalizedItems.length) {
-    return '<p class="obs-template-empty">暂无观测记录</p>';
+    return '<p class="obs-template-empty">暂无日线观测记录</p>';
   }
-  const rows = normalizedItems
-    .map((item) => [
+  return [
+    '<div class="obs-template">',
+    normalizedItems.map((item) => [
       '<div class="obs-template__row">',
       `<h3 class="obs-template__name">${escapeHtml(item.name)}</h3>`,
       item.description
         ? `<p class="obs-template__desc">${escapeHtml(item.description)}</p>`
         : '<p class="obs-template__desc obs-template__desc--empty">暂无描述</p>',
       '</div>',
-    ].join(''))
-    .join('');
-  return [
-    '<div class="obs-template">',
-    rows,
+    ].join('')).join(''),
     '</div>',
   ].join('');
 }
 
+function renderObservationRecordItem(record) {
+  const rawId = String(record?.id ?? '').trim();
+  const id = escapeHtml(rawId);
+  const items = normalizeObservationItems(record.items);
+  const trendItem = items.find((item) => item.time || item.price || item.stopLoss) || null;
+  const checked = rawId && selectedObservationIds.has(rawId) ? ' checked' : '';
+  const disabled = isDeletingObservations ? ' disabled' : '';
+  const selectorDisabled = isDeletingObservations ? ' is-disabled' : '';
+
+  if (!trendItem) {
+    const selectHtml = rawId && isObsSelectionMode
+      ? [
+        `<label class="admin-item__selector${selectorDisabled}" aria-label="选择日线观测记录">`,
+        `<input type="checkbox" class="admin-item__select" data-id="${id}"${checked}${disabled}>`,
+        '<span class="admin-item__checkmark" aria-hidden="true"></span>',
+        '</label>',
+      ].join('')
+      : '';
+    return [
+      '<article class="admin-item admin-item--flat obs-record">',
+      '<header class="admin-item__head">',
+      selectHtml,
+      '<div class="admin-item__title-wrap">',
+      `<span class="admin-item__title">${escapeHtml(formatStrategyCardTitle(items[0]?.name || '未命名'))}</span>`,
+      '</div>',
+      '</header>',
+      renderObservationLegacyBodyHtml(items),
+      '</article>',
+    ].join('');
+  }
+
+  const title = escapeHtml(formatStrategyCardTitle(trendItem.name));
+  const titleLabel = escapeHtml(String(trendItem.name || '未命名').trim() || '未命名');
+  const sideMod = getPositionSideMod(getObservationItemSide(trendItem));
+  const timeRange = escapeHtml(formatObservationTimeRange(trendItem.time, trendItem.timeLabel));
+  const selectHtml = rawId && isObsSelectionMode
+    ? [
+      `<label class="admin-item__selector${selectorDisabled}" aria-label="选择 ${titleLabel}">`,
+      `<input type="checkbox" class="admin-item__select" data-id="${id}"${checked}${disabled}>`,
+      '<span class="admin-item__checkmark" aria-hidden="true"></span>',
+      '</label>',
+    ].join('')
+    : '';
+
+  return [
+    `<article class="admin-item admin-item--${sideMod} obs-record">`,
+    '<header class="admin-item__head">',
+    selectHtml,
+    '<div class="admin-item__title-wrap">',
+    `<span class="admin-item__title">${title}</span>`,
+    '</div>',
+    '</header>',
+    renderObservationDailyFieldsHtml(trendItem.price, trendItem.stopLoss),
+    '<div class="admin-item__actions">',
+    '<div class="admin-item__meta">',
+    `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
+    '</div>',
+    '</div>',
+    '</article>',
+  ].join('');
+}
+
+function renderObservationTimeOptions(selectedValue = '') {
+  const slots = getObservationDailyTimeSlots();
+  const activeValue = resolveStartTimeSelection(OBS_DAILY_TIMEFRAME, selectedValue);
+  const options = [
+    '<option value="">请选择</option>',
+    ...slots.map((slot) => {
+      const selected = slot.value === activeValue ? ' selected' : '';
+      return `<option value="${escapeHtml(slot.value)}"${selected}>${escapeHtml(slot.label)}</option>`;
+    }),
+  ];
+  return options.join('');
+}
+
 function renderObservationFormRow(item = {}) {
   const name = escapeHtml(String(item?.name ?? ''));
-  const description = escapeHtml(String(item?.description ?? ''));
+  const price = escapeHtml(String(item?.price ?? ''));
+  const stopLoss = escapeHtml(String(item?.stopLoss ?? ''));
+  const timeValue = String(item?.time ?? '').trim();
   return [
     '<div class="obs-form-row">',
     '<label class="obs-form-field obs-form-field--name">',
     '<span class="obs-form-field__label">名称</span>',
     `<input class="obs-form-row__name" type="text" value="${name}" placeholder="例如 BTC、ETH、纳指" autocomplete="off" autocapitalize="characters" spellcheck="false" />`,
     '</label>',
-    '<label class="obs-form-field obs-form-field--description">',
-    '<span class="obs-form-field__label">描述</span>',
-    `<textarea class="obs-form-row__description" rows="5" placeholder="记录形态、位置、成交量、计划或需要复盘的点。">${description}</textarea>`,
+    '<label class="obs-form-field obs-form-field--time">',
+    '<span class="obs-form-field__label">时间</span>',
+    `<select class="obs-form-row__time" autocomplete="off">${renderObservationTimeOptions(timeValue)}</select>`,
+    '</label>',
+    '<label class="obs-form-field obs-form-field--price">',
+    '<span class="obs-form-field__label">价格</span>',
+    `<input class="obs-form-row__price" type="text" inputmode="decimal" value="${price}" placeholder="开始价格" autocomplete="off" />`,
+    '</label>',
+    '<label class="obs-form-field obs-form-field--stop">',
+    '<span class="obs-form-field__label">止损</span>',
+    `<input class="obs-form-row__stop" type="text" inputmode="decimal" value="${stopLoss}" placeholder="止损价格" autocomplete="off" />`,
     '</label>',
     '</div>',
   ].join('');
@@ -3139,7 +3276,6 @@ function renderObservationFormList() {
   const listEl = document.getElementById('obs-form-list');
   if (!listEl) return;
   listEl.innerHTML = renderObservationFormRow();
-  resetObservationFormPin(false);
   requestAnimationFrame(() => {
     listEl.querySelector('.obs-form-row__name')?.focus();
   });
@@ -3147,63 +3283,19 @@ function renderObservationFormList() {
 
 function collectObservationFormItems() {
   return Array.from(document.querySelectorAll('#obs-form-list .obs-form-row'))
-    .map((row) => ({
-      name: String(row.querySelector('.obs-form-row__name')?.value ?? '').trim(),
-      description: String(row.querySelector('.obs-form-row__description')?.value ?? '').trim(),
-    }))
-    .filter((item) => item.name || item.description);
-}
-
-function isObservationFormPinned() {
-  return document.getElementById('obs-form-pin')?.getAttribute('aria-pressed') === 'true';
-}
-
-function resetObservationFormPin(pinned = false) {
-  const btn = document.getElementById('obs-form-pin');
-  if (!btn) return;
-  btn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
-  btn.classList.toggle('is-active', pinned);
-  btn.textContent = pinned ? '已置顶' : '置顶';
-}
-
-function toggleObservationFormPin(btn = document.getElementById('obs-form-pin')) {
-  if (!(btn instanceof HTMLElement)) return;
-  resetObservationFormPin(btn.getAttribute('aria-pressed') !== 'true');
-}
-
-function renderObservationRecordItem(record) {
-  const rawId = String(record?.id ?? '').trim();
-  const id = escapeHtml(rawId);
-  const date = escapeHtml(formatObservationRecordDate(record.createdAt));
-  const dateTime = escapeHtml(String(record?.createdAt ?? ''));
-  const pinned = record?.pinned === true;
-  const templateHtml = renderObservationTemplateDisplay(record.items);
-  const checked = rawId && selectedObservationIds.has(rawId) ? ' checked' : '';
-  const disabled = isDeletingObservations ? ' disabled' : '';
-  const selectorDisabled = isDeletingObservations ? ' is-disabled' : '';
-  const selectHtml = rawId && isObsSelectionMode
-    ? [
-      `<label class="admin-item__selector${selectorDisabled}" aria-label="选择观测记录">`,
-      `<input type="checkbox" class="admin-item__select" data-id="${id}"${checked}${disabled}>`,
-      '<span class="admin-item__checkmark" aria-hidden="true"></span>',
-      '</label>',
-    ].join('')
-    : '';
-  const pinBadgeHtml = pinned
-    ? '<span class="obs-record__pin-badge" aria-label="已置顶">置顶</span>'
-    : '';
-  return [
-    `<article class="obs-record${pinned ? ' obs-record--pinned' : ''}">`,
-    '<div class="obs-record__meta">',
-    selectHtml,
-    `<time class="obs-record__date" datetime="${dateTime}">${date}</time>`,
-    pinBadgeHtml,
-    '</div>',
-    '<div class="obs-item">',
-    templateHtml,
-    '</div>',
-    '</article>',
-  ].join('');
+    .map((row) => {
+      const timeSelect = row.querySelector('.obs-form-row__time');
+      const time = String(timeSelect?.value ?? '').trim();
+      const timeLabel = String(timeSelect?.selectedOptions?.[0]?.textContent ?? '').trim();
+      return {
+        name: String(row.querySelector('.obs-form-row__name')?.value ?? '').trim(),
+        time,
+        timeLabel: timeLabel === '请选择' ? '' : timeLabel,
+        price: String(row.querySelector('.obs-form-row__price')?.value ?? '').trim(),
+        stopLoss: String(row.querySelector('.obs-form-row__stop')?.value ?? '').trim(),
+      };
+    })
+    .filter((item) => item.name || item.time || item.price || item.stopLoss);
 }
 
 let selectedObservationIds = new Set();
@@ -3294,7 +3386,7 @@ function setVisibleObsSelection(selected) {
 
 function confirmDeleteObservations(count) {
   if (typeof window.confirm !== 'function') return true;
-  return window.confirm(count > 1 ? `确认删除选中的 ${count} 条观测记录？` : '确认删除这条观测记录？');
+  return window.confirm(count > 1 ? `确认删除选中的 ${count} 条日线观测记录？` : '确认删除这条日线观测记录？');
 }
 
 function showObsDeleteError() {
@@ -3340,7 +3432,7 @@ async function renderObservationsPage() {
     if (records.length === 0) {
       visibleObservationIds = [];
       selectedObservationIds.clear();
-      listEl.innerHTML = '<p class="obs-empty">暂无观测记录，点击下方按钮新增。</p>';
+      listEl.innerHTML = '<p class="obs-empty">暂无日线观测记录，点击下方按钮新增。</p>';
       updateObsSelectionControls();
       return;
     }
@@ -3372,7 +3464,6 @@ function closeObservationFormPicker() {
   picker.hidden = true;
   if (listEl) listEl.innerHTML = '';
   if (errorEl) errorEl.textContent = '';
-  resetObservationFormPin(false);
 }
 
 let isSavingObservation = false;
@@ -3382,7 +3473,7 @@ async function submitObservationForm() {
   const submitBtn = document.getElementById('obs-form-submit');
   const items = collectObservationFormItems();
   if (!items.length) {
-    if (errorEl) errorEl.textContent = '请填写名称和描述。';
+    if (errorEl) errorEl.textContent = '请填写名称、时间、价格和止损。';
     document.querySelector('#obs-form-list .obs-form-row__name')?.focus();
     return;
   }
@@ -3392,9 +3483,21 @@ async function submitObservationForm() {
     document.querySelector('#obs-form-list .obs-form-row__name')?.focus();
     return;
   }
-  if (!item.description) {
-    if (errorEl) errorEl.textContent = '请填写描述。';
-    document.querySelector('#obs-form-list .obs-form-row__description')?.focus();
+  if (!item.time) {
+    if (errorEl) errorEl.textContent = '请选择时间。';
+    document.querySelector('#obs-form-list .obs-form-row__time')?.focus();
+    return;
+  }
+  const price = toNumber(item.price);
+  if (price == null || price <= 0) {
+    if (errorEl) errorEl.textContent = '请填写有效的价格。';
+    document.querySelector('#obs-form-list .obs-form-row__price')?.focus();
+    return;
+  }
+  const stopLoss = toNumber(item.stopLoss);
+  if (stopLoss == null || stopLoss <= 0) {
+    if (errorEl) errorEl.textContent = '请填写有效的止损。';
+    document.querySelector('#obs-form-list .obs-form-row__stop')?.focus();
     return;
   }
   if (errorEl) errorEl.textContent = '';
@@ -3407,10 +3510,13 @@ async function submitObservationForm() {
   }
 
   try {
-    const pinned = isObservationFormPinned();
-    await createObservationRecord(items, pinned);
+    await createObservationRecord([{
+      ...item,
+      price: String(item.price).trim(),
+      stopLoss: String(item.stopLoss).trim(),
+    }]);
     closeObservationFormPicker();
-    showToast(pinned ? '记录已保存并置顶' : '记录已保存');
+    showToast('记录已保存');
     if (currentPage === 'observations') await renderObservationsPage();
   } catch (err) {
     if (errorEl) errorEl.textContent = `保存失败：${String(err?.message || '未知错误')}`;
@@ -3697,11 +3803,6 @@ if (obsFormPicker) {
   obsFormPicker.addEventListener('click', (e) => {
     const target = e.target instanceof HTMLElement ? e.target : null;
     if (!target) return;
-    const pinBtn = target.closest('#obs-form-pin, .obs-form-pin');
-    if (pinBtn) {
-      toggleObservationFormPin(pinBtn);
-      return;
-    }
     if (target.getAttribute('data-obs-form-dismiss') === 'true') {
       closeObservationFormPicker();
     }

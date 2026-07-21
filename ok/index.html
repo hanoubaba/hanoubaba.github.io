@@ -35,7 +35,7 @@
           <div class="page-switch" role="tablist" aria-label="页面切换">
           <button id="btn-tab-trend" type="button" class="page-switch__btn" role="tab" aria-selected="false">趋势跟随</button>
           <button id="btn-tab-admin" type="button" class="page-switch__btn is-active" role="tab" aria-selected="true">后台管理</button>
-          <button id="btn-tab-observations" type="button" class="page-switch__btn" role="tab" aria-selected="false">观测日志</button>
+          <button id="btn-tab-observations" type="button" class="page-switch__btn" role="tab" aria-selected="false">日线观测</button>
           </div>
         </div>
       </div>
@@ -114,7 +114,7 @@
       <p id="cases-empty" class="cases-empty" hidden>暂无案例图片。请将图片放入 cases 文件夹，按序号命名：01.jpg、02.png、03.webp …（两位序号，连续编号）。</p>
     </section>
 
-    <section id="observations-page" class="panel obs-page" aria-label="观测记录" hidden>
+    <section id="observations-page" class="panel obs-page" aria-label="日线观测" hidden>
       <div id="obs-selection" class="admin-selection" hidden>
         <span id="obs-selection-count" class="admin-selection__count">已选 0 条</span>
         <div class="admin-selection__buttons">
@@ -176,14 +176,10 @@
 
   <div id="obs-form-picker" class="status-picker obs-form-picker" hidden>
     <div class="status-picker__backdrop" data-obs-form-dismiss="true"></div>
-    <div class="status-picker__sheet obs-form-picker__sheet" role="dialog" aria-modal="true" aria-label="新增观测记录">
+    <div class="status-picker__sheet obs-form-picker__sheet" role="dialog" aria-modal="true" aria-label="新增日线观测">
       <div class="obs-form-picker__grabber" aria-hidden="true"></div>
       <div class="obs-form-picker__header">
-        <div class="obs-form-picker__header-main">
-          <h2 class="obs-form-picker__title">新增观测</h2>
-          <p class="obs-form-picker__desc">填写名称和描述，保存后进入观测日志。</p>
-        </div>
-        <button id="obs-form-pin" type="button" class="obs-form-pin" aria-pressed="false">置顶</button>
+        <h2 class="obs-form-picker__title">新增日线观测</h2>
       </div>
       <div id="obs-form-list" class="obs-form-list"></div>
       <p id="obs-form-error" class="status-picker__error" role="alert" aria-live="polite"></p>
