@@ -2713,7 +2713,7 @@ function updateAdminCountdowns() {
 let adminCountdownTimer = null;
 
 function syncAdminCountdownTimer() {
-  const shouldRun = currentPage === 'admin' && !document.hidden;
+  const shouldRun = (currentPage === 'admin' || currentPage === 'observations') && !document.hidden;
   if (shouldRun && !adminCountdownTimer) {
     updateAdminCountdowns();
     adminCountdownTimer = setInterval(updateAdminCountdowns, 1000);
@@ -2977,10 +2977,35 @@ function formatObservationTimeRange(timeValue, timeLabel = '') {
   if (!startAt) {
     return formatObservationTimeLabel(timeValue, timeLabel) || '—';
   }
-  const spanMinutes = getTimeframeMinutes(OBS_DAILY_TIMEFRAME) * STRATEGY_DURATION_PERIODS;
-  const endAt = new Date(startAt.getTime() + spanMinutes * 60 * 1000);
+  const endAt = getObservationEndAtFromStart(startAt);
   const now = new Date();
   return `${formatObservationDateLabel(startAt, now)} — ${formatObservationDateLabel(endAt, now)}`;
+}
+
+function getObservationEndAtFromStart(startAt) {
+  if (!(startAt instanceof Date) || Number.isNaN(startAt.getTime())) return null;
+  const spanMinutes = getTimeframeMinutes(OBS_DAILY_TIMEFRAME) * STRATEGY_DURATION_PERIODS;
+  return new Date(startAt.getTime() + spanMinutes * 60 * 1000);
+}
+
+function getObservationEndAt(timeValue) {
+  const startAt = parseStartSlotValue(String(timeValue ?? '').trim());
+  if (!startAt) return null;
+  return getObservationEndAtFromStart(startAt);
+}
+
+function renderObservationCountdownBadgeHtml(endAt) {
+  const timeBadge = getTimeBadgeInfo(endAt);
+  if (!timeBadge || !endAt) return '';
+  const expiresAt = escapeHtml(endAt.toISOString());
+  const timeBadgeUrgent = timeBadge.type === 'active' && isCountdownWithinUrgentWindow(endAt)
+    ? ' admin-time-status--urgent'
+    : '';
+  return [
+    `<div class="admin-time-status admin-time-status--${timeBadge.type}${timeBadgeUrgent}">`,
+    `<span class="admin-time-status__tag admin-time-status__value" data-expires-at="${expiresAt}" data-time-status="${timeBadge.timeStatus}">${escapeHtml(timeBadge.label)}</span>`,
+    '</div>',
+  ].join('');
 }
 
 function normalizeObservationItems(items) {
@@ -3136,7 +3161,7 @@ function renderObservationDailyFieldsHtml(price, stopLoss) {
     `<span class="admin-concession__value">${priceLabel}</span>`,
     '</div>',
     '<div class="admin-concession admin-concession--daily-row">',
-    '<span class="admin-concession__label">止损价格</span>',
+    '<span class="admin-concession__label">止损</span>',
     `<span class="admin-concession__value">${stopLabel}</span>`,
     '</div>',
     '</div>',
@@ -3205,12 +3230,21 @@ function renderObservationRecordItem(record) {
   const titleLabel = escapeHtml(String(trendItem.name || '未命名').trim() || '未命名');
   const sideMod = getPositionSideMod(getObservationItemSide(trendItem));
   const timeRange = escapeHtml(formatObservationTimeRange(trendItem.time, trendItem.timeLabel));
+  const endAt = getObservationEndAt(trendItem.time);
+  const timeBadgeHtml = renderObservationCountdownBadgeHtml(endAt);
   const selectHtml = rawId && isObsSelectionMode
     ? [
       `<label class="admin-item__selector${selectorDisabled}" aria-label="选择 ${titleLabel}">`,
       `<input type="checkbox" class="admin-item__select" data-id="${id}"${checked}${disabled}>`,
       '<span class="admin-item__checkmark" aria-hidden="true"></span>',
       '</label>',
+    ].join('')
+    : '';
+  const headRightHtml = timeBadgeHtml
+    ? [
+      '<div class="admin-item__head-right">',
+      timeBadgeHtml,
+      '</div>',
     ].join('')
     : '';
 
@@ -3221,6 +3255,7 @@ function renderObservationRecordItem(record) {
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
     '</div>',
+    headRightHtml,
     '</header>',
     renderObservationDailyFieldsHtml(trendItem.price, trendItem.stopLoss),
     '<div class="admin-item__actions">',
@@ -3266,7 +3301,7 @@ function renderObservationFormRow(item = {}) {
     '</label>',
     '<label class="obs-form-field obs-form-field--stop">',
     '<span class="obs-form-field__label">止损</span>',
-    `<input class="obs-form-row__stop" type="text" inputmode="decimal" value="${stopLoss}" placeholder="止损价格" autocomplete="off" />`,
+    `<input class="obs-form-row__stop" type="text" inputmode="decimal" value="${stopLoss}" placeholder="止损" autocomplete="off" />`,
     '</label>',
     '</div>',
   ].join('');
@@ -3434,16 +3469,20 @@ async function renderObservationsPage() {
       selectedObservationIds.clear();
       listEl.innerHTML = '<p class="obs-empty">暂无日线观测记录，点击下方按钮新增。</p>';
       updateObsSelectionControls();
+      syncAdminCountdownTimer();
       return;
     }
     syncObsSelectionWithRows(records);
     listEl.innerHTML = records.map(renderObservationRecordItem).join('');
     updateObsSelectionControls();
+    updateAdminCountdowns();
+    syncAdminCountdownTimer();
   } catch (err) {
     visibleObservationIds = [];
     selectedObservationIds.clear();
     listEl.innerHTML = `<p class="obs-error">加载失败：${escapeHtml(String(err?.message || '未知错误'))}</p>`;
     updateObsSelectionControls();
+    syncAdminCountdownTimer();
   }
 }
 
