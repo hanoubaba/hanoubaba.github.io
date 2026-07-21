@@ -180,15 +180,11 @@ function normalizeTimeframeMode(mode) {
 
 let frontTimeframeMode = DEFAULT_TIMEFRAME;
 
-function setFrontTimeframeMode(mode) {
-  frontTimeframeMode = normalizeTimeframeMode(mode);
-}
-
 const PRICE_ADJUSTMENT_RATE = 0;
 const CONCESSION_RATES = [
-  { rate: 0.8, costShare: 0.3 },
-  { rate: 0.3, costShare: 0.5 },
-  { rate: 0, display: true, costShare: 0.2 },
+  { rate: 0.8, costShare: 1 / 3 },
+  { rate: 0.5, costShare: 1 / 3 },
+  { rate: 0.2, costShare: 1 / 3 },
 ];
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
@@ -220,26 +216,6 @@ function getTimeframeMinutes(mode = getTimeframeMode()) {
 function getTimeframeLabel(mode) {
   const value = String(mode ?? '').trim();
   return TIMEFRAME_LABELS[value] || value;
-}
-
-function getAdminTimeframeDisplayLabel(row) {
-  const fromField = normalizeTimeframeMode(row?.timeframe);
-  if (row?.timeframe && TIMEFRAME_MINUTES[fromField]) return fromField;
-  const mins = Number(row?.timeframeMinutes);
-  if (Number.isFinite(mins)) {
-    const match = Object.entries(TIMEFRAME_MINUTES).find(([, value]) => value === mins);
-    if (match) return match[0];
-  }
-  return fromField;
-}
-
-function renderAdminTimeframeBadgeHtml(row) {
-  const label = getAdminTimeframeDisplayLabel(row);
-  return [
-    '<div class="admin-outcome-status admin-outcome-status--timeframe" aria-label="时间维度">',
-    `<span class="admin-outcome-status__tag">${escapeHtml(label)}</span>`,
-    '</div>',
-  ].join('');
 }
 
 const FRONT_PAGES = ['trend'];
@@ -417,7 +393,9 @@ function isMartinConcessionSet(concessions) {
 }
 
 function isCurrentTrendConcessionSet(concessions) {
-  return ratesMatch(getSortedDisplayRates(concessions), [0, 0.3, 0.8]);
+  const rates = getSortedDisplayRates(concessions);
+  return ratesMatch(rates, [0.2, 0.5, 0.8])
+    || ratesMatch(rates, [0, 0.3, 0.8]);
 }
 
 function getAdminStrategyTypeInfo(row) {
@@ -1290,12 +1268,9 @@ function renderAdminRemarkStampHtml(remark) {
   return `<div class="admin-item__remark-stamp" aria-label="备注：${escapeHtml(note)}">${escapeHtml(note)}</div>`;
 }
 
-function buildStrategyCopyText({ name, price, quantity, takeProfit, stopLoss, timeframe }) {
-  const mode = normalizeTimeframeMode(timeframe ?? getTimeframeMode());
-  const timeframeLine = `时间维度：${getTimeframeLabel(mode)}（${mode}）`;
+function buildStrategyCopyText({ name, price, quantity, takeProfit, stopLoss }) {
   return [
     formatStrategyCardTitle(name),
-    timeframeLine,
     `开始价格：${String(price ?? '').trim()}`,
     `数量：${String(quantity ?? '').trim()}`,
     `止盈：${String(takeProfit ?? '').trim()}`,
@@ -1690,7 +1665,6 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
     quantity: qty,
     takeProfit: tpLabel,
     stopLoss: stopLabel,
-    timeframe,
   });
   const record = {
     strategyName: alarmName,
@@ -1726,16 +1700,6 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
 
 function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces, tradeMode = getTradeMode()) {
   return buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces, tradeMode);
-}
-
-function setTabsActive(clicked) {
-  const tablist = clicked.closest('[role="tablist"]');
-  if (!tablist) return;
-  tablist.querySelectorAll('.tab-btn').forEach((btn) => {
-    const on = btn === clicked;
-    btn.classList.toggle('is-active', on);
-    btn.setAttribute('aria-selected', on ? 'true' : 'false');
-  });
 }
 
 function generate() {
@@ -1803,26 +1767,7 @@ function generate() {
   });
 }
 
-document.querySelectorAll('.tab-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    const tablist = btn.closest('[role="tablist"]');
-    if (tablist?.getAttribute('data-locked') === 'true') return;
-    setTabsActive(btn);
-    if (tablist?.getAttribute('data-tablist') === 'timeframe') {
-      const next = normalizeTimeframeMode(btn.getAttribute('data-value'));
-      if (next !== getTimeframeMode()) {
-        setFrontTimeframeMode(next);
-        startTimeUserPicked = false;
-        rebuildStartTimeOptions();
-        updateStartTimeTriggerLabel();
-      }
-    }
-    autoGenerateIfReady();
-  });
-});
-
 let startTimeUserPicked = false;
-setTablistValue('timeframe', getTimeframeMode());
 rebuildStartTimeOptions();
 bindMobileTimePickerEvents();
 
@@ -1858,16 +1803,6 @@ function autoGenerateIfReady() {
 
 if (openInput) openInput.addEventListener('input', autoGenerateIfReady);
 if (stopInput) stopInput.addEventListener('input', autoGenerateIfReady);
-
-function setTablistValue(tablistName, value) {
-  const tablist = document.querySelector(`[data-tablist="${tablistName}"]`);
-  if (!tablist) return;
-  tablist.querySelectorAll('.tab-btn').forEach((btn) => {
-    const on = btn.getAttribute('data-value') === value;
-    btn.classList.toggle('is-active', on);
-    btn.setAttribute('aria-selected', on ? 'true' : 'false');
-  });
-}
 
 function resetFrontPage() {
   closeMobileTimePicker();
@@ -1935,10 +1870,6 @@ function buildStrategiesQuery(filterValue = 'all') {
     params.push(`created_at=gte.${encodeURIComponent(start.toISOString())}`);
     params.push(`created_at=lt.${encodeURIComponent(end.toISOString())}`);
   }
-  const timeframeFilter = normalizeAdminTimeframeFilter(adminTimeframeFilter);
-  if (timeframeFilter !== 'all') {
-    params.push(`timeframe=eq.${encodeURIComponent(timeframeFilter)}`);
-  }
   return params.join('&');
 }
 
@@ -1970,12 +1901,9 @@ function fromStatsRecord(row) {
 function buildStrategyStatsPayload(filterValue = 'all', options = {}) {
   const { ignoreAdminFilters = false } = options;
   const timeFilter = normalizeAdminTimeFilter(filterValue);
-  const timeframeFilter = ignoreAdminFilters
-    ? 'all'
-    : normalizeAdminTimeframeFilter(adminTimeframeFilter);
   const payload = {
     p_name_search: ignoreAdminFilters ? null : normalizeAdminNameSearch(adminNameSearch) || null,
-    p_timeframe: timeframeFilter === 'all' ? null : timeframeFilter,
+    p_timeframe: null,
     p_outcome_status: null,
     p_time_filter: timeFilter,
     p_today_start: null,
@@ -2189,18 +2117,9 @@ const ADMIN_TIME_FILTER_LABELS = {
   dueToday: '今日到期',
 };
 
-const ADMIN_TIMEFRAME_FILTER_LABELS = {
-  all: '全部',
-  '1h': '1h',
-  '4h': '4h',
-  '1d': '1d',
-};
-
 const DEFAULT_ADMIN_TIME_FILTER = 'active';
-const DEFAULT_ADMIN_TIMEFRAME_FILTER = 'all';
 
 let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
-let adminTimeframeFilter = DEFAULT_ADMIN_TIMEFRAME_FILTER;
 let adminNameSearch = '';
 let adminNameFilter = '';
 let adminSortByExpiresAsc = false;
@@ -2263,10 +2182,6 @@ function normalizeAdminTimeFilter(value) {
   return normalizeAdminFilter(value, ADMIN_TIME_FILTER_LABELS);
 }
 
-function normalizeAdminTimeframeFilter(value) {
-  return normalizeAdminFilter(value, ADMIN_TIMEFRAME_FILTER_LABELS);
-}
-
 function normalizeAdminNameSearch(value) {
   return String(value ?? '').trim().replace(/\s+/g, ' ');
 }
@@ -2274,16 +2189,6 @@ function normalizeAdminNameSearch(value) {
 function renderAdminFilterTabs() {
   const tabsEl = document.getElementById('admin-filter-tabs');
   renderAdminTabGroup(tabsEl, ADMIN_TIME_FILTER_LABELS, normalizeAdminTimeFilter(adminTimeFilter), 'admin-time-filter');
-}
-
-function renderAdminTimeframeFilterTabs() {
-  const tabsEl = document.getElementById('admin-timeframe-filter-tabs');
-  renderAdminTabGroup(
-    tabsEl,
-    ADMIN_TIMEFRAME_FILTER_LABELS,
-    normalizeAdminTimeframeFilter(adminTimeframeFilter),
-    'admin-timeframe-filter',
-  );
 }
 
 function renderAdminTabGroup(tabsEl, labels, activeValue, dataAttr) {
@@ -2372,7 +2277,6 @@ function renderAdminActiveNames(rows = latestAdminRows) {
 }
 
 function renderAdminControls() {
-  renderAdminTimeframeFilterTabs();
   renderAdminFilterTabs();
   renderAdminActiveNames();
 }
@@ -2380,7 +2284,6 @@ function renderAdminControls() {
 function resetAdminPageState() {
   closeOutcomeStatusPicker();
   adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
-  adminTimeframeFilter = DEFAULT_ADMIN_TIMEFRAME_FILTER;
   adminNameSearch = '';
   adminNameFilter = '';
   adminSortByExpiresAsc = false;
@@ -2741,7 +2644,6 @@ function buildAdminListItemHtml(row) {
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
-    renderAdminTimeframeBadgeHtml(row),
     '</div>',
   ].join('');
   const headRightHtml = [
@@ -3762,20 +3664,6 @@ if (adminFilterTabsEl) {
     const nextFilter = normalizeAdminTimeFilter(target.getAttribute('data-admin-time-filter'));
     if (adminTimeFilter === nextFilter) return;
     adminTimeFilter = nextFilter;
-    adminNameFilter = '';
-    adminSortByExpiresAsc = false;
-    renderAdminList().catch(() => {});
-  });
-}
-
-const adminTimeframeFilterTabsEl = document.getElementById('admin-timeframe-filter-tabs');
-if (adminTimeframeFilterTabsEl) {
-  adminTimeframeFilterTabsEl.addEventListener('click', (e) => {
-    const target = e.target instanceof HTMLElement ? e.target.closest('[data-admin-timeframe-filter]') : null;
-    if (!target) return;
-    const nextFilter = normalizeAdminTimeframeFilter(target.getAttribute('data-admin-timeframe-filter'));
-    if (adminTimeframeFilter === nextFilter) return;
-    adminTimeframeFilter = nextFilter;
     adminNameFilter = '';
     adminSortByExpiresAsc = false;
     renderAdminList().catch(() => {});

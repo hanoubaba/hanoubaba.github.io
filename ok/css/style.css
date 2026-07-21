@@ -1034,18 +1034,6 @@ body.login-mode {
   border-color: var(--border);
 }
 
-.admin-outcome-status--timeframe .admin-outcome-status__tag {
-  background: #f8fafc;
-  color: #334155;
-  border-color: #e2e8f0;
-  min-width: 36px;
-  font-variant-numeric: tabular-nums;
-}
-
-.admin-item__title-wrap .admin-outcome-status--timeframe {
-  flex: none;
-}
-
 .admin-outcome-status--actionable {
   border: none;
   padding: 0;
@@ -2184,7 +2172,6 @@ body.login-mode {
   .admin-page > .admin-shortcuts,
   .admin-page > .admin-controls,
   .admin-page > .admin-filter-tabs,
-  .admin-page > #admin-timeframe-filter-tabs,
   .admin-page > .admin-active-names,
   .admin-page > .admin-selection {
     flex-shrink: 0;
