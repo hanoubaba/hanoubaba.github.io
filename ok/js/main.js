@@ -539,6 +539,11 @@ const METHODOLOGY_SECTIONS = [
       '让利润飞腾，无需太大的仓位。关键是时间和空间。',
       '螺旋上升没有必要，渐进增长是唯一解。',
       '无明确信号的时候，不操作就是最好的操作。',
+      '恐惧和贪婪的平衡点在于规则的约束。',
+      'btc eth 上的高手太多了，内卷严重。我资金量小，以后不做这2个。',
+      '时间止盈＋空间止盈危机处理：先平仓避险，然后更换为最好的。',
+      '危机处理：先平仓避险，然后更换为最好的。',
+      '带着止损冲，这是唯一可以赢的方式。',
     ],
   },
   {
@@ -3232,6 +3237,15 @@ function renderObservationRecordItem(record) {
   const timeRange = escapeHtml(formatObservationTimeRange(trendItem.time, trendItem.timeLabel));
   const endAt = getObservationEndAt(trendItem.time);
   const timeBadgeHtml = renderObservationCountdownBadgeHtml(endAt);
+  const priceDecimalPlaces = getPriceDecimalPlacesFromValues(trendItem.price, trendItem.stopLoss);
+  const refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(
+    trendItem.price,
+    trendItem.stopLoss,
+    priceDecimalPlaces,
+  );
+  const refTakeProfitHtml = refTakeProfitLabel == null
+    ? ''
+    : renderReferenceTakeProfitHtml('admin-item__ref-tp', refTakeProfitLabel);
   const selectHtml = rawId && isObsSelectionMode
     ? [
       `<label class="admin-item__selector${selectorDisabled}" aria-label="选择 ${titleLabel}">`,
@@ -3258,6 +3272,7 @@ function renderObservationRecordItem(record) {
     headRightHtml,
     '</header>',
     renderObservationDailyFieldsHtml(trendItem.price, trendItem.stopLoss),
+    refTakeProfitHtml,
     '<div class="admin-item__actions">',
     '<div class="admin-item__meta">',
     `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
