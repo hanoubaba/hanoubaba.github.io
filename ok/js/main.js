@@ -1204,11 +1204,27 @@ function clearMethodologyPage() {
   if (container) container.innerHTML = '';
 }
 
+function renderMethodologyBalanceBannerHtml() {
+  return [
+    '<aside class="methodology-balance" aria-label="恐惧与贪婪、激进或保守的平衡点">',
+    '<p class="methodology-balance__row">',
+    '<span class="methodology-balance__from">恐惧与贪婪 · 激进或保守</span>',
+    '<span class="methodology-balance__arrow" aria-hidden="true">==&gt;</span>',
+    '<span class="methodology-balance__to">',
+    '<span class="methodology-balance__metric">时间 <strong>10</strong> 个</span>',
+    '<span class="methodology-balance__sep" aria-hidden="true">/</span>',
+    '<span class="methodology-balance__metric">空间 <strong>3-5</strong> 倍</span>',
+    '</span>',
+    '</p>',
+    '</aside>',
+  ].join('');
+}
+
 function renderMethodologyPage() {
   if (!isAuthReady) return;
   const container = document.querySelector('#methodology-page .methodology-content');
   if (!container) return;
-  container.innerHTML = METHODOLOGY_SECTIONS.map((section) => {
+  const sectionsHtml = METHODOLOGY_SECTIONS.map((section) => {
     let body = '';
     if (section.paragraphs?.length) {
       body = section.paragraphs
@@ -1221,6 +1237,7 @@ function renderMethodologyPage() {
     }
     return `<article class="methodology-section"><h3 class="methodology-section__title">${escapeHtml(section.title)}</h3><div class="methodology-section__body">${body}</div></article>`;
   }).join('');
+  container.innerHTML = `${renderMethodologyBalanceBannerHtml()}${sectionsHtml}`;
 }
 
 let currentStrategyCopyText = '';
