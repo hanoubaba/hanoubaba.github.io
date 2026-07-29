@@ -1207,15 +1207,17 @@ function clearMethodologyPage() {
 function renderMethodologyBalanceBannerHtml() {
   return [
     '<aside class="methodology-balance" aria-label="恐惧与贪婪、激进或保守的平衡点">',
-    '<p class="methodology-balance__row">',
-    '<span class="methodology-balance__from">恐惧与贪婪 · 激进或保守</span>',
+    '<div class="methodology-balance__row">',
+    '<div class="methodology-balance__side methodology-balance__side--from">',
+    '<span>恐惧与贪婪</span>',
+    '<span>激进或保守</span>',
+    '</div>',
     '<span class="methodology-balance__arrow" aria-hidden="true">==&gt;</span>',
-    '<span class="methodology-balance__to">',
+    '<div class="methodology-balance__side methodology-balance__side--to">',
     '<span class="methodology-balance__metric">时间 <strong>10</strong> 个</span>',
-    '<span class="methodology-balance__sep" aria-hidden="true">/</span>',
     '<span class="methodology-balance__metric">空间 <strong>3-5</strong> 倍</span>',
-    '</span>',
-    '</p>',
+    '</div>',
+    '</div>',
     '</aside>',
   ].join('');
 }
