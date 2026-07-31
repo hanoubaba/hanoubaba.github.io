@@ -2834,11 +2834,22 @@ body.login-mode {
   box-shadow: 0 8px 22px rgba(22, 101, 52, 0.12);
 }
 
+.methodology-balance__title {
+  margin: 0 0 12px;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--primary-deep);
+  letter-spacing: 0.4px;
+  line-height: 1.3;
+}
+
 .methodology-balance__row {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: stretch;
   justify-content: center;
-  gap: 14px 18px;
+  gap: 10px 12px;
 }
 
 .methodology-balance__side {
@@ -2846,38 +2857,34 @@ body.login-mode {
   flex-direction: column;
   justify-content: center;
   gap: 4px;
+  flex: 1 1 140px;
+  max-width: 220px;
   line-height: 1.35;
   text-align: center;
 }
 
-.methodology-balance__side--from {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--muted);
-  letter-spacing: 0.4px;
-}
-
-.methodology-balance__arrow {
-  flex: none;
-  font-size: 18px;
-  font-weight: 800;
-  color: var(--primary-strong);
-  letter-spacing: 0.5px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-.methodology-balance__side--to {
-  font-size: 17px;
+.methodology-balance__stage {
+  font-size: 15px;
   font-weight: 800;
   color: var(--primary-deep);
   letter-spacing: 0.2px;
 }
 
-.methodology-balance__metric strong {
-  font-size: 1.22em;
-  font-weight: 900;
+.methodology-balance__desc {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.methodology-balance__arrow {
+  flex: none;
+  align-self: center;
+  font-size: 16px;
+  font-weight: 800;
   color: var(--primary-strong);
-  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .methodology-section {
@@ -2952,20 +2959,31 @@ body.login-mode {
     border-radius: 12px;
   }
 
-  .methodology-balance__row {
-    gap: 10px 14px;
+  .methodology-balance__title {
+    margin-bottom: 10px;
+    font-size: 15px;
   }
 
-  .methodology-balance__side--from {
-    font-size: 13px;
+  .methodology-balance__row {
+    gap: 8px 10px;
+  }
+
+  .methodology-balance__side {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .methodology-balance__stage {
+    font-size: 14px;
+  }
+
+  .methodology-balance__desc {
+    font-size: 12px;
   }
 
   .methodology-balance__arrow {
-    font-size: 16px;
-  }
-
-  .methodology-balance__side--to {
-    font-size: 15px;
+    font-size: 14px;
+    transform: rotate(90deg);
   }
 
   .methodology-section {

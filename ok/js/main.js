@@ -686,6 +686,16 @@ const METHODOLOGY_SECTIONS = [
       '已经实现3-5倍的不去参与，风险收益比不高。',
     ],
   },
+  {
+    title: '16、简要',
+    items: [
+      '不做BTC 和 ETH，难度太大。',
+      '只做自己的行情，不参考其他人的信息。',
+      '不加仓不减仓，使用自己的方法判断。',
+      '尊重客观事实，不做无法实现的梦。',
+      '用4h和1d维度决策方向，1h辅助判断细节。',
+    ],
+  },
 ];
 
 let authSession = null;
@@ -1322,16 +1332,22 @@ function clearMethodologyPage() {
 
 function renderMethodologyBalanceBannerHtml() {
   return [
-    '<aside class="methodology-balance" aria-label="贪婪与恐惧、勇敢或保守的平衡点">',
+    '<aside class="methodology-balance" aria-label="生命周期理论">',
+    '<h2 class="methodology-balance__title">生命周期理论</h2>',
     '<div class="methodology-balance__row">',
-    '<div class="methodology-balance__side methodology-balance__side--from">',
-    '<span>贪婪与恐惧</span>',
-    '<span>勇敢或保守</span>',
+    '<div class="methodology-balance__side">',
+    '<span class="methodology-balance__stage">趋势</span>',
+    '<span class="methodology-balance__desc">时间10，空间3-5倍</span>',
     '</div>',
     '<span class="methodology-balance__arrow" aria-hidden="true">==&gt;</span>',
-    '<div class="methodology-balance__side methodology-balance__side--to">',
-    '<span class="methodology-balance__metric">时间 <strong>10</strong> 个</span>',
-    '<span class="methodology-balance__metric">空间 <strong>3-5</strong> 倍</span>',
+    '<div class="methodology-balance__side">',
+    '<span class="methodology-balance__stage">反趋势</span>',
+    '<span class="methodology-balance__desc">时间空间都满足，止损空间翻倍非常安全</span>',
+    '</div>',
+    '<span class="methodology-balance__arrow" aria-hidden="true">==&gt;</span>',
+    '<div class="methodology-balance__side">',
+    '<span class="methodology-balance__stage">调整等待</span>',
+    '<span class="methodology-balance__desc">进入下一个周期</span>',
     '</div>',
     '</div>',
     '</aside>',
