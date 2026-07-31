@@ -1080,7 +1080,6 @@ body.login-mode {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
   white-space: nowrap;
   box-sizing: border-box;
   border-radius: 6px;
@@ -1095,24 +1094,11 @@ body.login-mode {
   color: #166534;
 }
 
-.admin-counter-trend__tag::before {
-  content: "→";
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1;
-  opacity: 0.85;
-}
-
 .admin-counter-trend.is-active .admin-counter-trend__tag {
   border-color: #fdba74;
   background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
   color: #9a3412;
   box-shadow: inset 0 0 0 1px rgba(234, 88, 12, 0.12);
-}
-
-.admin-counter-trend.is-active .admin-counter-trend__tag::before {
-  content: "↺";
-  font-size: 12px;
 }
 
 .admin-counter-trend:disabled,
