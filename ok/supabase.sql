@@ -44,6 +44,7 @@ create table if not exists public.strategies (
   outcome_status text not null default 'pending',
   outcome_remark text not null default '',
   grade text not null default '普通',
+  view_mode text not null default 'trend',
 
   constraint strategies_position_side_check
     check (position_side in ('long', 'short')),
@@ -51,6 +52,8 @@ create table if not exists public.strategies (
     check (timeframe in ('1h', '4h', '1d')),
   constraint strategies_outcome_status_check
     check (outcome_status in ('pending', 'profit', 'loss', 'not_filled')),
+  constraint strategies_view_mode_check
+    check (view_mode in ('trend', 'counter_trend')),
   constraint strategies_positive_values_check
     check (
       input_price > 0
@@ -530,5 +533,26 @@ drop constraint if exists strategies_timeframe_check;
 alter table public.strategies
 add constraint strategies_timeframe_check
 check (timeframe in ('1h', '4h', '1d'));
+
+alter table public.strategies
+add column if not exists view_mode text;
+
+update public.strategies
+set view_mode = 'trend'
+where view_mode is null
+  or view_mode not in ('trend', 'counter_trend');
+
+alter table public.strategies
+alter column view_mode set default 'trend';
+
+alter table public.strategies
+alter column view_mode set not null;
+
+alter table public.strategies
+drop constraint if exists strategies_view_mode_check;
+
+alter table public.strategies
+add constraint strategies_view_mode_check
+check (view_mode in ('trend', 'counter_trend'));
 
 notify pgrst, 'reload schema';

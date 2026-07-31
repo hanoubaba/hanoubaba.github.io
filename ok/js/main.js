@@ -198,6 +198,9 @@ const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R_LOW = 3;
 const REF_TAKE_PROFIT_R_HIGH = 5;
 const STRATEGY_DURATION_PERIODS = 10;
+/** 反趋势：挂单档位 = 原策略 3/4/5 倍止盈价，止损 = 10 倍止盈价 */
+const COUNTER_TREND_ENTRY_MULTIPLES = [3, 4, 5];
+const COUNTER_TREND_STOP_MULTIPLE = 10;
 
 function clampOpenCostMultiplier(value) {
   const n = Math.round(Number(value));
@@ -440,6 +443,117 @@ function buildTrendAdminConcessions(row, multiplier = OPEN_COST_MULTIPLIER_DEFAU
   const savedConcessions = buildAdminConcessionsForRow(row);
   const reverse = inferReverseFromConcessions(entryPrice, stopLoss, savedConcessions, decimalPlaces);
   return buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces, getConcessionRates(), reverse);
+}
+
+const STRATEGY_VIEW_MODE_TREND = 'trend';
+const STRATEGY_VIEW_MODE_COUNTER = 'counter_trend';
+
+function normalizeStrategyViewMode(value) {
+  return value === STRATEGY_VIEW_MODE_COUNTER
+    ? STRATEGY_VIEW_MODE_COUNTER
+    : STRATEGY_VIEW_MODE_TREND;
+}
+
+/**
+ * 反趋势策略：以原策略 R 倍数推算挂单价与止损。
+ * 例：开 10 / 止 9 → 挂 13、14、15，止损 20；本金均分三档后 qty = 档本金 / |价-止损|
+ * 参考止盈取原开仓价；时间范围接在原策略结束后再排 10 个周期。
+ */
+function buildCounterTrendConcessions(row, multiplier = OPEN_COST_MULTIPLIER_DEFAULT) {
+  const entryPrice = toNumber(row?.entryPrice);
+  const stopLoss = toNumber(row?.stopLossPrice);
+  const openCostTotal = getOpenCostTotal(multiplier);
+  if (
+    entryPrice == null
+    || stopLoss == null
+    || entryPrice === stopLoss
+    || !(openCostTotal > 0)
+  ) {
+    return { items: [], stopLoss: null, refTakeProfit: null };
+  }
+
+  const decimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
+  const counterStop = calcTakeProfit(entryPrice, stopLoss, COUNTER_TREND_STOP_MULTIPLE);
+  if (counterStop == null || !(counterStop > 0)) {
+    return { items: [], stopLoss: null, refTakeProfit: null };
+  }
+
+  const tierShare = 1 / COUNTER_TREND_ENTRY_MULTIPLES.length;
+  const tierOpenCost = getTierOpenCostBudget(openCostTotal, tierShare);
+  const items = [];
+  for (const multiple of COUNTER_TREND_ENTRY_MULTIPLES) {
+    const price = calcTakeProfit(entryPrice, stopLoss, multiple);
+    if (price == null || !(price > 0) || price === counterStop) continue;
+    const qty = calcQuantityByRisk(tierOpenCost, price, counterStop);
+    if (qty == null || !(qty > 0)) continue;
+    items.push({
+      rate: multiple,
+      display: true,
+      price: formatTrimmedFixedDecimals(price, decimalPlaces),
+      quantity: formatQuantity(qty),
+    });
+  }
+  return {
+    items,
+    stopLoss: formatTrimmedFixedDecimals(counterStop, decimalPlaces),
+    refTakeProfit: formatTrimmedFixedDecimals(entryPrice, decimalPlaces),
+  };
+}
+
+function getCounterTrendTimeRange(row) {
+  const unitMin = Number(row?.timeframeMinutes) > 0
+    ? Number(row.timeframeMinutes)
+    : getTimeframeMinutes(row?.timeframe);
+  const spanMs = unitMin * STRATEGY_DURATION_PERIODS * 60 * 1000;
+  const originalEnd = getStrategyEndAt(row);
+  const originalStart = getStrategyStartAt(row);
+  const startAt = originalEnd
+    || (originalStart ? new Date(originalStart.getTime() + spanMs) : null);
+  if (!startAt) return { startAt: null, endAt: null };
+  return {
+    startAt,
+    endAt: new Date(startAt.getTime() + spanMs),
+  };
+}
+
+function canShowCounterTrend(row) {
+  if (getAdminStrategyTypeInfo(row).type !== 'trend') return false;
+  const entryPrice = toNumber(row?.entryPrice);
+  const stopLoss = toNumber(row?.stopLossPrice);
+  if (entryPrice == null || stopLoss == null || entryPrice === stopLoss) return false;
+  const counterStop = calcTakeProfit(entryPrice, stopLoss, COUNTER_TREND_STOP_MULTIPLE);
+  return counterStop != null && counterStop > 0;
+}
+
+function isAdminCounterTrendView(row) {
+  return canShowCounterTrend(row)
+    && normalizeStrategyViewMode(row?.viewMode) === STRATEGY_VIEW_MODE_COUNTER;
+}
+
+async function toggleAdminCounterTrend(strategyId, row) {
+  const id = String(strategyId ?? '').trim();
+  if (!id || !canShowCounterTrend(row) || updatingAdminViewModeIds.has(id)) return;
+  const nextViewMode = isAdminCounterTrendView(row)
+    ? STRATEGY_VIEW_MODE_TREND
+    : STRATEGY_VIEW_MODE_COUNTER;
+  const prevViewMode = normalizeStrategyViewMode(row?.viewMode);
+  updatingAdminViewModeIds.add(id);
+  latestAdminRows = latestAdminRows.map((item) => (
+    String(item?.id ?? '').trim() === id ? { ...item, viewMode: nextViewMode } : item
+  ));
+  renderAdminListItems();
+  try {
+    await updateStrategyViewMode(id, nextViewMode);
+  } catch (err) {
+    console.error('[admin-view-mode-sync]', err);
+    latestAdminRows = latestAdminRows.map((item) => (
+      String(item?.id ?? '').trim() === id ? { ...item, viewMode: prevViewMode } : item
+    ));
+    showToast('视图切换失败');
+  } finally {
+    updatingAdminViewModeIds.delete(id);
+    renderAdminListItems();
+  }
 }
 
 const SUPABASE_URL = 'https://rxggjijrfafcrmtkqkuv.supabase.co';
@@ -964,6 +1078,7 @@ function fromDbRecord(row) {
     expiresAt: row.expires_at,
     outcomeStatus: row.outcome_status ?? 'pending',
     outcomeRemark: dbValueToString(row.outcome_remark),
+    viewMode: normalizeStrategyViewMode(row.view_mode),
   };
 }
 
@@ -998,6 +1113,7 @@ function toDbRecord(record) {
     start_at: startAt ? startAt.toISOString() : null,
     expires_at: expiresAt ? expiresAt.toISOString() : null,
     outcome_status: normalizeOutcomeStatus(record.outcomeStatus),
+    view_mode: normalizeStrategyViewMode(record.viewMode),
   };
 }
 
@@ -1717,6 +1833,7 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
     startAt: startAt ? startAt.toISOString() : null,
     expiresAt: endAt ? endAt.toISOString() : null,
     outcomeStatus: 'pending',
+    viewMode: STRATEGY_VIEW_MODE_TREND,
   };
 
   return { plain, html, copyText, record };
@@ -2062,6 +2179,18 @@ async function updateStrategyOutcomeStatus(id, outcomeStatus, remark) {
   if (!res.ok) throw new Error(await res.text());
 }
 
+async function updateStrategyViewMode(id, viewMode) {
+  const encodedId = encodeURIComponent(id);
+  const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
+    method: 'PATCH',
+    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+    body: JSON.stringify({
+      view_mode: normalizeStrategyViewMode(viewMode),
+    }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
 function getTimeBadgeInfo(endAt, now = new Date()) {
   if (!endAt) return null;
   if (getTimeRangeStatusByEndAt(endAt) === 'ended') return null;
@@ -2147,7 +2276,6 @@ let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
 let adminNameSearch = '';
 let adminNameFilter = '';
 let adminSortByExpiresAsc = false;
-
 function getAdminNameFilterKey(name) {
   const raw = String(name ?? '').trim();
   if (!raw) return '';
@@ -2316,6 +2444,7 @@ function resetAdminPageState() {
   visibleAdminStrategyIds = [];
   isDeletingStrategies = false;
   updatingAdminCostIds.clear();
+  updatingAdminViewModeIds.clear();
   renderAdminControls();
   updateAdminSelectionControls();
 }
@@ -2326,6 +2455,7 @@ let isAdminSelectionMode = false;
 let visibleAdminStrategyIds = [];
 let latestAdminRows = [];
 let updatingAdminCostIds = new Set();
+let updatingAdminViewModeIds = new Set();
 
 function getVisibleAdminStrategyIds() {
   const domIds = Array.from(document.querySelectorAll('#admin-list .admin-item__select'))
@@ -2587,6 +2717,7 @@ async function renderAdminList() {
     visibleAdminStrategyIds = [];
     latestAdminRows = [];
     updatingAdminCostIds.clear();
+    updatingAdminViewModeIds.clear();
     listEl.innerHTML = `<div class="admin-sync-error">${escapeHtml(String(err?.message || '同步失败'))}</div>`;
     renderAdminActiveNames([]);
     updateAdminSelectionControls();
@@ -2602,22 +2733,36 @@ function buildAdminListItemHtml(row) {
   const id = escapeHtml(rawId);
   const sideRaw = String(row?.positionSide ?? '').trim();
   const nameRaw = String(row?.strategyName ?? '').trim();
-  const sideMod = getPositionSideMod(sideRaw);
+  const showCounterTrend = Boolean(rawId && isAdminCounterTrendView(row));
+  const baseSideMod = getPositionSideMod(sideRaw);
+  const sideMod = showCounterTrend
+    ? (baseSideMod === 'long' ? 'short' : 'long')
+    : baseSideMod;
   const title = escapeHtml(formatStrategyCardTitle(nameRaw));
   const titleLabel = escapeHtml(formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark));
   const strategyType = getAdminStrategyTypeInfo(row);
   const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
   const priceDecimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
-  const stop = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '-';
   const isTrendStrategy = strategyType.type === 'trend';
   const costMultiplier = getAdminOpenCostMultiplier(rawId, row);
   const multiplierHtml = rawId && isTrendStrategy
     ? buildAdminCostMultiplierHtml(rawId, costMultiplier)
     : '';
-  const concessions = isTrendStrategy
-    ? buildTrendAdminConcessions(row, costMultiplier)
-    : buildAdminDisplayConcessions(row);
-  const refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
+  let concessions;
+  let stop;
+  let refTakeProfitLabel;
+  if (showCounterTrend) {
+    const counter = buildCounterTrendConcessions(row, costMultiplier);
+    concessions = counter.items;
+    stop = counter.stopLoss || '-';
+    refTakeProfitLabel = counter.refTakeProfit || '—';
+  } else {
+    concessions = isTrendStrategy
+      ? buildTrendAdminConcessions(row, costMultiplier)
+      : buildAdminDisplayConcessions(row);
+    stop = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '-';
+    refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
+  }
   const refTakeProfitHtml = refTakeProfitLabel == null
     ? ''
     : renderReferenceTakeProfitHtml('admin-item__ref-tp', refTakeProfitLabel);
@@ -2625,8 +2770,11 @@ function buildAdminListItemHtml(row) {
     stopHeaderLabel: '止损价格',
     priceDecimalPlaces,
   });
-  const startAt = getStrategyStartAt(row);
-  const endAt = getStrategyEndAt(row);
+  const baseStartAt = getStrategyStartAt(row);
+  const baseEndAt = getStrategyEndAt(row);
+  const counterTimeRange = showCounterTrend ? getCounterTrendTimeRange(row) : null;
+  const startAt = showCounterTrend ? counterTimeRange?.startAt : baseStartAt;
+  const endAt = showCounterTrend ? counterTimeRange?.endAt : baseEndAt;
   const timeRange = escapeHtml(formatAdminTimeRange(startAt, endAt));
   const expiresAt = endAt ? escapeHtml(endAt.toISOString()) : '';
   const checked = rawId && selectedStrategyIds.has(rawId) ? ' checked' : '';
@@ -2641,7 +2789,7 @@ function buildAdminListItemHtml(row) {
     ].join('')
     : '';
   const outcomeStatus = normalizeOutcomeStatus(row?.outcomeStatus);
-  const timeStatus = getTimeRangeStatusByEndAt(endAt);
+  const outcomeTimeStatus = getTimeRangeStatusByEndAt(baseEndAt);
   const timeBadge = getTimeBadgeInfo(endAt);
   const outcomeInfo = getOutcomeStatusInfo(outcomeStatus);
   const timeBadgeUrgent = timeBadge?.type === 'active' && isCountdownWithinUrgentWindow(endAt)
@@ -2656,7 +2804,7 @@ function buildAdminListItemHtml(row) {
     : '';
   const outcomeStatusHtml = id
     ? [
-      `<button type="button" class="admin-outcome-status admin-outcome-status--${outcomeInfo.type} admin-outcome-status--actionable" data-id="${id}" data-time-status="${timeStatus}" data-outcome-status="${escapeHtml(outcomeStatus)}" data-outcome-remark="${escapeHtml(String(row?.outcomeRemark ?? ''))}" aria-haspopup="dialog" aria-controls="status-picker" aria-label="修改盈利状态">`,
+      `<button type="button" class="admin-outcome-status admin-outcome-status--${outcomeInfo.type} admin-outcome-status--actionable" data-id="${id}" data-time-status="${outcomeTimeStatus}" data-outcome-status="${escapeHtml(outcomeStatus)}" data-outcome-remark="${escapeHtml(String(row?.outcomeRemark ?? ''))}" aria-haspopup="dialog" aria-controls="status-picker" aria-label="修改盈利状态">`,
       `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
       '</button>',
     ].join('')
@@ -2665,9 +2813,17 @@ function buildAdminListItemHtml(row) {
       `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
       '</div>',
     ].join('');
+  const counterTrendHtml = rawId && canShowCounterTrend(row)
+    ? [
+      `<button type="button" class="admin-counter-trend${showCounterTrend ? ' is-active' : ''}${updatingAdminViewModeIds.has(rawId) ? ' is-syncing' : ''}" data-counter-trend-toggle data-id="${id}" aria-pressed="${showCounterTrend ? 'true' : 'false'}" aria-busy="${updatingAdminViewModeIds.has(rawId) ? 'true' : 'false'}"${updatingAdminViewModeIds.has(rawId) ? ' disabled' : ''} aria-label="${showCounterTrend ? '切换回趋势策略' : '查看反趋势策略'}">`,
+      `<span class="admin-counter-trend__tag">${showCounterTrend ? '反趋势中' : '趋势中'}</span>`,
+      '</button>',
+    ].join('')
+    : '';
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
+    counterTrendHtml,
     '</div>',
   ].join('');
   const headRightHtml = [
@@ -2678,7 +2834,7 @@ function buildAdminListItemHtml(row) {
   ].join('');
   const buttonsHtml = `<div class="admin-item__buttons">${multiplierHtml}</div>`;
   return [
-    `<article class="admin-item admin-item--${sideMod}">`,
+    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}">`,
     remarkStampHtml,
     '<header class="admin-item__head">',
     selectHtml,
@@ -3974,6 +4130,17 @@ if (adminListEl) {
         showToast('成本同步失败');
         renderAdminListItems();
       }
+      return;
+    }
+
+    const counterTrendBtn = target.closest('[data-counter-trend-toggle]');
+    if (counterTrendBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = String(counterTrendBtn.getAttribute('data-id') ?? '').trim();
+      if (!id || counterTrendBtn.disabled) return;
+      const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
+      if (row) toggleAdminCounterTrend(id, row);
       return;
     }
 
