@@ -474,7 +474,7 @@ function buildCounterTrendConcessions(row, multiplier = OPEN_COST_MULTIPLIER_DEF
 
   const decimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
   const counterStop = calcTakeProfit(entryPrice, stopLoss, COUNTER_TREND_STOP_MULTIPLE);
-  if (counterStop == null || !(counterStop > 0)) {
+  if (counterStop == null) {
     return { items: [], stopLoss: null, refTakeProfit: null };
   }
 
@@ -483,7 +483,7 @@ function buildCounterTrendConcessions(row, multiplier = OPEN_COST_MULTIPLIER_DEF
   const items = [];
   for (const multiple of COUNTER_TREND_ENTRY_MULTIPLES) {
     const price = calcTakeProfit(entryPrice, stopLoss, multiple);
-    if (price == null || !(price > 0) || price === counterStop) continue;
+    if (price == null || price === counterStop) continue;
     const qty = calcQuantityByRisk(tierOpenCost, price, counterStop);
     if (qty == null || !(qty > 0)) continue;
     items.push({
@@ -522,7 +522,7 @@ function canShowCounterTrend(row) {
   const stopLoss = toNumber(row?.stopLossPrice);
   if (entryPrice == null || stopLoss == null || entryPrice === stopLoss) return false;
   const counterStop = calcTakeProfit(entryPrice, stopLoss, COUNTER_TREND_STOP_MULTIPLE);
-  return counterStop != null && counterStop > 0;
+  return counterStop != null;
 }
 
 function isAdminCounterTrendView(row) {

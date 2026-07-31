@@ -1177,7 +1177,6 @@ body.login-mode {
 }
 
 .admin-item--counter-trend .admin-item__ref-tp {
-  border-color: #fed7aa;
   background: rgba(255, 247, 237, 0.7);
 }
 
@@ -1274,7 +1273,6 @@ body.login-mode {
   gap: 6px;
   margin-top: 5px;
   padding-top: 5px;
-  border-top: 1px solid var(--border-soft);
 }
 
 .admin-item__meta {
@@ -1709,7 +1707,6 @@ body.login-mode {
   gap: 4px;
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid var(--border-soft);
   font-size: 12px;
   line-height: 1.35;
 }
@@ -1734,7 +1731,6 @@ body.login-mode {
   gap: 8px;
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid var(--border-soft);
   font-size: 12px;
   line-height: 1.35;
 }
