@@ -201,15 +201,17 @@ const STRATEGY_DURATION_PERIODS = 10;
 /** 反趋势：挂单档位 = 原策略 3/4/5 倍止盈价，止损 = 10 倍止盈价 */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 4, 5];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
-/** 辅助开单：from→to 区间的 30%、50%、70% 位置 */
+/** 辅助开单：from→to 区间的 30%、48%、80% 位置；本金仅 30%/48% 两档按 3:2 分配 */
 const ASSIST_TIER_RATIOS = [
-  { rate: 0.3, label: '30%' },
-  { rate: 0.5, label: '50%' },
-  { rate: 0.7, label: '70%' },
+  { rate: 0.3, label: '30%', costShare: 3 / 5 },
+  { rate: 0.48, label: '48%', costShare: 2 / 5 },
+  { rate: 0.8, label: '80%', costShare: 0 },
 ];
-/** 兼容旧辅助开单 1/3、1/2、2/3 与 30/50/66 识别 */
+/** 兼容旧辅助开单比例识别 */
 const ASSIST_TIER_RATES_LEGACY = [1 / 3, 1 / 2, 2 / 3];
 const ASSIST_TIER_RATES_LEGACY_66 = [0.3, 0.5, 0.66];
+const ASSIST_TIER_RATES_LEGACY_70 = [0.3, 0.5, 0.7];
+const ASSIST_TIER_RATES_LEGACY_75 = [0.33, 0.48, 0.75];
 const ASSIST_TITLE_SUFFIX = ' (辅助开单)';
 
 function clampOpenCostMultiplier(value) {
@@ -421,7 +423,9 @@ function isAssistConcessionSet(concessions) {
   const rates = getSortedDisplayRates(concessions);
   return ratesMatch(rates, ASSIST_TIER_RATIOS.map((item) => item.rate))
     || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY)
-    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_66);
+    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_66)
+    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_70)
+    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_75);
 }
 
 function getAssistTierLabel(rate) {
@@ -430,7 +434,7 @@ function getAssistTierLabel(rate) {
 }
 
 function shouldHideAssistQuantity(rate) {
-  return Math.abs(Number(rate) - 0.7) < 1e-9;
+  return Math.abs(Number(rate) - 0.8) < 1e-9;
 }
 
 function formatAssistStrategyTitle(name) {
@@ -586,16 +590,18 @@ function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces) {
   }
   const stop = from;
   const items = [];
-  for (const { rate } of ASSIST_TIER_RATIOS) {
+  for (const { rate, costShare } of ASSIST_TIER_RATIOS) {
     const price = calcAssistTierPrice(from, to, rate, decimalPlaces);
     if (price == null || !(price > 0) || price === stop) continue;
-    const qty = calcQuantityByRisk(openCostTotal, price, stop);
-    if (qty == null || !(qty > 0)) continue;
+    const share = Number(costShare);
+    const tierOpenCost = share > 0 ? getTierOpenCostBudget(openCostTotal, share) : null;
+    const qty = tierOpenCost != null ? calcQuantityByRisk(tierOpenCost, price, stop) : null;
+    if (share > 0 && (qty == null || !(qty > 0))) continue;
     items.push({
       rate,
       display: true,
       price: formatTrimmedFixedDecimals(price, decimalPlaces),
-      quantity: formatQuantity(qty),
+      quantity: qty != null && qty > 0 ? formatQuantity(qty) : '0.0',
     });
   }
   return items;
