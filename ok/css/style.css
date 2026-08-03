@@ -301,6 +301,7 @@ body.login-mode {
 }
 
 #front-page[hidden],
+#assist-page[hidden],
 #admin-page[hidden],
 #stats-page[hidden],
 #methodology-page[hidden],
@@ -309,7 +310,8 @@ body.login-mode {
   display: none !important;
 }
 
-#front-page {
+#front-page,
+#assist-page {
   display: contents;
 }
 
@@ -357,10 +359,15 @@ body.login-mode {
 }
 
 .admin-shortcuts {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  align-items: center;
   gap: 6px;
   margin-bottom: 8px;
+}
+
+.admin-shortcuts > .admin-shortcut {
+  flex: 1;
+  min-width: 0;
 }
 
 .admin-shortcut {
@@ -385,6 +392,87 @@ body.login-mode {
   background: var(--surface-tint);
   color: var(--primary-deep);
   box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.12);
+}
+
+.admin-more {
+  position: relative;
+  flex: none;
+}
+
+.admin-more__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fff, var(--surface-tint));
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.admin-more__toggle:active {
+  transform: translateY(1px);
+}
+
+.admin-more__toggle.is-active,
+.admin-more__toggle[aria-expanded="true"] {
+  border-color: var(--primary);
+  background: var(--surface-tint);
+  color: var(--primary-deep);
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.12);
+}
+
+.admin-more__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 132px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(22, 101, 52, 0.14);
+}
+
+.admin-more__menu[hidden] {
+  display: none !important;
+}
+
+.admin-more__item {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.admin-more__item:hover,
+.admin-more__item:focus-visible {
+  background: var(--surface-tint);
+  color: var(--primary-deep);
+  outline: none;
+}
+
+.admin-more__item.is-active {
+  background: var(--surface-tint);
+  color: var(--primary-deep);
 }
 
 .admin-control-row {
@@ -565,6 +653,10 @@ body.login-mode {
   box-shadow: 0 0 0 2px #1d4ed8;
 }
 
+.admin-active-names__item--assist.is-active {
+  box-shadow: 0 0 0 2px #0f766e;
+}
+
 .admin-active-names__item--trend {
   color: var(--primary-strong);
   background: var(--long-soft);
@@ -575,6 +667,12 @@ body.login-mode {
   color: #1d4ed8;
   background: #eff6ff;
   border-color: #bfdbfe;
+}
+
+.admin-active-names__item--assist {
+  color: #0f766e;
+  background: #f0fdfa;
+  border-color: #99f6e4;
 }
 
 .admin-active-names__count {
@@ -597,6 +695,10 @@ body.login-mode {
 
 .admin-active-names__item--martin .admin-active-names__count {
   background: #1d4ed8;
+}
+
+.admin-active-names__item--assist .admin-active-names__count {
+  background: #0f766e;
 }
 
 .admin-selection {
@@ -1123,6 +1225,80 @@ body.login-mode {
   font-size: 11px;
 }
 
+.admin-assist-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  white-space: nowrap;
+  box-sizing: border-box;
+  border-radius: 6px;
+  padding: 0 8px;
+  min-width: 52px;
+  min-height: 0;
+  height: calc(12px * 1.2 + 6px + 2px);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  border: 1px solid #5eead4;
+  background: linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%);
+  color: #0f766e;
+  box-shadow: inset 0 0 0 1px rgba(13, 148, 136, 0.08);
+}
+
+/* 辅助开单卡片：青绿斜纹，区别于趋势绿 / 反趋势橙 */
+.admin-item--assist {
+  border-color: #5eead4;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(45, 212, 191, 0.08) 0 6px,
+      rgba(240, 253, 250, 0.55) 6px 12px
+    ),
+    linear-gradient(225deg, #f0fdfa 0%, #ffffff 52%);
+  padding-left: 13px;
+  padding-right: 15px;
+}
+
+.admin-item--assist::before {
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, #14b8a6 0%, #0f766e 100%);
+}
+
+.admin-item--assist.admin-item--long {
+  border-color: #5eead4;
+}
+
+.admin-item--assist.admin-item--long::before {
+  background: linear-gradient(180deg, #16a34a 0%, #0f766e 100%);
+}
+
+.admin-item--assist.admin-item--short {
+  border-color: #fda4af;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(45, 212, 191, 0.07) 0 6px,
+      rgba(255, 241, 242, 0.55) 6px 12px
+    ),
+    linear-gradient(225deg, #fff1f2 0%, #ffffff 52%);
+}
+
+.admin-item--assist.admin-item--short::before {
+  background: linear-gradient(180deg, #e11d48 0%, #0f766e 100%);
+}
+
+.admin-item--assist .admin-item__concessions {
+  border-color: #99f6e4;
+  background: rgba(240, 253, 250, 0.85);
+}
+
+.admin-item--assist .admin-concession--head {
+  background: rgba(204, 251, 241, 0.9);
+  color: #0f766e;
+}
+
 /* 反趋势卡片：色条改到右侧 + 对角斜纹，强调反向 */
 .admin-item--counter-trend {
   border-color: #fdba74;
@@ -1306,6 +1482,25 @@ body.login-mode {
   font-size: 12px;
   line-height: 1.25;
   font-variant-numeric: tabular-nums;
+}
+
+.admin-item__assist-price {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-item--assist .admin-item__assist-price {
+  color: #0f766e;
+}
+
+.strategy-card__assist-prices {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  align-items: baseline;
 }
 
 .admin-item__buttons {
@@ -1581,7 +1776,8 @@ body.login-mode {
   transform: none;
 }
 
-#front-page > .btn-save-strategy {
+#front-page > .btn-save-strategy,
+#assist-page > .btn-save-strategy {
   margin-top: 8px;
 }
 
@@ -1630,8 +1826,30 @@ body.login-mode {
 .strategy-card__head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   margin-bottom: 9px;
+}
+
+.strategy-card--assist {
+  border-color: #5eead4;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(45, 212, 191, 0.07) 0 6px,
+      rgba(240, 253, 250, 0.5) 6px 12px
+    ),
+    linear-gradient(225deg, #f0fdfa 0%, #ffffff 55%);
+}
+
+.strategy-card--assist .strategy-card__concessions {
+  border-color: #99f6e4;
+  background: rgba(240, 253, 250, 0.85);
+}
+
+.strategy-card--assist .strategy-concession--head {
+  background: rgba(204, 251, 241, 0.9);
+  color: #0f766e;
 }
 
 .strategy-card__title {
@@ -2264,7 +2482,8 @@ body.login-mode {
     border-radius: 10px;
   }
 
-  .panel[aria-label="参数输入"] {
+  .panel[aria-label="参数输入"],
+  .panel[aria-label="辅助开单参数"] {
     display: grid;
     grid-template-columns: 1fr;
     row-gap: 5px;
@@ -2272,7 +2491,9 @@ body.login-mode {
 
   .panel[aria-label="参数输入"] > label.field:first-of-type,
   .panel[aria-label="参数输入"] > label.field.field--spaced,
-  .panel[aria-label="参数输入"] > div.field.field--spaced {
+  .panel[aria-label="参数输入"] > div.field.field--spaced,
+  .panel[aria-label="辅助开单参数"] > label.field:first-of-type,
+  .panel[aria-label="辅助开单参数"] > label.field.field--spaced {
     grid-column: 1;
     margin-top: 0;
   }
@@ -2282,14 +2503,16 @@ body.login-mode {
     margin-top: 5px;
   }
 
-  .panel[aria-label="参数输入"] > .error {
+  .panel[aria-label="参数输入"] > .error,
+  .panel[aria-label="辅助开单参数"] > .error {
     grid-column: 1 / -1;
     margin-top: 3px;
     min-height: 14px;
     font-size: 11px;
   }
 
-  #front-page > .btn-save-strategy {
+  #front-page > .btn-save-strategy,
+  #assist-page > .btn-save-strategy {
     flex-shrink: 0;
     margin-top: 6px;
     min-height: 42px;
@@ -2298,14 +2521,16 @@ body.login-mode {
     border-radius: 10px;
   }
 
-  #front-page > .strategy-output {
+  #front-page > .strategy-output,
+  #assist-page > .strategy-output {
     flex: 1;
     min-height: 0;
     overflow: auto;
     margin-top: 6px;
   }
 
-  #front-page {
+  #front-page,
+  #assist-page {
     flex: 1;
     min-height: 0;
     display: flex;
@@ -2361,6 +2586,22 @@ body.login-mode {
     min-height: 32px;
     font-size: 11px;
     border-radius: 7px;
+  }
+
+  .admin-more__toggle {
+    width: 32px;
+    min-height: 32px;
+    font-size: 15px;
+    border-radius: 7px;
+  }
+
+  .admin-more__menu {
+    min-width: 120px;
+  }
+
+  .admin-more__item {
+    padding: 8px 10px;
+    font-size: 12px;
   }
 
   .admin-control-row {
@@ -2464,7 +2705,8 @@ body.login-mode {
     padding-bottom: 0;
   }
 
-  .admin-item__title-wrap .admin-counter-trend__tag {
+  .admin-item__title-wrap .admin-counter-trend__tag,
+  .admin-item__title-wrap .admin-assist-tag {
     height: calc(11px * 1.2 + 4px + 2px);
     padding-left: 7px;
     padding-right: 7px;

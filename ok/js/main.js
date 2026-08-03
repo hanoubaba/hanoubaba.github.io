@@ -201,6 +201,16 @@ const STRATEGY_DURATION_PERIODS = 10;
 /** 反趋势：挂单档位 = 原策略 3/4/5 倍止盈价，止损 = 10 倍止盈价 */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 4, 5];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
+/** 辅助开单：from→to 区间的 30%、50%、70% 位置 */
+const ASSIST_TIER_RATIOS = [
+  { rate: 0.3, label: '30%' },
+  { rate: 0.5, label: '50%' },
+  { rate: 0.7, label: '70%' },
+];
+/** 兼容旧辅助开单 1/3、1/2、2/3 与 30/50/66 识别 */
+const ASSIST_TIER_RATES_LEGACY = [1 / 3, 1 / 2, 2 / 3];
+const ASSIST_TIER_RATES_LEGACY_66 = [0.3, 0.5, 0.66];
+const ASSIST_TITLE_SUFFIX = ' (辅助开单)';
 
 function clampOpenCostMultiplier(value) {
   const n = Math.round(Number(value));
@@ -262,10 +272,16 @@ function setAdminRowCostFields(row, multiplier) {
     openCost: openCostTotal / tierCount,
     grade: getStrategyGradeFromOpenCost(openCostTotal / tierCount, openCostTotal, tierCount),
   };
-  if (getAdminStrategyTypeInfo(row).type === 'trend') {
+  const strategyType = getAdminStrategyTypeInfo(row).type;
+  if (strategyType === 'trend') {
     nextRow.concessions = buildTrendAdminConcessions(nextRow, nextMultiplier);
     const primaryItem = nextRow.concessions.find((item) => Math.abs(Number(item.rate)) < 1e-9);
     if (primaryItem?.quantity) nextRow.quantity = primaryItem.quantity;
+  } else if (strategyType === 'assist') {
+    nextRow.concessions = buildAssistConcessionsFromRow(nextRow, nextMultiplier);
+    const primaryItem = nextRow.concessions[0];
+    if (primaryItem?.quantity) nextRow.quantity = primaryItem.quantity;
+    if (primaryItem?.price) nextRow.entryPrice = primaryItem.price;
   }
   return nextRow;
 }
@@ -401,8 +417,35 @@ function isCurrentTrendConcessionSet(concessions) {
     || ratesMatch(rates, [0, 0.3, 0.8]);
 }
 
+function isAssistConcessionSet(concessions) {
+  const rates = getSortedDisplayRates(concessions);
+  return ratesMatch(rates, ASSIST_TIER_RATIOS.map((item) => item.rate))
+    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY)
+    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_66);
+}
+
+function getAssistTierLabel(rate) {
+  const matched = ASSIST_TIER_RATIOS.find((item) => Math.abs(Number(rate) - item.rate) < 1e-9);
+  return matched?.label || formatConcessionPercent(rate);
+}
+
+function shouldHideAssistQuantity(rate) {
+  return Math.abs(Number(rate) - 0.7) < 1e-9;
+}
+
+function formatAssistStrategyTitle(name) {
+  return `${formatStrategyCardTitle(name)}${ASSIST_TITLE_SUFFIX}`;
+}
+
 function getAdminStrategyTypeInfo(row) {
+  const rawConcessions = hasConcessions(row?.concessions) ? row.concessions : [];
+  if (isAssistConcessionSet(rawConcessions)) {
+    return { label: '辅助开单', type: 'assist' };
+  }
   const savedConcessions = buildAdminConcessionsForRow(row);
+  if (isAssistConcessionSet(savedConcessions)) {
+    return { label: '辅助开单', type: 'assist' };
+  }
   if (isMartinConcessionSet(savedConcessions)) {
     return { label: '马丁策略', type: 'martin' };
   }
@@ -523,6 +566,47 @@ function canShowCounterTrend(row) {
   if (entryPrice == null || stopLoss == null || entryPrice === stopLoss) return false;
   const counterStop = calcTakeProfit(entryPrice, stopLoss, COUNTER_TREND_STOP_MULTIPLE);
   return counterStop != null;
+}
+
+function calcAssistTierPrice(from, to, ratio, decimalPlaces) {
+  if (!Number.isFinite(from) || !Number.isFinite(to) || !Number.isFinite(ratio)) return null;
+  const price = from + (to - from) * ratio;
+  if (!Number.isFinite(price)) return null;
+  return Number(formatFixedDecimals(price, decimalPlaces));
+}
+
+function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces) {
+  if (
+    from == null
+    || to == null
+    || from === to
+    || !(openCostTotal > 0)
+  ) {
+    return [];
+  }
+  const stop = from;
+  const items = [];
+  for (const { rate } of ASSIST_TIER_RATIOS) {
+    const price = calcAssistTierPrice(from, to, rate, decimalPlaces);
+    if (price == null || !(price > 0) || price === stop) continue;
+    const qty = calcQuantityByRisk(openCostTotal, price, stop);
+    if (qty == null || !(qty > 0)) continue;
+    items.push({
+      rate,
+      display: true,
+      price: formatTrimmedFixedDecimals(price, decimalPlaces),
+      quantity: formatQuantity(qty),
+    });
+  }
+  return items;
+}
+
+function buildAssistConcessionsFromRow(row, multiplier = OPEN_COST_MULTIPLIER_DEFAULT) {
+  const from = toNumber(row?.inputPrice ?? row?.stopLossPrice);
+  const to = toNumber(row?.inputStopLoss);
+  const openCostTotal = getOpenCostTotal(multiplier);
+  const decimalPlaces = Math.max(3, getAdminPriceDecimalPlacesFromRow(row));
+  return buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces);
 }
 
 function isAdminCounterTrendView(row) {
@@ -1025,6 +1109,7 @@ function normalizeConcessions(value) {
 
 function enrichConcessionsWithBaseline(concessions, entryPrice, quantity) {
   if (!hasConcessions(concessions)) return concessions;
+  if (isAssistConcessionSet(concessions)) return concessions.slice();
   const items = concessions.slice();
   if (!items.some((item) => Number(item.rate) === 0)) {
     const price = String(entryPrice ?? '').trim();
@@ -1377,6 +1462,8 @@ function renderMethodologyPage() {
 
 let currentStrategyCopyText = '';
 let currentStrategyRecord = null;
+let currentAssistCopyText = '';
+let currentAssistRecord = null;
 
 function clearStrategyOutput(outEl = document.getElementById('strategy-output')) {
   if (!outEl) return;
@@ -1636,7 +1723,16 @@ function reverseConcessionPriceQty(displayItems) {
   }));
 }
 
-function renderConcessionsHtml({ prefix, items, stopLabel, stopHeaderLabel = '止损价格', wrapperClass, reverseOrder = false, reversePriceQty = false }) {
+function renderConcessionsHtml({
+  prefix,
+  items,
+  stopLabel,
+  stopHeaderLabel = '止损价格',
+  wrapperClass,
+  reverseOrder = false,
+  reversePriceQty = false,
+  assistLabels = false,
+}) {
   let displayItems = getDisplayConcessionItems(items);
   if (reverseOrder) displayItems = displayItems.slice().reverse();
   if (reversePriceQty) displayItems = reverseConcessionPriceQty(displayItems);
@@ -1644,6 +1740,25 @@ function renderConcessionsHtml({ prefix, items, stopLabel, stopHeaderLabel = '�
   const stop = escapeHtml(String(stopLabel ?? '').trim() || '—');
   const stopHeader = escapeHtml(String(stopHeaderLabel ?? '').trim() || '止损价格');
   const rowClass = `${prefix}-concession`;
+  if (assistLabels) {
+    const rows = displayItems.map((item) => [
+      `<div class="${rowClass}">`,
+      `<span class="${rowClass}__price">${escapeHtml(getAssistTierLabel(item.rate))}</span>`,
+      `<span class="${rowClass}__qty">${escapeHtml(item.price)}</span>`,
+      `<span class="${rowClass}__stop">${shouldHideAssistQuantity(item.rate) ? '' : escapeHtml(item.quantity)}</span>`,
+      '</div>',
+    ].join('')).join('');
+    return [
+      `<div class="${wrapperClass}" aria-label="辅助开单位置">`,
+      `<div class="${rowClass} ${rowClass}--head">`,
+      `<span class="${rowClass}__price">位置</span>`,
+      `<span class="${rowClass}__qty">价格</span>`,
+      `<span class="${rowClass}__stop">数量</span>`,
+      '</div>',
+      rows,
+      '</div>',
+    ].join('');
+  }
   const rows = displayItems.map((item) => [
     `<div class="${rowClass}">`,
     `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`,
@@ -1671,6 +1786,7 @@ function renderStrategyConcessionsHtml(items, stopLabel, options = {}) {
     stopHeaderLabel: options.stopHeaderLabel,
     wrapperClass: 'strategy-card__concessions',
     reverseOrder: options.reverseOrder === true,
+    assistLabels: options.assistLabels === true,
   });
 }
 
@@ -1683,23 +1799,39 @@ function buildStrategyDisplayHtml({
   concessionItems,
   timeRangeLabel,
   reverseOrder = false,
+  assistLabels = false,
+  titleText = null,
+  titleTagHtml = '',
+  cardMod = '',
+  footerHtml = null,
 }) {
   const sideMod = getPositionSideMod(side);
-  const title = formatStrategyCardTitle(alarmName);
+  const title = titleText == null ? formatStrategyCardTitle(alarmName) : String(titleText);
   const refTakeProfitHtml = refTakeProfitLabel == null
     ? ''
     : renderReferenceTakeProfitHtml('strategy-card__ref-tp', refTakeProfitLabel);
+  const timeHtml = timeRangeLabel == null
+    ? ''
+    : `<div class="strategy-card__time"><span class="strategy-card__time-label">时间范围</span><span class="strategy-card__time-value">${escapeHtml(timeRangeLabel)}</span></div>`;
+  const footerBlock = footerHtml == null ? timeHtml : footerHtml;
+  const cardClass = [
+    'strategy-card',
+    `strategy-card--${sideMod}`,
+    cardMod ? `strategy-card--${cardMod}` : '',
+  ].filter(Boolean).join(' ');
   return [
-    `<div class="strategy-card strategy-card--${sideMod}">`,
+    `<div class="${cardClass}">`,
     '<div class="strategy-card__head">',
     `<span class="strategy-card__title">${escapeHtml(title)}</span>`,
+    titleTagHtml,
     '</div>',
     renderStrategyConcessionsHtml(concessionItems, stopLabel, {
       stopHeaderLabel,
       reverseOrder,
+      assistLabels,
     }),
     refTakeProfitHtml,
-    `<div class="strategy-card__time"><span class="strategy-card__time-label">时间范围</span><span class="strategy-card__time-value">${escapeHtml(timeRangeLabel)}</span></div>`,
+    footerBlock,
     '</div>',
   ].join('');
 }
@@ -1741,6 +1873,7 @@ function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
     wrapperClass: 'admin-item__concessions',
     reversePriceQty: options.reversePriceQty === true,
     reverseOrder: options.reverseOrder === true,
+    assistLabels: options.assistLabels === true,
   });
 }
 
@@ -1972,6 +2105,170 @@ function resetFrontPage() {
   const errEl = document.getElementById('error');
   if (errEl) errEl.textContent = '';
   clearStrategyState();
+}
+
+function clearAssistState() {
+  currentAssistCopyText = '';
+  currentAssistRecord = null;
+  const outEl = document.getElementById('assist-output');
+  if (outEl) outEl.innerHTML = '';
+}
+
+function resetAssistPage() {
+  const nameEl = document.getElementById('assist-name-input');
+  const fromEl = document.getElementById('assist-from-input');
+  const toEl = document.getElementById('assist-to-input');
+  const errEl = document.getElementById('assist-error');
+  if (nameEl) nameEl.value = '';
+  if (fromEl) fromEl.value = '';
+  if (toEl) toEl.value = '';
+  if (errEl) errEl.textContent = '';
+  clearAssistState();
+}
+
+function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
+  const nameEl = document.getElementById('assist-name-input');
+  const name = String(nameEl?.value ?? '').trim() || 'test';
+  const side = to > from ? 'long' : 'short';
+  const stop = from;
+  const takeProfit = to;
+  const stopLabel = formatTrimmedFixedDecimals(stop, priceDecimalPlaces);
+  const tpLabel = formatTrimmedFixedDecimals(takeProfit, priceDecimalPlaces);
+  const concessionItems = buildAssistConcessionItems(from, to, openCostTotal, priceDecimalPlaces);
+  if (!concessionItems.length) return null;
+  const primaryItem = concessionItems[0];
+  const timeframe = getTimeframeMode();
+  const unitMin = getTimeframeMinutes(timeframe);
+  const spanMinutes = unitMin * STRATEGY_DURATION_PERIODS;
+  const timeEl = document.getElementById('start-time');
+  const startValue = timeEl && 'value' in timeEl ? String(timeEl.value).trim() : '';
+  const startAt = startValue ? getStartDateTime(startValue) : new Date();
+  const endAt = startValue
+    ? addPeriodToStart(startValue, spanMinutes)
+    : (startAt ? new Date(startAt.getTime() + spanMinutes * 60 * 1000) : null);
+  const openCostMultiplier = OPEN_COST_MULTIPLIER_DEFAULT;
+  const openCost = openCostTotal / DEFAULT_TIER_COUNT;
+
+  const fromLabel = formatTrimmedFixedDecimals(from, priceDecimalPlaces);
+  const toLabel = formatTrimmedFixedDecimals(to, priceDecimalPlaces);
+  const html = buildStrategyDisplayHtml({
+    side,
+    alarmName: name,
+    stopLabel,
+    stopHeaderLabel: '止损价格',
+    refTakeProfitLabel: null,
+    concessionItems,
+    timeRangeLabel: null,
+    assistLabels: true,
+    titleText: formatStrategyCardTitle(name),
+    titleTagHtml: '<span class="admin-assist-tag" aria-label="辅助开单">辅助开单</span>',
+    cardMod: 'assist',
+    footerHtml: [
+      '<div class="strategy-card__time strategy-card__assist-prices">',
+      '<span class="strategy-card__time-label">止盈价格</span>',
+      `<span class="strategy-card__time-value">${escapeHtml(toLabel)}</span>`,
+      '<span class="strategy-card__time-label">止损价格</span>',
+      `<span class="strategy-card__time-value">${escapeHtml(fromLabel)}</span>`,
+      '</div>',
+    ].join(''),
+  });
+  const copyText = [
+    formatAssistStrategyTitle(name),
+    ...concessionItems.map((item) => (
+      shouldHideAssistQuantity(item.rate)
+        ? `${getAssistTierLabel(item.rate)}：${item.price}`
+        : `${getAssistTierLabel(item.rate)}：${item.price} / ${item.quantity}`
+    )),
+    `止盈价格：${toLabel}`,
+    `止损价格：${fromLabel}`,
+  ].join('\n');
+
+  const record = {
+    strategyName: name,
+    positionSide: side,
+    inputPrice: formatTrimmedFixedDecimals(from, priceDecimalPlaces),
+    inputStopLoss: formatTrimmedFixedDecimals(to, priceDecimalPlaces),
+    entryPrice: primaryItem.price,
+    quantity: primaryItem.quantity,
+    takeProfitPrice: tpLabel,
+    stopLossPrice: stopLabel,
+    openCost,
+    openCostMultiplier,
+    openCostTotal,
+    tierCount: DEFAULT_TIER_COUNT,
+    tradeMode: TRADE_MODE_NORMAL,
+    grade: getStrategyGradeFromOpenCost(openCost, openCostTotal, DEFAULT_TIER_COUNT),
+    priceAdjustmentRate: 0,
+    priceAdjustment: '0',
+    concessions: concessionItems,
+    takeProfitRMultiple: TAKE_PROFIT_R_MULTIPLE,
+    timeframe,
+    timeframeMinutes: unitMin,
+    timeframeLabel: getTimeframeLabel(timeframe),
+    validPeriods: STRATEGY_DURATION_PERIODS,
+    durationMinutes: spanMinutes,
+    startAt: startAt ? startAt.toISOString() : null,
+    expiresAt: endAt ? endAt.toISOString() : null,
+    outcomeStatus: 'pending',
+    viewMode: STRATEGY_VIEW_MODE_TREND,
+  };
+
+  return { html, copyText, record };
+}
+
+function generateAssist() {
+  const fromEl = document.getElementById('assist-from-input');
+  const toEl = document.getElementById('assist-to-input');
+  const errEl = document.getElementById('assist-error');
+  const from = toNumber(fromEl && 'value' in fromEl ? fromEl.value : '');
+  const to = toNumber(toEl && 'value' in toEl ? toEl.value : '');
+  const openCostTotal = getOpenCostTotal();
+
+  if (errEl) errEl.textContent = '';
+
+  if (from == null || to == null) {
+    if (errEl) errEl.textContent = '请输入有效的 from 与 to（数字）。';
+    clearAssistState();
+    return;
+  }
+  if (!(from > 0) || !(to > 0)) {
+    if (errEl) errEl.textContent = 'from 和 to 须为大于 0 的数字。';
+    clearAssistState();
+    return;
+  }
+  if (from === to) {
+    if (errEl) errEl.textContent = 'from 与 to 不能相同。';
+    clearAssistState();
+    return;
+  }
+
+  const priceDecimals = Math.max(3, getPriceDecimalPlacesFromValues(fromEl?.value, toEl?.value));
+  const strategy = buildAssistStrategy(from, to, openCostTotal, priceDecimals);
+  if (!strategy) {
+    if (errEl) errEl.textContent = '无法生成辅助开单档位，请检查 from / to。';
+    clearAssistState();
+    return;
+  }
+
+  currentAssistCopyText = strategy.copyText;
+  currentAssistRecord = strategy.record;
+  const outEl = document.getElementById('assist-output');
+  if (outEl) outEl.innerHTML = strategy.html || '';
+}
+
+function autoGenerateAssistIfReady() {
+  if (currentPage !== 'assist') return;
+  const fromEl = document.getElementById('assist-from-input');
+  const toEl = document.getElementById('assist-to-input');
+  const fromVal = String(fromEl?.value ?? '').trim();
+  const toVal = String(toEl?.value ?? '').trim();
+  if (fromVal && toVal) {
+    generateAssist();
+    return;
+  }
+  const errEl = document.getElementById('assist-error');
+  if (errEl) errEl.textContent = '';
+  clearAssistState();
 }
 
 /**
@@ -2296,14 +2593,18 @@ let adminSortByExpiresAsc = false;
 function getAdminNameFilterKey(name) {
   const raw = String(name ?? '').trim();
   if (!raw) return '';
+  return raw.toLowerCase();
+}
+
+function getAdminRowNameFilterKey(row) {
+  const raw = String(row?.strategyName ?? '').trim();
+  if (!raw) return '';
   return formatStrategyCardTitle(raw).toLowerCase();
 }
 
 function rowMatchesAdminNameFilter(row) {
   if (!adminNameFilter) return true;
-  const raw = String(row?.strategyName ?? '').trim();
-  if (!raw) return false;
-  return getAdminNameFilterKey(raw) === adminNameFilter;
+  return getAdminRowNameFilterKey(row) === adminNameFilter;
 }
 
 function getFilteredAdminRows(rows = latestAdminRows) {
@@ -2374,6 +2675,7 @@ function collectAdminNameCounts(rows) {
   for (const row of rows) {
     const raw = String(row?.strategyName ?? '').trim();
     if (!raw) continue;
+    const type = getAdminStrategyTypeInfo(row).type;
     const display = formatStrategyCardTitle(raw);
     const key = display.toLowerCase();
     if (!counts.has(key)) {
@@ -2381,7 +2683,7 @@ function collectAdminNameCounts(rows) {
       counts.set(key, {
         name: display,
         count: 0,
-        type: getAdminStrategyTypeInfo(row).type,
+        type,
       });
     }
     counts.get(key).count += 1;
@@ -2391,7 +2693,8 @@ function collectAdminNameCounts(rows) {
 
 function getAdminVisibleMultiplierTotal(rows = latestAdminRows) {
   return getFilteredAdminRows(rows).reduce((sum, row) => {
-    if (getAdminStrategyTypeInfo(row).type !== 'trend') return sum;
+    const type = getAdminStrategyTypeInfo(row).type;
+    if (type !== 'trend' && type !== 'assist') return sum;
     const id = String(row?.id ?? '').trim();
     return sum + getAdminOpenCostMultiplier(id, row);
   }, 0);
@@ -2417,7 +2720,7 @@ function renderAdminActiveNames(rows = latestAdminRows) {
   el.hidden = false;
   const multiplierHtml = showMultiplierTotal
     ? [
-      '<span class="admin-active-names__metric" title="当前进行中的趋势单成本合计">',
+      '<span class="admin-active-names__metric" title="当前进行中的趋势单与辅助开单成本合计">',
       '<span class="admin-active-names__metric-label">已用本金</span>',
       `<span class="admin-active-names__metric-value">${costTotal}</span>`,
       '</span>',
@@ -2430,7 +2733,7 @@ function renderAdminActiveNames(rows = latestAdminRows) {
   ].join('');
   const activeKey = adminNameFilter;
   const namesHtml = nameCounts.map(({ name, count, type }) => {
-    const strategyType = type === 'martin' ? 'martin' : 'trend';
+    const strategyType = type === 'martin' ? 'martin' : (type === 'assist' ? 'assist' : 'trend');
     const isActive = activeKey && getAdminNameFilterKey(name) === activeKey;
     const countHtml = count > 1
       ? `<span class="admin-active-names__count">${count}</span>`
@@ -2755,14 +3058,19 @@ function buildAdminListItemHtml(row) {
   const sideMod = showCounterTrend
     ? (baseSideMod === 'long' ? 'short' : 'long')
     : baseSideMod;
-  const title = escapeHtml(formatStrategyCardTitle(nameRaw));
-  const titleLabel = escapeHtml(formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark));
   const strategyType = getAdminStrategyTypeInfo(row);
+  const isAssistStrategy = strategyType.type === 'assist';
+  const title = escapeHtml(formatStrategyCardTitle(nameRaw));
+  const titleLabel = escapeHtml(
+    isAssistStrategy
+      ? `${formatAssistStrategyTitle(nameRaw)}${String(row?.outcomeRemark ?? '').trim() ? `，备注：${String(row.outcomeRemark).trim()}` : ''}`
+      : formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark),
+  );
   const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
   const priceDecimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
   const isTrendStrategy = strategyType.type === 'trend';
   const costMultiplier = getAdminOpenCostMultiplier(rawId, row);
-  const multiplierHtml = rawId && isTrendStrategy
+  const multiplierHtml = rawId && (isTrendStrategy || isAssistStrategy)
     ? buildAdminCostMultiplierHtml(rawId, costMultiplier)
     : '';
   let concessions;
@@ -2773,6 +3081,10 @@ function buildAdminListItemHtml(row) {
     concessions = counter.items;
     stop = counter.stopLoss || '-';
     refTakeProfitLabel = counter.refTakeProfit || '—';
+  } else if (isAssistStrategy) {
+    concessions = buildAssistConcessionsFromRow(row, costMultiplier);
+    stop = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '-';
+    refTakeProfitLabel = null;
   } else {
     concessions = isTrendStrategy
       ? buildTrendAdminConcessions(row, costMultiplier)
@@ -2786,14 +3098,29 @@ function buildAdminListItemHtml(row) {
   const concessionsHtml = renderAdminConcessionsHtml(concessions, stop, {
     stopHeaderLabel: '止损价格',
     priceDecimalPlaces,
+    assistLabels: isAssistStrategy,
   });
   const baseStartAt = getStrategyStartAt(row);
   const baseEndAt = getStrategyEndAt(row);
   const counterTimeRange = showCounterTrend ? getCounterTrendTimeRange(row) : null;
   const startAt = showCounterTrend ? counterTimeRange?.startAt : baseStartAt;
   const endAt = showCounterTrend ? counterTimeRange?.endAt : baseEndAt;
-  const timeRange = escapeHtml(formatAdminTimeRange(startAt, endAt));
-  const expiresAt = endAt ? escapeHtml(endAt.toISOString()) : '';
+  const timeRange = isAssistStrategy
+    ? ''
+    : escapeHtml(formatAdminTimeRange(startAt, endAt));
+  const assistFromLabel = isAssistStrategy
+    ? (formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—')
+    : '';
+  const assistToLabel = isAssistStrategy
+    ? (formatAdminPriceFromValue(row?.inputStopLoss ?? row?.takeProfitPrice, priceDecimalPlaces) || '—')
+    : '';
+  const assistMetaHtml = isAssistStrategy
+    ? [
+      `<span class="admin-item__assist-price" aria-label="止盈价格">止盈 ${escapeHtml(assistToLabel)}</span>`,
+      `<span class="admin-item__assist-price" aria-label="止损价格">止损 ${escapeHtml(assistFromLabel)}</span>`,
+    ].join('')
+    : '';
+  const expiresAt = !isAssistStrategy && endAt ? escapeHtml(endAt.toISOString()) : '';
   const checked = rawId && selectedStrategyIds.has(rawId) ? ' checked' : '';
   const disabled = isDeletingStrategies ? ' disabled' : '';
   const selectorDisabled = isDeletingStrategies ? ' is-disabled' : '';
@@ -2807,7 +3134,7 @@ function buildAdminListItemHtml(row) {
     : '';
   const outcomeStatus = normalizeOutcomeStatus(row?.outcomeStatus);
   const outcomeTimeStatus = getTimeRangeStatusByEndAt(baseEndAt);
-  const timeBadge = getTimeBadgeInfo(endAt);
+  const timeBadge = isAssistStrategy ? null : getTimeBadgeInfo(endAt);
   const outcomeInfo = getOutcomeStatusInfo(outcomeStatus);
   const timeBadgeUrgent = timeBadge?.type === 'active' && isCountdownWithinUrgentWindow(endAt)
     ? ' admin-time-status--urgent'
@@ -2833,14 +3160,18 @@ function buildAdminListItemHtml(row) {
   const counterTrendHtml = rawId && canShowCounterTrend(row)
     ? [
       `<button type="button" class="admin-counter-trend${showCounterTrend ? ' is-active' : ''}${updatingAdminViewModeIds.has(rawId) ? ' is-syncing' : ''}" data-counter-trend-toggle data-id="${id}" aria-pressed="${showCounterTrend ? 'true' : 'false'}" aria-busy="${updatingAdminViewModeIds.has(rawId) ? 'true' : 'false'}"${updatingAdminViewModeIds.has(rawId) ? ' disabled' : ''} aria-label="${showCounterTrend ? '切换回趋势策略' : '查看反趋势策略'}">`,
-      `<span class="admin-counter-trend__tag">${showCounterTrend ? '反趋势中' : '趋势中'}</span>`,
+      `<span class="admin-counter-trend__tag">${showCounterTrend ? '反趋势' : '趋势'}</span>`,
       '</button>',
     ].join('')
+    : '';
+  const assistTagHtml = isAssistStrategy
+    ? '<span class="admin-assist-tag" aria-label="辅助开单">辅助开单</span>'
     : '';
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
     counterTrendHtml,
+    assistTagHtml,
     '</div>',
   ].join('');
   const headRightHtml = [
@@ -2851,7 +3182,7 @@ function buildAdminListItemHtml(row) {
   ].join('');
   const buttonsHtml = `<div class="admin-item__buttons">${multiplierHtml}</div>`;
   return [
-    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}">`,
+    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}">`,
     remarkStampHtml,
     '<header class="admin-item__head">',
     selectHtml,
@@ -2862,7 +3193,9 @@ function buildAdminListItemHtml(row) {
     refTakeProfitHtml,
     '<div class="admin-item__actions">',
     '<div class="admin-item__meta">',
-    `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
+    isAssistStrategy
+      ? assistMetaHtml
+      : `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
     '</div>',
     buttonsHtml,
     '</div>',
@@ -3142,6 +3475,7 @@ async function renderCasesPage() {
 
 let observationContentColumnAvailable = true;
 const OBS_DAILY_TIMEFRAME = '1d';
+const OBS_DURATION_PERIODS = 9;
 
 function isMissingObservationContentColumnError(errorText) {
   return /content/i.test(String(errorText ?? ''))
@@ -3181,7 +3515,7 @@ function formatObservationTimeRange(timeValue, timeLabel = '') {
 
 function getObservationEndAtFromStart(startAt) {
   if (!(startAt instanceof Date) || Number.isNaN(startAt.getTime())) return null;
-  const spanMinutes = getTimeframeMinutes(OBS_DAILY_TIMEFRAME) * STRATEGY_DURATION_PERIODS;
+  const spanMinutes = getTimeframeMinutes(OBS_DAILY_TIMEFRAME) * OBS_DURATION_PERIODS;
   return new Date(startAt.getTime() + spanMinutes * 60 * 1000);
 }
 
@@ -3781,6 +4115,7 @@ function setPage(mode) {
     return;
   }
   const front = document.getElementById('front-page');
+  const assist = document.getElementById('assist-page');
   const admin = document.getElementById('admin-page');
   const stats = document.getElementById('stats-page');
   const methodology = document.getElementById('methodology-page');
@@ -3792,9 +4127,10 @@ function setPage(mode) {
   const btnMethodology = document.getElementById('btn-tab-methodology');
   const btnCases = document.getElementById('btn-tab-cases');
   const btnObservations = document.getElementById('btn-tab-observations');
-  if (!front || !admin || !stats || !methodology || !cases || !observations || !btnTrend || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations) return;
+  const btnAssist = document.getElementById('btn-tab-assist');
+  if (!front || !assist || !admin || !stats || !methodology || !cases || !observations || !btnTrend || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations || !btnAssist) return;
 
-  const allowedPages = ['admin', 'stats', 'methodology', 'cases', 'observations', ...FRONT_PAGES];
+  const allowedPages = ['admin', 'stats', 'methodology', 'cases', 'observations', 'assist', ...FRONT_PAGES];
   const normalizedMode = allowedPages.includes(mode) ? mode : 'trend';
   const wasFront = FRONT_PAGES.includes(currentPage);
   const toAdmin = normalizedMode === 'admin';
@@ -3802,12 +4138,14 @@ function setPage(mode) {
   const toMethodology = normalizedMode === 'methodology';
   const toCases = normalizedMode === 'cases';
   const toObservations = normalizedMode === 'observations';
+  const toAssist = normalizedMode === 'assist';
   const toTrend = normalizedMode === 'trend';
   const toFront = FRONT_PAGES.includes(normalizedMode);
 
   currentPage = normalizedMode;
 
   front.hidden = !toFront;
+  assist.hidden = !toAssist;
   admin.hidden = !toAdmin;
   stats.hidden = !toStats;
   methodology.hidden = !toMethodology;
@@ -3819,13 +4157,17 @@ function setPage(mode) {
   btnAdmin.classList.toggle('is-active', toAdmin);
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   btnStats.classList.toggle('is-active', toStats);
-  btnStats.setAttribute('aria-selected', toStats ? 'true' : 'false');
   btnMethodology.classList.toggle('is-active', toMethodology);
-  btnMethodology.setAttribute('aria-selected', toMethodology ? 'true' : 'false');
   btnCases.classList.toggle('is-active', toCases);
-  btnCases.setAttribute('aria-selected', toCases ? 'true' : 'false');
   btnObservations.classList.toggle('is-active', toObservations);
-  btnObservations.setAttribute('aria-selected', toObservations ? 'true' : 'false');
+  btnAssist.classList.toggle('is-active', toAssist);
+  btnAssist.setAttribute('aria-selected', toAssist ? 'true' : 'false');
+
+  const moreToggle = document.getElementById('admin-more-toggle');
+  if (moreToggle) {
+    moreToggle.classList.toggle('is-active', toMethodology || toCases || toObservations);
+  }
+  closeAdminMoreMenu();
 
   if (!toObservations) resetObsPageState();
 
@@ -3833,26 +4175,36 @@ function setPage(mode) {
 
   if (toAdmin) {
     resetFrontPage();
+    resetAssistPage();
     resetAdminPageState();
     renderAdminList().catch(() => {});
   } else if (toStats) {
     resetFrontPage();
+    resetAssistPage();
     resetAdminPageState();
     renderStatsPage().catch(() => {});
   } else if (toMethodology) {
     resetFrontPage();
+    resetAssistPage();
     resetAdminPageState();
     renderMethodologyPage();
   } else if (toCases) {
     resetFrontPage();
+    resetAssistPage();
     resetAdminPageState();
     renderCasesPage().catch(() => {});
   } else if (toObservations) {
     resetFrontPage();
+    resetAssistPage();
     resetAdminPageState();
     resetObsPageState();
     renderObservationsPage().catch(() => {});
+  } else if (toAssist) {
+    resetFrontPage();
+    resetAdminPageState();
+    autoGenerateAssistIfReady();
   } else if (toFront) {
+    resetAssistPage();
     resetAdminPageState();
     if (!wasFront) resetFrontPage();
     updateTradeModeAppearance();
@@ -3968,6 +4320,79 @@ async function copyStrategyOutput() {
 
 const btnCopyStrategy = document.getElementById('btn-copy-strategy');
 if (btnCopyStrategy) btnCopyStrategy.addEventListener('click', copyStrategyOutput);
+
+let isSavingAssist = false;
+
+async function saveAssistOutput() {
+  const btn = document.getElementById('btn-save-assist');
+  const errEl = document.getElementById('assist-error');
+  const nameEl = document.getElementById('assist-name-input');
+  const name = String(nameEl?.value ?? '').trim();
+  if (!name) {
+    if (errEl) errEl.textContent = '保存前请填写名称。';
+    flashCopyStrategyBtn(btn, '请填名称');
+    return;
+  }
+  if (errEl) errEl.textContent = '';
+  if (!currentAssistCopyText || !currentAssistRecord) {
+    flashCopyStrategyBtn(btn, '无内容');
+    return;
+  }
+  if (isSavingAssist) return;
+  isSavingAssist = true;
+  if (btn) {
+    if (!btn.dataset.defaultLabel) btn.dataset.defaultLabel = btn.textContent;
+    if (btn._flashTimer) {
+      clearTimeout(btn._flashTimer);
+      btn._flashTimer = null;
+    }
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.textContent = '保存中';
+  }
+
+  let saved = false;
+  try {
+    const record = enrichStrategyRecordForSubmit({
+      ...currentAssistRecord,
+      strategyName: name,
+    });
+    await createStrategy(record);
+    saved = true;
+    if (currentPage === 'admin') await renderAdminList();
+    showToast('保存成功');
+    resetAssistPage();
+    flashCopyStrategyBtn(btn, '已保存');
+  } catch (err) {
+    logSave('error', '辅助开单保存失败', {
+      message: err?.message || String(err),
+    });
+    if (errEl) errEl.textContent = '保存失败。请检查 Supabase 表和权限。';
+    flashCopyStrategyBtn(btn, '保存失败');
+  } finally {
+    isSavingAssist = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      if (!saved && !btn._flashTimer) {
+        btn.textContent = btn.dataset.defaultLabel || '保存';
+      }
+    }
+  }
+}
+
+const btnSaveAssist = document.getElementById('btn-save-assist');
+if (btnSaveAssist) btnSaveAssist.addEventListener('click', () => {
+  saveAssistOutput().catch(() => {});
+});
+
+const assistNameInput = document.getElementById('assist-name-input');
+const assistFromInput = document.getElementById('assist-from-input');
+const assistToInput = document.getElementById('assist-to-input');
+if (assistNameInput) assistNameInput.addEventListener('input', autoGenerateAssistIfReady);
+if (assistFromInput) assistFromInput.addEventListener('input', autoGenerateAssistIfReady);
+if (assistToInput) assistToInput.addEventListener('input', autoGenerateAssistIfReady);
+
 const clearAll = () => {
   if (currentPage === 'admin') {
     if (!isAdminSelectionMode) {
@@ -4008,6 +4433,54 @@ const btnTabCases = document.getElementById('btn-tab-cases');
 if (btnTabCases) btnTabCases.addEventListener('click', () => setPage('cases'));
 const btnTabObservations = document.getElementById('btn-tab-observations');
 if (btnTabObservations) btnTabObservations.addEventListener('click', () => setPage('observations'));
+const btnTabAssist = document.getElementById('btn-tab-assist');
+if (btnTabAssist) btnTabAssist.addEventListener('click', () => setPage('assist'));
+
+function isAdminMoreMenuOpen() {
+  const menu = document.getElementById('admin-more-menu');
+  return Boolean(menu && !menu.hidden);
+}
+
+function openAdminMoreMenu() {
+  const menu = document.getElementById('admin-more-menu');
+  const toggle = document.getElementById('admin-more-toggle');
+  if (!menu || !toggle) return;
+  menu.hidden = false;
+  toggle.setAttribute('aria-expanded', 'true');
+}
+
+function closeAdminMoreMenu() {
+  const menu = document.getElementById('admin-more-menu');
+  const toggle = document.getElementById('admin-more-toggle');
+  if (!menu || !toggle) return;
+  menu.hidden = true;
+  toggle.setAttribute('aria-expanded', 'false');
+}
+
+function toggleAdminMoreMenu() {
+  if (isAdminMoreMenuOpen()) closeAdminMoreMenu();
+  else openAdminMoreMenu();
+}
+
+const adminMoreToggle = document.getElementById('admin-more-toggle');
+if (adminMoreToggle) {
+  adminMoreToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleAdminMoreMenu();
+  });
+}
+
+document.addEventListener('click', (e) => {
+  if (!isAdminMoreMenuOpen()) return;
+  const more = document.querySelector('.admin-more');
+  const target = e.target;
+  if (more && target instanceof Node && more.contains(target)) return;
+  closeAdminMoreMenu();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && isAdminMoreMenuOpen()) closeAdminMoreMenu();
+});
 
 const obsAddBtn = document.getElementById('obs-add-btn');
 if (obsAddBtn) obsAddBtn.addEventListener('click', openObservationFormPicker);
