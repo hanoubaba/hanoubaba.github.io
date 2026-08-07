@@ -182,9 +182,11 @@ let frontTimeframeMode = DEFAULT_TIMEFRAME;
 
 const PRICE_ADJUSTMENT_RATE = 0;
 const CONCESSION_RATES = [
-  { rate: 0.8, costShare: 1 / 3 },
-  { rate: 0.5, costShare: 1 / 3 },
+  { rate: 0, display: true, reuseMinTierCost: true },
+  { rate: 0.1, display: true, reuseMinTierCost: true },
   { rate: 0.2, costShare: 1 / 3 },
+  { rate: 0.5, costShare: 1 / 3 },
+  { rate: 0.8, costShare: 1 / 3 },
 ];
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
@@ -201,8 +203,10 @@ const STRATEGY_DURATION_PERIODS = 10;
 /** 反趋势：挂单档位 = 原策略 3/4/5 倍止盈价，止损 = 10 倍止盈价 */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 4, 5];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
-/** 辅助开单：from→to 区间的 30%、48%、80% 位置；本金仅 30%/48% 两档按 3:2 分配 */
+/** 辅助开单：10%/20% 复用最小让利档（30%）仓位；本金仅 30%/48% 按 3:2 分配；80% 仅展示 */
 const ASSIST_TIER_RATIOS = [
+  { rate: 0.1, label: '10%', reuseMinTierCost: true },
+  { rate: 0.2, label: '20%', reuseMinTierCost: true },
   { rate: 0.3, label: '30%', costShare: 3 / 5 },
   { rate: 0.48, label: '48%', costShare: 2 / 5 },
   { rate: 0.8, label: '80%', costShare: 0 },
@@ -212,6 +216,7 @@ const ASSIST_TIER_RATES_LEGACY = [1 / 3, 1 / 2, 2 / 3];
 const ASSIST_TIER_RATES_LEGACY_66 = [0.3, 0.5, 0.66];
 const ASSIST_TIER_RATES_LEGACY_70 = [0.3, 0.5, 0.7];
 const ASSIST_TIER_RATES_LEGACY_75 = [0.33, 0.48, 0.75];
+const ASSIST_TIER_RATES_LEGACY_30_48_80 = [0.3, 0.48, 0.8];
 const ASSIST_TITLE_SUFFIX = ' (辅助开单)';
 
 function clampOpenCostMultiplier(value) {
@@ -339,6 +344,7 @@ function getOpenCost() {
 }
 
 function getTierCountFromConcessions(concessions) {
+  if (isCurrentTrendConcessionSet(concessions)) return DEFAULT_TIER_COUNT;
   const count = getDisplayConcessionItems(concessions).length;
   return isKnownTierCount(count) ? count : DEFAULT_TIER_COUNT;
 }
@@ -364,7 +370,7 @@ function getOpenCostTotalFromRow(row) {
 function inferReverseFromConcessions(entryPrice, stopLoss, concessions, decimalPlaces) {
   const displayItems = getDisplayConcessionItems(concessions);
   if (!displayItems.length) return false;
-  const first = displayItems[0];
+  const first = displayItems.find((item) => Math.abs(Number(item.rate)) > 1e-9) || displayItems[0];
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
   const rate = Number(first.rate);
@@ -415,7 +421,8 @@ function isMartinConcessionSet(concessions) {
 
 function isCurrentTrendConcessionSet(concessions) {
   const rates = getSortedDisplayRates(concessions);
-  return ratesMatch(rates, [0.2, 0.5, 0.8])
+  return ratesMatch(rates, [0, 0.1, 0.2, 0.5, 0.8])
+    || ratesMatch(rates, [0.2, 0.5, 0.8])
     || ratesMatch(rates, [0, 0.3, 0.8]);
 }
 
@@ -425,7 +432,8 @@ function isAssistConcessionSet(concessions) {
     || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY)
     || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_66)
     || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_70)
-    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_75);
+    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_75)
+    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_30_48_80);
 }
 
 function getAssistTierLabel(rate) {
@@ -589,20 +597,28 @@ function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces) {
     return [];
   }
   const stop = from;
+  const minFundedShare = getMinFundedTierCostShare(ASSIST_TIER_RATIOS);
   const items = [];
-  for (const { rate, costShare } of ASSIST_TIER_RATIOS) {
+  for (const rateConfig of ASSIST_TIER_RATIOS) {
+    const { rate, costShare, reuseMinTierCost } = normalizeConcessionRateConfig(rateConfig);
     const price = calcAssistTierPrice(from, to, rate, decimalPlaces);
     if (price == null || !(price > 0) || price === stop) continue;
-    const share = Number(costShare);
-    const tierOpenCost = share > 0 ? getTierOpenCostBudget(openCostTotal, share) : null;
+    const share = reuseMinTierCost
+      ? minFundedShare
+      : (costShare != null ? costShare : null);
+    const tierOpenCost = share != null && share > 0
+      ? getTierOpenCostBudget(openCostTotal, share)
+      : null;
     const qty = tierOpenCost != null ? calcQuantityByRisk(tierOpenCost, price, stop) : null;
-    if (share > 0 && (qty == null || !(qty > 0))) continue;
-    items.push({
+    if (share != null && share > 0 && (qty == null || !(qty > 0))) continue;
+    const item = {
       rate,
       display: true,
       price: formatTrimmedFixedDecimals(price, decimalPlaces),
       quantity: qty != null && qty > 0 ? formatQuantity(qty) : '0.0',
-    });
+    };
+    if (reuseMinTierCost) item.reuseMinTierCost = true;
+    items.push(item);
   }
   return items;
 }
@@ -1667,9 +1683,32 @@ function isDisplayRateConfig(rateConfig) {
   return Number(rate) !== 0 || display === true;
 }
 
+function isFundedRateConfig(rateConfig) {
+  const config = normalizeConcessionRateConfig(rateConfig);
+  return !config.reuseMinTierCost && isDisplayRateConfig(rateConfig);
+}
+
 function countDisplayRateConfigs(rates) {
   if (!Array.isArray(rates)) return 0;
   return rates.filter(isDisplayRateConfig).length;
+}
+
+function countFundedRateConfigs(rates) {
+  if (!Array.isArray(rates)) return 0;
+  return rates.filter(isFundedRateConfig).length;
+}
+
+function getMinFundedTierCostShare(rates) {
+  if (!Array.isArray(rates) || !rates.length) return null;
+  const funded = rates
+    .map((rateConfig) => normalizeConcessionRateConfig(rateConfig))
+    .filter((config) => !config.reuseMinTierCost && Number.isFinite(config.rate));
+  if (!funded.length) return null;
+  funded.sort((a, b) => a.rate - b.rate);
+  const minFunded = funded[0];
+  if (minFunded.costShare != null) return minFunded.costShare;
+  const fundedCount = countFundedRateConfigs(rates);
+  return fundedCount > 0 ? 1 / fundedCount : null;
 }
 
 function getTierOpenCostBudget(openCostTotal, costShare) {
@@ -1683,9 +1722,32 @@ function formatConcessionPercent(rate) {
   return `${Math.round(rate * 100)}%`;
 }
 
+function formatCounterTrendRate(rate) {
+  const n = Number(rate);
+  if (!Number.isFinite(n)) return '—';
+  return `${Math.round(n)}R`;
+}
+
+/** 0% / 10% / 20% / 30% 统一标记为 best */
+const BEST_CONCESSION_RATE_MAX = 0.3;
+
+function isBestConcessionRate(rate) {
+  const n = Number(rate);
+  return Number.isFinite(n) && n <= BEST_CONCESSION_RATE_MAX + 1e-9;
+}
+
+function withBestConcessionLabel(label, rate) {
+  const text = String(label ?? '');
+  if (!isBestConcessionRate(rate)) return text;
+  return text.includes('（best）') ? text : `${text}（best）`;
+}
+
 function getDisplayConcessionItems(items) {
   if (!Array.isArray(items)) return [];
-  return items.filter((item) => Number(item.rate) !== 0 || item.display === true);
+  return items
+    .filter((item) => Number(item.rate) !== 0 || item.display === true)
+    .slice()
+    .sort((a, b) => Number(a.rate) - Number(b.rate));
 }
 
 function normalizeConcessionRateConfig(rateConfig) {
@@ -1695,22 +1757,27 @@ function normalizeConcessionRateConfig(rateConfig) {
       rate: Number(rateConfig.rate),
       display: rateConfig.display === true,
       costShare: Number.isFinite(costShare) && costShare > 0 ? costShare : null,
+      reuseMinTierCost: rateConfig.reuseMinTierCost === true,
     };
   }
   return {
     rate: Number(rateConfig),
     display: false,
     costShare: null,
+    reuseMinTierCost: false,
   };
 }
 
 function buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces, rates = getConcessionRates(), reverse = false) {
-  const displayCount = countDisplayRateConfigs(rates);
+  const fundedCount = countFundedRateConfigs(rates);
+  const minFundedShare = getMinFundedTierCostShare(rates);
   const items = [];
   for (const rateConfig of rates) {
-    const { rate, display, costShare } = normalizeConcessionRateConfig(rateConfig);
+    const { rate, display, costShare, reuseMinTierCost } = normalizeConcessionRateConfig(rateConfig);
     const price = calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces, reverse);
-    const share = costShare != null ? costShare : (displayCount > 0 ? 1 / displayCount : null);
+    const share = reuseMinTierCost
+      ? minFundedShare
+      : (costShare != null ? costShare : (fundedCount > 0 ? 1 / fundedCount : null));
     const tierOpenCost = getTierOpenCostBudget(openCostTotal, share);
     const qty = price == null ? null : calcQuantityByRisk(tierOpenCost, price, stopLoss);
     if (price == null || qty == null) continue;
@@ -1720,6 +1787,7 @@ function buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces
       quantity: formatQuantity(qty),
     };
     if (display) item.display = true;
+    if (reuseMinTierCost) item.reuseMinTierCost = true;
     items.push(item);
   }
   return items;
@@ -1743,10 +1811,12 @@ function renderConcessionsHtml({
   items,
   stopLabel,
   stopHeaderLabel = '止损价格',
+  rateHeaderLabel = '让利',
   wrapperClass,
   reverseOrder = false,
   reversePriceQty = false,
   assistLabels = false,
+  formatRate = formatConcessionPercent,
 }) {
   let displayItems = getDisplayConcessionItems(items);
   if (reverseOrder) displayItems = displayItems.slice().reverse();
@@ -1754,36 +1824,23 @@ function renderConcessionsHtml({
   if (!displayItems.length) return '';
   const stop = escapeHtml(String(stopLabel ?? '').trim() || '—');
   const stopHeader = escapeHtml(String(stopHeaderLabel ?? '').trim() || '止损价格');
+  const rateHeader = escapeHtml(String(rateHeaderLabel ?? '').trim() || '让利');
   const rowClass = `${prefix}-concession`;
-  if (assistLabels) {
-    const rows = displayItems.map((item) => [
-      `<div class="${rowClass}">`,
-      `<span class="${rowClass}__price">${escapeHtml(getAssistTierLabel(item.rate))}</span>`,
-      `<span class="${rowClass}__qty">${escapeHtml(item.price)}</span>`,
-      `<span class="${rowClass}__stop">${shouldHideAssistQuantity(item.rate) ? '' : escapeHtml(item.quantity)}</span>`,
-      '</div>',
-    ].join('')).join('');
-    return [
-      `<div class="${wrapperClass}" aria-label="辅助开单位置">`,
-      `<div class="${rowClass} ${rowClass}--head">`,
-      `<span class="${rowClass}__price">位置</span>`,
-      `<span class="${rowClass}__qty">价格</span>`,
-      `<span class="${rowClass}__stop">数量</span>`,
-      '</div>',
-      rows,
-      '</div>',
-    ].join('');
-  }
+  const rateFormatter = assistLabels
+    ? (rate) => getAssistTierLabel(rate)
+    : formatRate;
   const rows = displayItems.map((item) => [
     `<div class="${rowClass}">`,
+    `<span class="${rowClass}__rate">${escapeHtml(withBestConcessionLabel(rateFormatter(item.rate), item.rate))}</span>`,
     `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`,
-    `<span class="${rowClass}__qty">${escapeHtml(item.quantity)}</span>`,
+    `<span class="${rowClass}__qty">${assistLabels && shouldHideAssistQuantity(item.rate) ? '' : escapeHtml(item.quantity)}</span>`,
     `<span class="${rowClass}__stop">${stop}</span>`,
     '</div>',
   ].join('')).join('');
   return [
-    `<div class="${wrapperClass}" aria-label="让利档位">`,
+    `<div class="${wrapperClass}" aria-label="${assistLabels ? '辅助开单位置' : '让利档位'}">`,
     `<div class="${rowClass} ${rowClass}--head">`,
+    `<span class="${rowClass}__rate">${rateHeader}</span>`,
     `<span class="${rowClass}__price">价格</span>`,
     `<span class="${rowClass}__qty">数量</span>`,
     `<span class="${rowClass}__stop">${stopHeader}</span>`,
@@ -1799,9 +1856,11 @@ function renderStrategyConcessionsHtml(items, stopLabel, options = {}) {
     items,
     stopLabel,
     stopHeaderLabel: options.stopHeaderLabel,
+    rateHeaderLabel: options.rateHeaderLabel,
     wrapperClass: 'strategy-card__concessions',
     reverseOrder: options.reverseOrder === true,
     assistLabels: options.assistLabels === true,
+    formatRate: options.formatRate,
   });
 }
 
@@ -1862,7 +1921,7 @@ function buildStrategyPlainText({
   return [
     sideLabel,
     ...displayItems.map((item) => (
-      `让利${formatConcessionPercent(item.rate)}：${item.price} / ${item.quantity} / ${stopLabel}`
+      `让利${withBestConcessionLabel(formatConcessionPercent(item.rate), item.rate)}：${item.price} / ${item.quantity} / ${stopLabel}`
     )),
     `参考止盈：${refTakeProfitLabel}`,
     `时间范围：${timeRangeLabel}`,
@@ -1885,10 +1944,12 @@ function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
     items: formatAdminConcessionItems(concessions, priceDecimalPlaces),
     stopLabel: formatAdminPriceFromValue(stopLabel, priceDecimalPlaces),
     stopHeaderLabel: options.stopHeaderLabel,
+    rateHeaderLabel: options.rateHeaderLabel,
     wrapperClass: 'admin-item__concessions',
     reversePriceQty: options.reversePriceQty === true,
     reverseOrder: options.reverseOrder === true,
     assistLabels: options.assistLabels === true,
+    formatRate: options.formatRate,
   });
 }
 
@@ -2189,11 +2250,12 @@ function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
   });
   const copyText = [
     formatAssistStrategyTitle(name),
-    ...concessionItems.map((item) => (
-      shouldHideAssistQuantity(item.rate)
-        ? `${getAssistTierLabel(item.rate)}：${item.price}`
-        : `${getAssistTierLabel(item.rate)}：${item.price} / ${item.quantity}`
-    )),
+    ...concessionItems.map((item) => {
+      const label = withBestConcessionLabel(getAssistTierLabel(item.rate), item.rate);
+      return shouldHideAssistQuantity(item.rate)
+        ? `${label}：${item.price}`
+        : `${label}：${item.price} / ${item.quantity}`;
+    }),
     `止盈价格：${toLabel}`,
     `止损价格：${fromLabel}`,
   ].join('\n');
@@ -3114,6 +3176,14 @@ function buildAdminListItemHtml(row) {
     stopHeaderLabel: '止损价格',
     priceDecimalPlaces,
     assistLabels: isAssistStrategy,
+    ...(showCounterTrend
+      ? {
+        formatRate: formatCounterTrendRate,
+        rateHeaderLabel: '倍数',
+        // 5R 量最大，升序后反转，保证数量从大到小
+        reverseOrder: true,
+      }
+      : {}),
   });
   const baseStartAt = getStrategyStartAt(row);
   const baseEndAt = getStrategyEndAt(row);
