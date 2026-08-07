@@ -238,7 +238,26 @@ function getTimeframeLabel(mode) {
   return TIMEFRAME_LABELS[value] || value;
 }
 
-const FRONT_PAGES = ['trend'];
+const FRONT_PAGES = ['front'];
+const FRONT_MODE_TREND = 'trend';
+const FRONT_MODE_ASSIST = 'assist';
+let frontMode = FRONT_MODE_TREND;
+
+function normalizeFrontMode(mode) {
+  return mode === FRONT_MODE_ASSIST ? FRONT_MODE_ASSIST : FRONT_MODE_TREND;
+}
+
+function isFrontPage(page = currentPage) {
+  return page === 'front' || FRONT_PAGES.includes(page);
+}
+
+function isFrontAssistMode() {
+  return isFrontPage() && frontMode === FRONT_MODE_ASSIST;
+}
+
+function isFrontTrendMode() {
+  return isFrontPage() && frontMode === FRONT_MODE_TREND;
+}
 
 function getTradeMode() {
   return TRADE_MODE_NORMAL;
@@ -2334,7 +2353,7 @@ function generateAssist() {
 }
 
 function autoGenerateAssistIfReady() {
-  if (currentPage !== 'assist') return;
+  if (!isFrontAssistMode()) return;
   const fromEl = document.getElementById('assist-from-input');
   const toEl = document.getElementById('assist-to-input');
   const fromVal = String(fromEl?.value ?? '').trim();
@@ -4194,59 +4213,94 @@ async function submitObservationForm() {
   }
 }
 
+function setFrontMode(mode) {
+  const nextMode = normalizeFrontMode(mode);
+  frontMode = nextMode;
+
+  const trendPanel = document.getElementById('front-trend-panel');
+  const assistPanel = document.getElementById('front-assist-panel');
+  const btnTrend = document.getElementById('btn-front-mode-trend');
+  const btnAssist = document.getElementById('btn-front-mode-assist');
+  const toAssist = nextMode === FRONT_MODE_ASSIST;
+
+  if (trendPanel) trendPanel.hidden = toAssist;
+  if (assistPanel) assistPanel.hidden = !toAssist;
+  if (btnTrend) {
+    btnTrend.classList.toggle('is-active', !toAssist);
+    btnTrend.setAttribute('aria-selected', toAssist ? 'false' : 'true');
+  }
+  if (btnAssist) {
+    btnAssist.classList.toggle('is-active', toAssist);
+    btnAssist.setAttribute('aria-selected', toAssist ? 'true' : 'false');
+  }
+
+  if (!isFrontPage()) return;
+
+  if (toAssist) {
+    autoGenerateAssistIfReady();
+  } else {
+    updateTradeModeAppearance();
+    autoGenerateIfReady();
+  }
+}
+
 function setPage(mode) {
   if (!isAuthReady) {
     showLoginPage();
     return;
   }
   const front = document.getElementById('front-page');
-  const assist = document.getElementById('assist-page');
   const admin = document.getElementById('admin-page');
   const stats = document.getElementById('stats-page');
   const methodology = document.getElementById('methodology-page');
   const cases = document.getElementById('cases-page');
   const observations = document.getElementById('observations-page');
-  const btnTrend = document.getElementById('btn-tab-trend');
+  const btnFront = document.getElementById('btn-tab-front');
   const btnAdmin = document.getElementById('btn-tab-admin');
   const btnStats = document.getElementById('btn-tab-stats');
   const btnMethodology = document.getElementById('btn-tab-methodology');
   const btnCases = document.getElementById('btn-tab-cases');
   const btnObservations = document.getElementById('btn-tab-observations');
-  const btnAssist = document.getElementById('btn-tab-assist');
-  if (!front || !assist || !admin || !stats || !methodology || !cases || !observations || !btnTrend || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations || !btnAssist) return;
+  if (!front || !admin || !stats || !methodology || !cases || !observations || !btnFront || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations) return;
 
-  const allowedPages = ['admin', 'stats', 'methodology', 'cases', 'observations', 'assist', ...FRONT_PAGES];
-  const normalizedMode = allowedPages.includes(mode) ? mode : 'trend';
-  const wasFront = FRONT_PAGES.includes(currentPage);
+  // 兼容旧入口：trend / assist 都归入前台
+  let requestedMode = mode;
+  let requestedFrontMode = null;
+  if (mode === 'trend') {
+    requestedMode = 'front';
+    requestedFrontMode = FRONT_MODE_TREND;
+  } else if (mode === 'assist') {
+    requestedMode = 'front';
+    requestedFrontMode = FRONT_MODE_ASSIST;
+  }
+
+  const allowedPages = ['admin', 'stats', 'methodology', 'cases', 'observations', 'front'];
+  const normalizedMode = allowedPages.includes(requestedMode) ? requestedMode : 'front';
+  const wasFront = isFrontPage(currentPage);
   const toAdmin = normalizedMode === 'admin';
   const toStats = normalizedMode === 'stats';
   const toMethodology = normalizedMode === 'methodology';
   const toCases = normalizedMode === 'cases';
   const toObservations = normalizedMode === 'observations';
-  const toAssist = normalizedMode === 'assist';
-  const toTrend = normalizedMode === 'trend';
-  const toFront = FRONT_PAGES.includes(normalizedMode);
+  const toFront = normalizedMode === 'front';
 
   currentPage = normalizedMode;
 
   front.hidden = !toFront;
-  assist.hidden = !toAssist;
   admin.hidden = !toAdmin;
   stats.hidden = !toStats;
   methodology.hidden = !toMethodology;
   cases.hidden = !toCases;
   observations.hidden = !toObservations;
 
-  btnTrend.classList.toggle('is-active', toTrend);
-  btnTrend.setAttribute('aria-selected', toTrend ? 'true' : 'false');
+  btnFront.classList.toggle('is-active', toFront);
+  btnFront.setAttribute('aria-selected', toFront ? 'true' : 'false');
   btnAdmin.classList.toggle('is-active', toAdmin);
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   btnStats.classList.toggle('is-active', toStats);
   btnMethodology.classList.toggle('is-active', toMethodology);
   btnCases.classList.toggle('is-active', toCases);
   btnObservations.classList.toggle('is-active', toObservations);
-  btnAssist.classList.toggle('is-active', toAssist);
-  btnAssist.setAttribute('aria-selected', toAssist ? 'true' : 'false');
 
   const moreToggle = document.getElementById('admin-more-toggle');
   if (moreToggle) {
@@ -4284,16 +4338,15 @@ function setPage(mode) {
     resetAdminPageState();
     resetObsPageState();
     renderObservationsPage().catch(() => {});
-  } else if (toAssist) {
-    resetFrontPage();
-    resetAdminPageState();
-    autoGenerateAssistIfReady();
   } else if (toFront) {
-    resetAssistPage();
     resetAdminPageState();
-    if (!wasFront) resetFrontPage();
-    updateTradeModeAppearance();
-    autoGenerateIfReady();
+    if (!wasFront) {
+      resetFrontPage();
+      resetAssistPage();
+      frontMode = FRONT_MODE_TREND;
+    }
+    if (requestedFrontMode) frontMode = requestedFrontMode;
+    setFrontMode(frontMode);
   }
 
   syncAdminCountdownTimer();
@@ -4506,8 +4559,8 @@ const clearAll = () => {
 const btnClear = document.getElementById('btn-clear');
 if (btnClear) btnClear.addEventListener('click', clearAll);
 
-const btnTabTrend = document.getElementById('btn-tab-trend');
-if (btnTabTrend) btnTabTrend.addEventListener('click', () => setPage('trend'));
+const btnTabFront = document.getElementById('btn-tab-front');
+if (btnTabFront) btnTabFront.addEventListener('click', () => setPage('front'));
 const btnTabAdmin = document.getElementById('btn-tab-admin');
 if (btnTabAdmin) btnTabAdmin.addEventListener('click', () => setPage('admin'));
 const btnTabStats = document.getElementById('btn-tab-stats');
@@ -4518,8 +4571,10 @@ const btnTabCases = document.getElementById('btn-tab-cases');
 if (btnTabCases) btnTabCases.addEventListener('click', () => setPage('cases'));
 const btnTabObservations = document.getElementById('btn-tab-observations');
 if (btnTabObservations) btnTabObservations.addEventListener('click', () => setPage('observations'));
-const btnTabAssist = document.getElementById('btn-tab-assist');
-if (btnTabAssist) btnTabAssist.addEventListener('click', () => setPage('assist'));
+const btnFrontModeTrend = document.getElementById('btn-front-mode-trend');
+if (btnFrontModeTrend) btnFrontModeTrend.addEventListener('click', () => setFrontMode(FRONT_MODE_TREND));
+const btnFrontModeAssist = document.getElementById('btn-front-mode-assist');
+if (btnFrontModeAssist) btnFrontModeAssist.addEventListener('click', () => setFrontMode(FRONT_MODE_ASSIST));
 
 function isAdminMoreMenuOpen() {
   const menu = document.getElementById('admin-more-menu');

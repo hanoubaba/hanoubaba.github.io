@@ -300,18 +300,51 @@ body.login-mode {
   color: var(--primary-strong);
 }
 
+.front-mode-switch {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 4px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: #f8fafc;
+  flex-shrink: 0;
+}
+
+.front-mode-switch__btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.front-mode-switch__btn.is-active {
+  background: #ffffff;
+  color: var(--primary-strong);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
 #front-page[hidden],
-#assist-page[hidden],
 #admin-page[hidden],
 #stats-page[hidden],
 #methodology-page[hidden],
 #cases-page[hidden],
-#observations-page[hidden] {
+#observations-page[hidden],
+#front-trend-panel[hidden],
+#front-assist-panel[hidden] {
   display: none !important;
 }
 
 #front-page,
-#assist-page {
+#front-trend-panel,
+#front-assist-panel {
   display: contents;
 }
 
@@ -1772,7 +1805,8 @@ body.login-mode {
 }
 
 #front-page > .btn-save-strategy,
-#assist-page > .btn-save-strategy {
+#front-trend-panel > .btn-save-strategy,
+#front-assist-panel > .btn-save-strategy {
   margin-top: 8px;
 }
 
@@ -2502,7 +2536,8 @@ body.login-mode {
   }
 
   #front-page > .btn-save-strategy,
-  #assist-page > .btn-save-strategy {
+  #front-trend-panel > .btn-save-strategy,
+  #front-assist-panel > .btn-save-strategy {
     flex-shrink: 0;
     margin-top: 6px;
     min-height: 42px;
@@ -2512,19 +2547,24 @@ body.login-mode {
   }
 
   #front-page > .strategy-output,
-  #assist-page > .strategy-output {
+  #front-trend-panel > .strategy-output,
+  #front-assist-panel > .strategy-output {
     flex: 1;
     min-height: 0;
     overflow: auto;
     margin-top: 6px;
   }
 
-  #front-page,
-  #assist-page {
+  #front-page {
     flex: 1;
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+
+  #front-trend-panel,
+  #front-assist-panel {
+    display: contents;
   }
 
   .admin-page {
