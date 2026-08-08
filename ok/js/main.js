@@ -1671,6 +1671,37 @@ function renderReferenceTakeProfitHtml(blockClass, label) {
   ].join('');
 }
 
+/** 趋势跟随最佳止盈点位：5R，方向随多空（开>止为多，开<止为空） */
+function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) {
+  const entry = toNumber(entryPrice);
+  const stop = toNumber(stopLoss);
+  if (entry == null || stop == null || entry === stop) return '—';
+  const tp = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R_HIGH);
+  if (tp == null) return '—';
+  const normalized = normalizeReferenceTakeProfitPrice(tp);
+  if (normalized == null) return '—';
+  const decimals = Math.max(0, Math.min(20, Math.floor(Number(decimalPlaces) || 0)));
+  return formatTrimmedFixedDecimals(normalized, decimals);
+}
+
+function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel, refTakeProfitLabel = null) {
+  const tp = escapeHtml(String(takeProfitLabel ?? '').trim() || '—');
+  const sl = escapeHtml(String(stopLossLabel ?? '').trim() || '—');
+  const refRaw = String(refTakeProfitLabel ?? '').trim();
+  const refHtml = refRaw && refRaw !== '—'
+    ? `<span class="admin-item__tp-sl-ref" aria-label="参考止盈">（参考止盈 ${escapeHtml(refRaw)}）</span>`
+    : '';
+  return [
+    '<div class="admin-item__tp-sl" aria-label="止盈止损">',
+    '<span class="admin-item__tp-sl-main">',
+    `<span class="admin-item__assist-price" aria-label="止盈价格">止盈 ${tp}</span>`,
+    `<span class="admin-item__assist-price" aria-label="止损价格">止损 ${sl}</span>`,
+    '</span>',
+    refHtml,
+    '</div>',
+  ].join('');
+}
+
 function calcAdjustedOpenPrice(open, stop, decimalPlaces) {
   return Number(formatFixedDecimals(open, decimalPlaces));
 }
@@ -1825,13 +1856,14 @@ function renderConcessionRowHtml({
   rateLabel,
   stop,
   hideQuantity = false,
+  hideStop = false,
 }) {
   return [
     `<div class="${rowClass}">`,
     `<span class="${rowClass}__rate">${escapeHtml(rateLabel)}</span>`,
     `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`,
     `<span class="${rowClass}__qty">${hideQuantity ? '' : escapeHtml(item.quantity)}</span>`,
-    `<span class="${rowClass}__stop">${stop}</span>`,
+    hideStop ? '' : `<span class="${rowClass}__stop">${stop}</span>`,
     '</div>',
   ].join('');
 }
@@ -1848,6 +1880,7 @@ function renderConcessionsHtml({
   assistLabels = false,
   formatRate = formatConcessionPercent,
   groupBestPeers = false,
+  hideStopColumn = false,
 }) {
   let displayItems = getDisplayConcessionItems(items);
   if (reverseOrder) displayItems = displayItems.slice().reverse();
@@ -1860,6 +1893,9 @@ function renderConcessionsHtml({
   const rateFormatter = assistLabels
     ? (rate) => getAssistTierLabel(rate)
     : formatRate;
+  const wrapper = hideStopColumn
+    ? `${wrapperClass} ${wrapperClass}--no-stop`.trim()
+    : wrapperClass;
 
   const buildRow = (item) => renderConcessionRowHtml({
     rowClass,
@@ -1867,6 +1903,7 @@ function renderConcessionsHtml({
     rateLabel: withBestConcessionLabel(rateFormatter(item.rate), item.rate),
     stop,
     hideQuantity: assistLabels && shouldHideAssistQuantity(item.rate),
+    hideStop: hideStopColumn,
   });
 
   let bodyHtml = '';
@@ -1897,12 +1934,12 @@ function renderConcessionsHtml({
   }
 
   return [
-    `<div class="${wrapperClass}" aria-label="${assistLabels ? '反趋势辅助位置' : '让利档位'}">`,
+    `<div class="${wrapper}" aria-label="${assistLabels ? '反趋势辅助位置' : '让利档位'}">`,
     `<div class="${rowClass} ${rowClass}--head">`,
     `<span class="${rowClass}__rate">${rateHeader}</span>`,
     `<span class="${rowClass}__price">价格</span>`,
     `<span class="${rowClass}__qty">数量</span>`,
-    `<span class="${rowClass}__stop">${stopHeader}</span>`,
+    hideStopColumn ? '' : `<span class="${rowClass}__stop">${stopHeader}</span>`,
     '</div>',
     bodyHtml,
     '</div>',
@@ -1998,10 +2035,11 @@ function formatAdminConcessionItems(items, priceDecimalPlaces = 0) {
 
 function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
   const priceDecimalPlaces = options.priceDecimalPlaces ?? 0;
+  const hideStopColumn = options.hideStopColumn !== false;
   return renderConcessionsHtml({
     prefix: 'admin',
     items: formatAdminConcessionItems(concessions, priceDecimalPlaces),
-    stopLabel: formatAdminPriceFromValue(stopLabel, priceDecimalPlaces),
+    stopLabel: hideStopColumn ? '' : formatAdminPriceFromValue(stopLabel, priceDecimalPlaces),
     stopHeaderLabel: options.stopHeaderLabel,
     rateHeaderLabel: options.rateHeaderLabel,
     wrapperClass: 'admin-item__concessions',
@@ -2010,6 +2048,7 @@ function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
     assistLabels: options.assistLabels === true,
     formatRate: options.formatRate,
     groupBestPeers: options.groupBestPeers !== false,
+    hideStopColumn,
   });
 }
 
@@ -3211,31 +3250,36 @@ function buildAdminListItemHtml(row) {
     ? buildAdminCostMultiplierHtml(rawId, costMultiplier)
     : '';
   let concessions;
-  let stop;
+  let stopLabel;
+  let takeProfitLabel;
   let refTakeProfitLabel;
   if (showCounterTrend) {
     const counter = buildCounterTrendConcessions(row, costMultiplier);
     concessions = counter.items;
-    stop = counter.stopLoss || '-';
-    refTakeProfitLabel = counter.refTakeProfit || '—';
+    // 反趋势预设：止盈=原开仓价，止损=10R（计算逻辑不变，仅改展示位置）
+    takeProfitLabel = counter.refTakeProfit || '—';
+    stopLabel = counter.stopLoss || '—';
+    refTakeProfitLabel = null;
   } else if (isAssistStrategy) {
     concessions = buildAssistConcessionsFromRow(row, costMultiplier);
-    stop = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '-';
+    // 反趋势辅助：止盈=to，止损=from（计算逻辑不变）
+    takeProfitLabel = formatAdminPriceFromValue(row?.inputStopLoss ?? row?.takeProfitPrice, priceDecimalPlaces) || '—';
+    stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
     refTakeProfitLabel = null;
   } else {
     concessions = isTrendStrategy
       ? buildTrendAdminConcessions(row, costMultiplier)
       : buildAdminDisplayConcessions(row);
-    stop = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '-';
+    // 趋势跟随：止盈=5R 最佳点位（区分多空），止损=原止损；保留参考止盈
+    takeProfitLabel = buildAdminBestTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
+    stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
     refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
   }
-  const refTakeProfitHtml = refTakeProfitLabel == null
-    ? ''
-    : renderReferenceTakeProfitHtml('admin-item__ref-tp', refTakeProfitLabel);
-  const concessionsHtml = renderAdminConcessionsHtml(concessions, stop, {
-    stopHeaderLabel: '止损价格',
+  const tpSlHtml = renderAdminTakeProfitStopHtml(takeProfitLabel, stopLabel, refTakeProfitLabel);
+  const concessionsHtml = renderAdminConcessionsHtml(concessions, stopLabel, {
     priceDecimalPlaces,
     assistLabels: isAssistStrategy,
+    hideStopColumn: true,
     ...(showCounterTrend
       ? {
         formatRate: formatCounterTrendRate,
@@ -3250,22 +3294,8 @@ function buildAdminListItemHtml(row) {
   const counterTimeRange = showCounterTrend ? getCounterTrendTimeRange(row) : null;
   const startAt = showCounterTrend ? counterTimeRange?.startAt : baseStartAt;
   const endAt = showCounterTrend ? counterTimeRange?.endAt : baseEndAt;
-  const timeRange = isAssistStrategy
-    ? ''
-    : escapeHtml(formatAdminTimeRange(startAt, endAt));
-  const assistFromLabel = isAssistStrategy
-    ? (formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—')
-    : '';
-  const assistToLabel = isAssistStrategy
-    ? (formatAdminPriceFromValue(row?.inputStopLoss ?? row?.takeProfitPrice, priceDecimalPlaces) || '—')
-    : '';
-  const assistMetaHtml = isAssistStrategy
-    ? [
-      `<span class="admin-item__assist-price" aria-label="止盈价格">止盈 ${escapeHtml(assistToLabel)}</span>`,
-      `<span class="admin-item__assist-price" aria-label="止损价格">止损 ${escapeHtml(assistFromLabel)}</span>`,
-    ].join('')
-    : '';
-  const expiresAt = !isAssistStrategy && endAt ? escapeHtml(endAt.toISOString()) : '';
+  const timeRange = escapeHtml(formatAdminTimeRange(startAt, endAt));
+  const expiresAt = endAt ? escapeHtml(endAt.toISOString()) : '';
   const checked = rawId && selectedStrategyIds.has(rawId) ? ' checked' : '';
   const disabled = isDeletingStrategies ? ' disabled' : '';
   const selectorDisabled = isDeletingStrategies ? ' is-disabled' : '';
@@ -3279,7 +3309,7 @@ function buildAdminListItemHtml(row) {
     : '';
   const outcomeStatus = normalizeOutcomeStatus(row?.outcomeStatus);
   const outcomeTimeStatus = getTimeRangeStatusByEndAt(baseEndAt);
-  const timeBadge = isAssistStrategy ? null : getTimeBadgeInfo(endAt);
+  const timeBadge = getTimeBadgeInfo(endAt);
   const outcomeInfo = getOutcomeStatusInfo(outcomeStatus);
   const timeBadgeUrgent = timeBadge?.type === 'active' && isCountdownWithinUrgentWindow(endAt)
     ? ' admin-time-status--urgent'
@@ -3340,12 +3370,10 @@ function buildAdminListItemHtml(row) {
     headRightHtml,
     '</header>',
     concessionsHtml,
-    refTakeProfitHtml,
+    tpSlHtml,
     '<div class="admin-item__actions">',
     '<div class="admin-item__meta">',
-    isAssistStrategy
-      ? assistMetaHtml
-      : `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
+    `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
     '</div>',
     buttonsHtml,
     '</div>',
