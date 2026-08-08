@@ -217,7 +217,7 @@ const ASSIST_TIER_RATES_LEGACY_66 = [0.3, 0.5, 0.66];
 const ASSIST_TIER_RATES_LEGACY_70 = [0.3, 0.5, 0.7];
 const ASSIST_TIER_RATES_LEGACY_75 = [0.33, 0.48, 0.75];
 const ASSIST_TIER_RATES_LEGACY_30_48_80 = [0.3, 0.48, 0.8];
-const ASSIST_TITLE_SUFFIX = ' (辅助开单)';
+const ASSIST_TITLE_SUFFIX = ' (反趋势辅助)';
 
 function clampOpenCostMultiplier(value) {
   const n = Math.round(Number(value));
@@ -471,11 +471,11 @@ function formatAssistStrategyTitle(name) {
 function getAdminStrategyTypeInfo(row) {
   const rawConcessions = hasConcessions(row?.concessions) ? row.concessions : [];
   if (isAssistConcessionSet(rawConcessions)) {
-    return { label: '辅助开单', type: 'assist' };
+    return { label: '反趋势辅助', type: 'assist' };
   }
   const savedConcessions = buildAdminConcessionsForRow(row);
   if (isAssistConcessionSet(savedConcessions)) {
-    return { label: '辅助开单', type: 'assist' };
+    return { label: '反趋势辅助', type: 'assist' };
   }
   if (isMartinConcessionSet(savedConcessions)) {
     return { label: '马丁策略', type: 'martin' };
@@ -829,6 +829,19 @@ const METHODOLOGY_SECTIONS = [
       '顺境时不要张狂，要懂得居安思危。逆境时不要焦虑，要从风险中看到机会。',
       '不要只盯着风险或者收益，要全面平等的看待。胜率大的时候要坚定选择，当赢则赢。但也要留有余地，因为失败的可能性一直存在。',
       '一开始选择的是自己，选择之初就应该明白可能的全部结果。早有觉悟不是一句空话。',
+    ],
+  },
+  {
+    title: '18、最新感悟',
+    items: [
+      '优先级：趋势跟随＞反趋势预设＞反趋势辅助',
+      '反趋势限定方向空，时间空间都满足，否则不做。优先级还是新的趋势跟随单。',
+      '严格选品，分批挂单。保持最佳位置挂单的好习惯，经常会有惊喜。',
+      '观测和操作，分账号操作，一个账户一个独立单子。可有效减少盯盘造成的负面影响。',
+      '波段有害，坚持到底才能指数累加。',
+      '已经认证过可行性，只需坚定循环执行。',
+      '不对劲就跑，亏不了多少。无需纠结，集中力量到下一单。',
+      '放弃多空临界值的单子，做好趋势交易的本分。',
     ],
   },
 ];
@@ -1469,15 +1482,14 @@ function clearMethodologyPage() {
 function renderMethodologyBalanceBannerHtml() {
   return [
     '<aside class="methodology-balance" aria-label="生命周期理论">',
-    '<h2 class="methodology-balance__title">生命周期理论</h2>',
     '<div class="methodology-balance__row">',
     '<div class="methodology-balance__side">',
-    '<span class="methodology-balance__stage">趋势</span>',
+    '<span class="methodology-balance__stage">趋势跟随</span>',
     '<span class="methodology-balance__desc">时间10，空间3-5倍</span>',
     '</div>',
     '<span class="methodology-balance__arrow" aria-hidden="true">==&gt;</span>',
     '<div class="methodology-balance__side">',
-    '<span class="methodology-balance__stage">反趋势</span>',
+    '<span class="methodology-balance__stage">反趋势预设</span>',
     '<span class="methodology-balance__desc">时间空间都满足，止损空间翻倍非常安全</span>',
     '</div>',
     '<span class="methodology-balance__arrow" aria-hidden="true">==&gt;</span>',
@@ -1857,7 +1869,7 @@ function renderConcessionsHtml({
     '</div>',
   ].join('')).join('');
   return [
-    `<div class="${wrapperClass}" aria-label="${assistLabels ? '辅助开单位置' : '让利档位'}">`,
+    `<div class="${wrapperClass}" aria-label="${assistLabels ? '反趋势辅助位置' : '让利档位'}">`,
     `<div class="${rowClass} ${rowClass}--head">`,
     `<span class="${rowClass}__rate">${rateHeader}</span>`,
     `<span class="${rowClass}__price">价格</span>`,
@@ -2256,7 +2268,7 @@ function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
     timeRangeLabel: null,
     assistLabels: true,
     titleText: formatStrategyCardTitle(name),
-    titleTagHtml: '<span class="admin-assist-tag" aria-label="辅助开单">辅助开单</span>',
+    titleTagHtml: '<span class="admin-assist-tag" aria-label="反趋势辅助">反趋势辅助</span>',
     cardMod: 'assist',
     footerHtml: [
       '<div class="strategy-card__time strategy-card__assist-prices">',
@@ -2341,7 +2353,7 @@ function generateAssist() {
   const priceDecimals = Math.max(3, getPriceDecimalPlacesFromValues(fromEl?.value, toEl?.value));
   const strategy = buildAssistStrategy(from, to, openCostTotal, priceDecimals);
   if (!strategy) {
-    if (errEl) errEl.textContent = '无法生成辅助开单档位，请检查 from / to。';
+    if (errEl) errEl.textContent = '无法生成反趋势辅助档位，请检查 from / to。';
     clearAssistState();
     return;
   }
@@ -2816,7 +2828,7 @@ function renderAdminActiveNames(rows = latestAdminRows) {
   el.hidden = false;
   const multiplierHtml = showMultiplierTotal
     ? [
-      '<span class="admin-active-names__metric" title="当前进行中的趋势单与辅助开单成本合计">',
+      '<span class="admin-active-names__metric" title="当前进行中的趋势跟随与反趋势辅助成本合计">',
       '<span class="admin-active-names__metric-label">已用本金</span>',
       `<span class="admin-active-names__metric-value">${costTotal}</span>`,
       '</span>',
@@ -3263,13 +3275,13 @@ function buildAdminListItemHtml(row) {
     ].join('');
   const counterTrendHtml = rawId && canShowCounterTrend(row)
     ? [
-      `<button type="button" class="admin-counter-trend${showCounterTrend ? ' is-active' : ''}${updatingAdminViewModeIds.has(rawId) ? ' is-syncing' : ''}" data-counter-trend-toggle data-id="${id}" aria-pressed="${showCounterTrend ? 'true' : 'false'}" aria-busy="${updatingAdminViewModeIds.has(rawId) ? 'true' : 'false'}"${updatingAdminViewModeIds.has(rawId) ? ' disabled' : ''} aria-label="${showCounterTrend ? '切换回趋势策略' : '查看反趋势策略'}">`,
-      `<span class="admin-counter-trend__tag">${showCounterTrend ? '反趋势' : '趋势'}</span>`,
+      `<button type="button" class="admin-counter-trend${showCounterTrend ? ' is-active' : ''}${updatingAdminViewModeIds.has(rawId) ? ' is-syncing' : ''}" data-counter-trend-toggle data-id="${id}" aria-pressed="${showCounterTrend ? 'true' : 'false'}" aria-busy="${updatingAdminViewModeIds.has(rawId) ? 'true' : 'false'}"${updatingAdminViewModeIds.has(rawId) ? ' disabled' : ''} aria-label="${showCounterTrend ? '切换回趋势跟随' : '查看反趋势预设'}">`,
+      `<span class="admin-counter-trend__tag">${showCounterTrend ? '反趋势预设' : '趋势跟随'}</span>`,
       '</button>',
     ].join('')
     : '';
   const assistTagHtml = isAssistStrategy
-    ? '<span class="admin-assist-tag" aria-label="辅助开单">辅助开单</span>'
+    ? '<span class="admin-assist-tag" aria-label="反趋势辅助">反趋势辅助</span>'
     : '';
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
@@ -4502,7 +4514,7 @@ async function saveAssistOutput() {
     resetAssistPage();
     flashCopyStrategyBtn(btn, '已保存');
   } catch (err) {
-    logSave('error', '辅助开单保存失败', {
+    logSave('error', '反趋势辅助保存失败', {
       message: err?.message || String(err),
     });
     if (errEl) errEl.textContent = '保存失败。请检查 Supabase 表和权限。';
