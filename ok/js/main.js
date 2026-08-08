@@ -432,12 +432,6 @@ function ratesMatch(actual, expected) {
   return expected.every((rate, index) => Math.abs(actual[index] - rate) < 1e-9);
 }
 
-function isMartinConcessionSet(concessions) {
-  const rates = getSortedDisplayRates(concessions);
-  return ratesMatch(rates, [0, 0.1, 0.3, 0.5, 0.7])
-    || ratesMatch(rates, [-0.5, -0.2, 0, 0.2, 0.5]);
-}
-
 function isCurrentTrendConcessionSet(concessions) {
   const rates = getSortedDisplayRates(concessions);
   return ratesMatch(rates, [0, 0.1, 0.2, 0.5, 0.8])
@@ -477,30 +471,11 @@ function getAdminStrategyTypeInfo(row) {
   if (isAssistConcessionSet(savedConcessions)) {
     return { label: '反趋势辅助', type: 'assist' };
   }
-  if (isMartinConcessionSet(savedConcessions)) {
-    return { label: '马丁策略', type: 'martin' };
-  }
-  if (isCurrentTrendConcessionSet(savedConcessions)) {
-    return { label: '趋势跟随', type: 'trend' };
-  }
-  const entryPrice = toNumber(row?.entryPrice);
-  const stopLoss = toNumber(row?.stopLossPrice);
-  const decimalPlaces = getPriceDecimalPlacesFromValues(row?.entryPrice, row?.stopLossPrice);
-  if (
-    entryPrice != null
-    && stopLoss != null
-    && inferReverseFromConcessions(entryPrice, stopLoss, savedConcessions, decimalPlaces)
-  ) {
-    return { label: '马丁策略', type: 'martin' };
-  }
   return { label: '趋势跟随', type: 'trend' };
 }
 
 function buildAdminDisplayConcessions(row) {
   const savedConcessions = buildAdminConcessionsForRow(row);
-  if (isMartinConcessionSet(savedConcessions)) {
-    return savedConcessions;
-  }
   if (isCurrentTrendConcessionSet(savedConcessions)) {
     return savedConcessions;
   }
@@ -714,7 +689,7 @@ const METHODOLOGY_SECTIONS = [
   {
     title: '1、核心理念',
     items: [
-      '右侧交易，趋势跟随，马丁策略，见好就收。',
+      '右侧交易，趋势跟随，见好就收。',
       '风控第一，收益第二，策略唯一。',
       '简化操作，行情很简单，复杂的是人心。',
       '挂单交易，能成交就做，不能成交就算了，机会不止一个。',
@@ -2895,7 +2870,7 @@ function renderAdminActiveNames(rows = latestAdminRows) {
   ].join('');
   const activeKey = adminNameFilter;
   const namesHtml = nameCounts.map(({ name, count, type }) => {
-    const strategyType = type === 'martin' ? 'martin' : (type === 'assist' ? 'assist' : 'trend');
+    const strategyType = type === 'assist' ? 'assist' : 'trend';
     const isActive = activeKey && getAdminNameFilterKey(name) === activeKey;
     const countHtml = count > 1
       ? `<span class="admin-active-names__count">${count}</span>`

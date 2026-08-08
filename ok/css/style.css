@@ -682,10 +682,6 @@ body.login-mode {
   box-shadow: 0 0 0 2px var(--primary-strong);
 }
 
-.admin-active-names__item--martin.is-active {
-  box-shadow: 0 0 0 2px #1d4ed8;
-}
-
 .admin-active-names__item--assist.is-active {
   box-shadow: 0 0 0 2px #0f766e;
 }
@@ -694,12 +690,6 @@ body.login-mode {
   color: var(--primary-strong);
   background: var(--long-soft);
   border-color: var(--border);
-}
-
-.admin-active-names__item--martin {
-  color: #1d4ed8;
-  background: #eff6ff;
-  border-color: #bfdbfe;
 }
 
 .admin-active-names__item--assist {
@@ -724,10 +714,6 @@ body.login-mode {
 
 .admin-active-names__item--trend .admin-active-names__count {
   background: var(--primary-strong);
-}
-
-.admin-active-names__item--martin .admin-active-names__count {
-  background: #1d4ed8;
 }
 
 .admin-active-names__item--assist .admin-active-names__count {
@@ -1025,32 +1011,6 @@ body.login-mode {
   font-weight: 800;
   line-height: 1.2;
   white-space: nowrap;
-}
-
-.admin-item__strategy-type {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px 7px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1.2;
-  white-space: nowrap;
-  border: 1px solid transparent;
-}
-
-.admin-item__strategy-type--trend {
-  color: var(--primary-strong);
-  background: var(--long-soft);
-  border-color: var(--border);
-}
-
-.admin-item__strategy-type--martin {
-  color: #1d4ed8;
-  background: #eff6ff;
-  border-color: #bfdbfe;
 }
 
 .admin-item__grade--premium {
