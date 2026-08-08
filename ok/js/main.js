@@ -1557,6 +1557,13 @@ function getPositionSideMod(side) {
   return side === 'long' || side === 'short' ? side : 'flat';
 }
 
+function getPositionSideLabel(side) {
+  const sideMod = getPositionSideMod(side);
+  if (sideMod === 'long') return '做多';
+  if (sideMod === 'short') return '做空';
+  return '';
+}
+
 function formatStrategyCardTitle(name) {
   const base = String(name || '未命名').trim() || '未命名';
   return /[A-Z]/.test(base) ? base.toLowerCase() : base;
@@ -1837,6 +1844,23 @@ function reverseConcessionPriceQty(displayItems) {
   }));
 }
 
+function renderConcessionRowHtml({
+  rowClass,
+  item,
+  rateLabel,
+  stop,
+  hideQuantity = false,
+}) {
+  return [
+    `<div class="${rowClass}">`,
+    `<span class="${rowClass}__rate">${escapeHtml(rateLabel)}</span>`,
+    `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`,
+    `<span class="${rowClass}__qty">${hideQuantity ? '' : escapeHtml(item.quantity)}</span>`,
+    `<span class="${rowClass}__stop">${stop}</span>`,
+    '</div>',
+  ].join('');
+}
+
 function renderConcessionsHtml({
   prefix,
   items,
@@ -1848,6 +1872,7 @@ function renderConcessionsHtml({
   reversePriceQty = false,
   assistLabels = false,
   formatRate = formatConcessionPercent,
+  groupBestPeers = false,
 }) {
   let displayItems = getDisplayConcessionItems(items);
   if (reverseOrder) displayItems = displayItems.slice().reverse();
@@ -1860,14 +1885,42 @@ function renderConcessionsHtml({
   const rateFormatter = assistLabels
     ? (rate) => getAssistTierLabel(rate)
     : formatRate;
-  const rows = displayItems.map((item) => [
-    `<div class="${rowClass}">`,
-    `<span class="${rowClass}__rate">${escapeHtml(withBestConcessionLabel(rateFormatter(item.rate), item.rate))}</span>`,
-    `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`,
-    `<span class="${rowClass}__qty">${assistLabels && shouldHideAssistQuantity(item.rate) ? '' : escapeHtml(item.quantity)}</span>`,
-    `<span class="${rowClass}__stop">${stop}</span>`,
-    '</div>',
-  ].join('')).join('');
+
+  const buildRow = (item) => renderConcessionRowHtml({
+    rowClass,
+    item,
+    rateLabel: withBestConcessionLabel(rateFormatter(item.rate), item.rate),
+    stop,
+    hideQuantity: assistLabels && shouldHideAssistQuantity(item.rate),
+  });
+
+  let bodyHtml = '';
+  if (groupBestPeers) {
+    const chunks = [];
+    let bestChunk = [];
+    const flushBest = () => {
+      if (!bestChunk.length) return;
+      chunks.push([
+        `<div class="${prefix}-concession-best-group" aria-label="平级三选一">`,
+        bestChunk.map(buildRow).join(''),
+        '</div>',
+      ].join(''));
+      bestChunk = [];
+    };
+    for (const item of displayItems) {
+      if (isBestConcessionRate(item.rate)) {
+        bestChunk.push(item);
+      } else {
+        flushBest();
+        chunks.push(buildRow(item));
+      }
+    }
+    flushBest();
+    bodyHtml = chunks.join('');
+  } else {
+    bodyHtml = displayItems.map(buildRow).join('');
+  }
+
   return [
     `<div class="${wrapperClass}" aria-label="${assistLabels ? '反趋势辅助位置' : '让利档位'}">`,
     `<div class="${rowClass} ${rowClass}--head">`,
@@ -1876,7 +1929,7 @@ function renderConcessionsHtml({
     `<span class="${rowClass}__qty">数量</span>`,
     `<span class="${rowClass}__stop">${stopHeader}</span>`,
     '</div>',
-    rows,
+    bodyHtml,
     '</div>',
   ].join('');
 }
@@ -1981,6 +2034,7 @@ function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
     reverseOrder: options.reverseOrder === true,
     assistLabels: options.assistLabels === true,
     formatRate: options.formatRate,
+    groupBestPeers: options.groupBestPeers !== false,
   });
 }
 
@@ -3283,9 +3337,14 @@ function buildAdminListItemHtml(row) {
   const assistTagHtml = isAssistStrategy
     ? '<span class="admin-assist-tag" aria-label="反趋势辅助">反趋势辅助</span>'
     : '';
+  const sideLabel = getPositionSideLabel(sideMod);
+  const sideTagHtml = sideLabel
+    ? `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
+    : '';
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
+    sideTagHtml,
     counterTrendHtml,
     assistTagHtml,
     '</div>',
