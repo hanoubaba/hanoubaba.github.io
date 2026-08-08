@@ -117,6 +117,27 @@ body {
   justify-self: auto;
 }
 
+.header-actions .admin-more {
+  flex: none;
+  align-self: center;
+}
+
+.header-actions .admin-more__toggle {
+  width: 28px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border-radius: 7px;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+.header-actions .admin-more__menu {
+  z-index: 40;
+}
+
 #login-page[hidden],
 #app-root[hidden] {
   display: none !important;
@@ -2664,7 +2685,6 @@ body.login-mode {
     overflow: hidden;
   }
 
-  .admin-page > .admin-shortcuts,
   .admin-page > .admin-controls,
   .admin-page > .admin-filter-tabs,
   .admin-page > .admin-active-names,

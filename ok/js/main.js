@@ -817,6 +817,7 @@ const METHODOLOGY_SECTIONS = [
       '已经认证过可行性，只需坚定循环执行。',
       '不对劲就跑，亏不了多少。无需纠结，集中力量到下一单。',
       '放弃多空临界值的单子，做好趋势交易的本分。',
+      '钝感力，松弛感。',
     ],
   },
 ];
@@ -4391,7 +4392,7 @@ function setPage(mode) {
 
   const moreToggle = document.getElementById('admin-more-toggle');
   if (moreToggle) {
-    moreToggle.classList.toggle('is-active', toMethodology || toCases || toObservations);
+    moreToggle.classList.toggle('is-active', toStats || toMethodology || toCases || toObservations);
   }
   closeAdminMoreMenu();
 

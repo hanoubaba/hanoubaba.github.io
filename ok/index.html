@@ -36,6 +36,15 @@
           <button id="btn-tab-front" type="button" class="page-switch__btn" role="tab" aria-selected="false">前台</button>
           <button id="btn-tab-admin" type="button" class="page-switch__btn is-active" role="tab" aria-selected="true">后台管理</button>
           </div>
+          <div class="admin-more">
+            <button id="admin-more-toggle" type="button" class="admin-more__toggle" aria-label="更多" aria-haspopup="menu" aria-expanded="false" aria-controls="admin-more-menu">···</button>
+            <div id="admin-more-menu" class="admin-more__menu" role="menu" hidden>
+              <button id="btn-tab-methodology" type="button" class="admin-more__item" role="menuitem">方法论</button>
+              <button id="btn-tab-stats" type="button" class="admin-more__item" role="menuitem">数据统计</button>
+              <button id="btn-tab-cases" type="button" class="admin-more__item" role="menuitem">典型案例</button>
+              <button id="btn-tab-observations" type="button" class="admin-more__item" role="menuitem">日线观测</button>
+            </div>
+          </div>
         </div>
       </div>
     </header>
@@ -102,17 +111,6 @@
     </section>
 
     <section id="admin-page" class="panel admin-page" aria-label="后台管理">
-      <nav class="admin-shortcuts" aria-label="快捷入口">
-        <button id="btn-tab-stats" type="button" class="admin-shortcut">数据统计</button>
-        <div class="admin-more">
-          <button id="admin-more-toggle" type="button" class="admin-more__toggle" aria-label="更多" aria-haspopup="menu" aria-expanded="false" aria-controls="admin-more-menu">···</button>
-          <div id="admin-more-menu" class="admin-more__menu" role="menu" hidden>
-            <button id="btn-tab-methodology" type="button" class="admin-more__item" role="menuitem">方法论</button>
-            <button id="btn-tab-cases" type="button" class="admin-more__item" role="menuitem">典型案例</button>
-            <button id="btn-tab-observations" type="button" class="admin-more__item" role="menuitem">日线观测</button>
-          </div>
-        </div>
-      </nav>
       <div id="admin-filter-tabs" class="admin-filter-tabs" role="tablist" aria-label="时间状态筛选"></div>
       <div id="admin-active-names" class="admin-active-names" hidden aria-label="当前筛选策略名称"></div>
       <div id="admin-selection" class="admin-selection" hidden>
