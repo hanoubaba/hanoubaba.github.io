@@ -1689,15 +1689,26 @@ function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel, refTakePr
   const sl = escapeHtml(String(stopLossLabel ?? '').trim() || '—');
   const refRaw = String(refTakeProfitLabel ?? '').trim();
   const refHtml = refRaw && refRaw !== '—'
-    ? `<span class="admin-item__tp-sl-ref" aria-label="参考止盈">（参考止盈 ${escapeHtml(refRaw)}）</span>`
+    ? [
+      '<span class="admin-item__tp-sl-ref" aria-label="参考止盈">',
+      '<span class="admin-item__tp-sl-label">参考止盈</span>',
+      `<span class="admin-item__tp-sl-value">${escapeHtml(refRaw)}</span>`,
+      '</span>',
+    ].join('')
     : '';
   return [
     '<div class="admin-item__tp-sl" aria-label="止盈止损">',
-    '<span class="admin-item__tp-sl-main">',
-    `<span class="admin-item__assist-price" aria-label="止盈价格">止盈 ${tp}</span>`,
-    `<span class="admin-item__assist-price" aria-label="止损价格">止损 ${sl}</span>`,
-    '</span>',
     refHtml,
+    '<span class="admin-item__tp-sl-main">',
+    '<span class="admin-item__tp-sl-item" aria-label="止盈价格">',
+    '<span class="admin-item__tp-sl-label">止盈</span>',
+    `<span class="admin-item__tp-sl-value">${tp}</span>`,
+    '</span>',
+    '<span class="admin-item__tp-sl-item" aria-label="止损价格">',
+    '<span class="admin-item__tp-sl-label">止损</span>',
+    `<span class="admin-item__tp-sl-value">${sl}</span>`,
+    '</span>',
+    '</span>',
     '</div>',
   ].join('');
 }
@@ -3360,23 +3371,25 @@ function buildAdminListItemHtml(row) {
     timeBadgeHtml,
     '</div>',
   ].join('');
-  const buttonsHtml = `<div class="admin-item__buttons">${multiplierHtml}</div>`;
+  const buttonsHtml = multiplierHtml
+    ? `<div class="admin-item__buttons">${multiplierHtml}</div>`
+    : '';
   return [
     `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}">`,
     remarkStampHtml,
     '<header class="admin-item__head">',
     selectHtml,
+    '<div class="admin-item__head-main">',
     titleGroupHtml,
+    '<div class="admin-item__sub">',
+    `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
+    buttonsHtml,
+    '</div>',
+    '</div>',
     headRightHtml,
     '</header>',
     concessionsHtml,
     tpSlHtml,
-    '<div class="admin-item__actions">',
-    '<div class="admin-item__meta">',
-    `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
-    '</div>',
-    buttonsHtml,
-    '</div>',
     '</article>',
   ].join('');
 }
