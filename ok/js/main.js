@@ -203,12 +203,12 @@ const STRATEGY_DURATION_PERIODS = 10;
 /** 反趋势：挂单档位 = 原策略 3/4/5 倍止盈价，止损 = 10 倍止盈价 */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 4, 5];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
-/** 辅助开单：10%/20% 复用最小让利档（30%）仓位；本金仅 30%/48% 按 3:2 分配；80% 仅展示 */
+/** 辅助开单：10%/20% 复用最小让利档（30%）仓位；本金仅 30%/50% 按 3:2 分配；80% 仅展示 */
 const ASSIST_TIER_RATIOS = [
   { rate: 0.1, label: '10%', reuseMinTierCost: true },
   { rate: 0.2, label: '20%', reuseMinTierCost: true },
   { rate: 0.3, label: '30%', costShare: 3 / 5 },
-  { rate: 0.48, label: '48%', costShare: 2 / 5 },
+  { rate: 0.5, label: '50%', costShare: 2 / 5 },
   { rate: 0.8, label: '80%', costShare: 0 },
 ];
 /** 兼容旧辅助开单比例识别 */
@@ -217,6 +217,7 @@ const ASSIST_TIER_RATES_LEGACY_66 = [0.3, 0.5, 0.66];
 const ASSIST_TIER_RATES_LEGACY_70 = [0.3, 0.5, 0.7];
 const ASSIST_TIER_RATES_LEGACY_75 = [0.33, 0.48, 0.75];
 const ASSIST_TIER_RATES_LEGACY_30_48_80 = [0.3, 0.48, 0.8];
+const ASSIST_TIER_RATES_LEGACY_10_20_30_48_80 = [0.1, 0.2, 0.3, 0.48, 0.8];
 const ASSIST_TITLE_SUFFIX = ' (反趋势辅助)';
 
 function clampOpenCostMultiplier(value) {
@@ -446,7 +447,8 @@ function isAssistConcessionSet(concessions) {
     || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_66)
     || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_70)
     || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_75)
-    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_30_48_80);
+    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_30_48_80)
+    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_10_20_30_48_80);
 }
 
 function getAssistTierLabel(rate) {
