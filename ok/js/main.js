@@ -205,11 +205,11 @@ const COUNTER_TREND_ENTRY_MULTIPLES = [3, 4, 5];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
 /** 辅助开单：10%/20% 复用最小让利档（30%）仓位；本金仅 30%/50% 按 3:2 分配；80% 仅展示 */
 const ASSIST_TIER_RATIOS = [
-  { rate: 0.1, label: '10%', reuseMinTierCost: true },
-  { rate: 0.2, label: '20%', reuseMinTierCost: true },
-  { rate: 0.3, label: '30%', costShare: 3 / 5 },
+  { rate: 0.1, label: '10%（鱼头）', reuseMinTierCost: true },
+  { rate: 0.2, label: '20%（鱼头）', reuseMinTierCost: true },
+  { rate: 0.3, label: '30%（鱼头）', costShare: 3 / 5 },
   { rate: 0.5, label: '50%', costShare: 2 / 5 },
-  { rate: 0.8, label: '80%', costShare: 0 },
+  { rate: 0.8, label: '80%（鱼尾）', costShare: 0 },
 ];
 /** 兼容旧辅助开单比例识别 */
 const ASSIST_TIER_RATES_LEGACY = [1 / 3, 1 / 2, 2 / 3];
@@ -218,7 +218,7 @@ const ASSIST_TIER_RATES_LEGACY_70 = [0.3, 0.5, 0.7];
 const ASSIST_TIER_RATES_LEGACY_75 = [0.33, 0.48, 0.75];
 const ASSIST_TIER_RATES_LEGACY_30_48_80 = [0.3, 0.48, 0.8];
 const ASSIST_TIER_RATES_LEGACY_10_20_30_48_80 = [0.1, 0.2, 0.3, 0.48, 0.8];
-const ASSIST_TITLE_SUFFIX = ' (反趋势辅助)';
+const ASSIST_TITLE_SUFFIX = ' (吃鱼助手)';
 
 function clampOpenCostMultiplier(value) {
   const n = Math.round(Number(value));
@@ -467,11 +467,11 @@ function formatAssistStrategyTitle(name) {
 function getAdminStrategyTypeInfo(row) {
   const rawConcessions = hasConcessions(row?.concessions) ? row.concessions : [];
   if (isAssistConcessionSet(rawConcessions)) {
-    return { label: '反趋势辅助', type: 'assist' };
+    return { label: '吃鱼助手', type: 'assist' };
   }
   const savedConcessions = buildAdminConcessionsForRow(row);
   if (isAssistConcessionSet(savedConcessions)) {
-    return { label: '反趋势辅助', type: 'assist' };
+    return { label: '吃鱼助手', type: 'assist' };
   }
   return { label: '趋势跟随', type: 'trend' };
 }
@@ -811,7 +811,7 @@ const METHODOLOGY_SECTIONS = [
   {
     title: '18、最新感悟',
     items: [
-      '优先级：趋势跟随＞反趋势预设＞反趋势辅助',
+      '优先级：趋势跟随＞反趋势预设＞吃鱼助手',
       '反趋势限定方向空，时间空间都满足，否则不做。优先级还是新的趋势跟随单。',
       '严格选品，分批挂单。保持最佳位置挂单的好习惯，经常会有惊喜。',
       '分仓不如集中子弹到最优势的单子，多维度去解读操作。基于方向的确定性，实现收益最大化。',
@@ -820,7 +820,7 @@ const METHODOLOGY_SECTIONS = [
       '不对劲就跑，亏不了多少。无需纠结，集中力量到下一单。',
       '放弃多空临界值的单子，做好趋势交易的本分。',
       '钝感力，松弛感。',
-      '趋势跟随确认正确以后加仓。反趋势预设确认正确以后转反趋势辅助。',
+      '趋势跟随确认正确以后加仓。反趋势预设确认正确以后转吃鱼助手。',
     ],
   },
 ];
@@ -1798,7 +1798,8 @@ function isBestConcessionRate(rate) {
 function withBestConcessionLabel(label, rate) {
   const text = String(label ?? '');
   if (!isBestConcessionRate(rate)) return text;
-  return text.includes('（best）') ? text : `${text}（best）`;
+  if (text.includes('（best）') || text.includes('（鱼头）') || text.includes('（鱼尾）')) return text;
+  return `${text}（best）`;
 }
 
 function getDisplayConcessionItems(items) {
@@ -1949,7 +1950,7 @@ function renderConcessionsHtml({
   }
 
   return [
-    `<div class="${wrapper}" aria-label="${assistLabels ? '反趋势辅助位置' : '让利档位'}">`,
+    `<div class="${wrapper}" aria-label="${assistLabels ? '吃鱼助手位置' : '让利档位'}">`,
     `<div class="${rowClass} ${rowClass}--head">`,
     `<span class="${rowClass}__rate">${rateHeader}</span>`,
     `<span class="${rowClass}__price">价格</span>`,
@@ -2351,7 +2352,7 @@ function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
     timeRangeLabel: null,
     assistLabels: true,
     titleText: formatStrategyCardTitle(name),
-    titleTagHtml: '<span class="admin-assist-tag" aria-label="反趋势辅助">反趋势辅助</span>',
+    titleTagHtml: '<span class="admin-assist-tag" aria-label="吃鱼助手">吃鱼助手</span>',
     cardMod: 'assist',
     footerHtml: [
       '<div class="strategy-card__time strategy-card__assist-prices">',
@@ -2436,7 +2437,7 @@ function generateAssist() {
   const priceDecimals = Math.max(3, getPriceDecimalPlacesFromValues(fromEl?.value, toEl?.value));
   const strategy = buildAssistStrategy(from, to, openCostTotal, priceDecimals);
   if (!strategy) {
-    if (errEl) errEl.textContent = '无法生成反趋势辅助档位，请检查 from / to。';
+    if (errEl) errEl.textContent = '无法生成吃鱼助手档位，请检查 from / to。';
     clearAssistState();
     return;
   }
@@ -2911,7 +2912,7 @@ function renderAdminActiveNames(rows = latestAdminRows) {
   el.hidden = false;
   const multiplierHtml = showMultiplierTotal
     ? [
-      '<span class="admin-active-names__metric" title="当前进行中的趋势跟随与反趋势辅助成本合计">',
+      '<span class="admin-active-names__metric" title="当前进行中的趋势跟随与吃鱼助手成本合计">',
       '<span class="admin-active-names__metric-label">已用本金</span>',
       `<span class="admin-active-names__metric-value">${costTotal}</span>`,
       '</span>',
@@ -3219,7 +3220,13 @@ function renderAdminStats(stats = {}) {
 async function renderAdminList() {
   const listEl = document.getElementById('admin-list');
   if (!listEl) return;
-  renderAdminControls();
+  renderAdminFilterTabs();
+  // 切换筛选时先隐藏名称栏，避免沿用上一筛选项的旧 name 闪现
+  const namesEl = document.getElementById('admin-active-names');
+  if (namesEl) {
+    namesEl.hidden = true;
+    namesEl.innerHTML = '';
+  }
   let rows = [];
   try {
     rows = await fetchStrategies(adminTimeFilter);
@@ -3277,7 +3284,7 @@ function buildAdminListItemHtml(row) {
     refTakeProfitLabel = null;
   } else if (isAssistStrategy) {
     concessions = buildAssistConcessionsFromRow(row, costMultiplier);
-    // 反趋势辅助：止盈=to，止损=from（计算逻辑不变）
+    // 吃鱼助手：止盈=to，止损=from（计算逻辑不变）
     takeProfitLabel = formatAdminPriceFromValue(row?.inputStopLoss ?? row?.takeProfitPrice, priceDecimalPlaces) || '—';
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
     refTakeProfitLabel = null;
@@ -3355,7 +3362,7 @@ function buildAdminListItemHtml(row) {
     ].join('')
     : '';
   const assistTagHtml = isAssistStrategy
-    ? '<span class="admin-assist-tag" aria-label="反趋势辅助">反趋势辅助</span>'
+    ? '<span class="admin-assist-tag" aria-label="吃鱼助手">吃鱼助手</span>'
     : '';
   const sideLabel = getPositionSideLabel(sideMod);
   const sideTagHtml = sideLabel
@@ -4593,7 +4600,7 @@ async function saveAssistOutput() {
     resetAssistPage();
     flashCopyStrategyBtn(btn, '已保存');
   } catch (err) {
-    logSave('error', '反趋势辅助保存失败', {
+    logSave('error', '吃鱼助手保存失败', {
       message: err?.message || String(err),
     });
     if (errEl) errEl.textContent = '保存失败。请检查 Supabase 表和权限。';

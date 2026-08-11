@@ -2615,7 +2615,7 @@ body.login-mode {
   }
 
   .panel[aria-label="参数输入"],
-  .panel[aria-label="反趋势辅助参数"] {
+  .panel[aria-label="吃鱼助手参数"] {
     display: grid;
     grid-template-columns: 1fr;
     row-gap: 5px;
@@ -2624,8 +2624,8 @@ body.login-mode {
   .panel[aria-label="参数输入"] > label.field:first-of-type,
   .panel[aria-label="参数输入"] > label.field.field--spaced,
   .panel[aria-label="参数输入"] > div.field.field--spaced,
-  .panel[aria-label="反趋势辅助参数"] > label.field:first-of-type,
-  .panel[aria-label="反趋势辅助参数"] > label.field.field--spaced {
+  .panel[aria-label="吃鱼助手参数"] > label.field:first-of-type,
+  .panel[aria-label="吃鱼助手参数"] > label.field.field--spaced {
     grid-column: 1;
     margin-top: 0;
   }
@@ -2636,7 +2636,7 @@ body.login-mode {
   }
 
   .panel[aria-label="参数输入"] > .error,
-  .panel[aria-label="反趋势辅助参数"] > .error {
+  .panel[aria-label="吃鱼助手参数"] > .error {
     grid-column: 1 / -1;
     margin-top: 3px;
     min-height: 14px;
