@@ -821,6 +821,7 @@ const METHODOLOGY_SECTIONS = [
       '放弃多空临界值的单子，做好趋势交易的本分。',
       '钝感力，松弛感。',
       '趋势跟随确认正确以后加仓。反趋势预设确认正确以后转吃鱼助手。',
+      '趋势方向确认以后，追涨杀跌的正确方式：4小时起点开仓，止损前面2个单位。',
     ],
   },
 ];
@@ -2897,18 +2898,9 @@ function getAdminVisibleMultiplierTotal(rows = latestAdminRows) {
   }, 0);
 }
 
-function shouldShowAdminNameSummary() {
-  return normalizeAdminTimeFilter(adminTimeFilter) !== 'all';
-}
-
 function renderAdminActiveNames(rows = latestAdminRows) {
   const el = document.getElementById('admin-active-names');
   if (!el) return;
-  if (!shouldShowAdminNameSummary()) {
-    el.hidden = true;
-    el.innerHTML = '';
-    return;
-  }
   const nameCounts = collectAdminNameCounts(rows);
   const uniqueTotal = nameCounts.length;
   const showMultiplierTotal = normalizeAdminTimeFilter(adminTimeFilter) === 'active';
