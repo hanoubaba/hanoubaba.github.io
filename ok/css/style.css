@@ -1459,6 +1459,13 @@ body.login-mode {
   font-weight: 700;
 }
 
+.admin-concession__rate--strike,
+.strategy-concession__rate--strike {
+  text-decoration: line-through;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .admin-concession--head .admin-concession__rate,
 .admin-concession--head .admin-concession__price,
 .admin-concession--head .admin-concession__qty,

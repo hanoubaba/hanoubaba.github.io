@@ -1873,10 +1873,14 @@ function renderConcessionRowHtml({
   stop,
   hideQuantity = false,
   hideStop = false,
+  strikeRate = false,
 }) {
+  const rateClass = strikeRate
+    ? `${rowClass}__rate ${rowClass}__rate--strike`
+    : `${rowClass}__rate`;
   return [
     `<div class="${rowClass}">`,
-    `<span class="${rowClass}__rate">${escapeHtml(rateLabel)}</span>`,
+    `<span class="${rateClass}">${escapeHtml(rateLabel)}</span>`,
     `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`,
     `<span class="${rowClass}__qty">${hideQuantity ? '' : escapeHtml(item.quantity)}</span>`,
     hideStop ? '' : `<span class="${rowClass}__stop">${stop}</span>`,
@@ -1920,6 +1924,7 @@ function renderConcessionsHtml({
     stop,
     hideQuantity: assistLabels && shouldHideAssistQuantity(item.rate),
     hideStop: hideStopColumn,
+    strikeRate: assistLabels && shouldHideAssistQuantity(item.rate),
   });
 
   let bodyHtml = '';
