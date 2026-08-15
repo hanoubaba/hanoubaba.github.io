@@ -205,9 +205,9 @@ const COUNTER_TREND_ENTRY_MULTIPLES = [3, 4, 5];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
 /** 辅助开单：10%/20% 复用最小让利档（30%）仓位；本金仅 30%/50% 按 3:2 分配；80% 仅展示 */
 const ASSIST_TIER_RATIOS = [
-  { rate: 0.1, label: '10%（鱼头）', reuseMinTierCost: true },
-  { rate: 0.2, label: '20%（鱼头）', reuseMinTierCost: true },
-  { rate: 0.3, label: '30%（鱼头）', costShare: 3 / 5 },
+  { rate: 0.1, label: '10%（鱼头三选一）', reuseMinTierCost: true },
+  { rate: 0.2, label: '20%（鱼头三选一）', reuseMinTierCost: true },
+  { rate: 0.3, label: '30%（鱼头三选一）', costShare: 3 / 5 },
   { rate: 0.5, label: '50%', costShare: 2 / 5 },
   { rate: 0.8, label: '80%（鱼尾）', costShare: 0 },
 ];
@@ -828,7 +828,7 @@ const METHODOLOGY_SECTIONS = [
       '所有操作必须有体系结论，无结论坚决不操作。杜绝一切临时起意的奇怪想法。',
       '行情有四种形态：趋势跟随、反趋势、追涨杀跌、极限逼空。每个形态都可以用体系辅助解析。',
       '顶级判断力，缺乏执行力。实际操作中，保留底仓长线+部分短线操作可以有效缓解执行焦虑。',
-      '每天早中晚发掘新计划，只做最好的，不纠结利润率问题。',
+      '每天早中晚发掘新机会，只做最好的，排行前三开单。不纠结利用率问题。',
       '在行情剧烈时候操作，在行情缓慢时候思考。',
     ],
   },
@@ -1807,7 +1807,7 @@ function isBestConcessionRate(rate) {
 function withBestConcessionLabel(label, rate) {
   const text = String(label ?? '');
   if (!isBestConcessionRate(rate)) return text;
-  if (text.includes('（best）') || text.includes('（鱼头）') || text.includes('（鱼尾）')) return text;
+  if (text.includes('（best）') || text.includes('（鱼头）') || text.includes('（鱼头三选一）') || text.includes('（鱼尾）')) return text;
   return `${text}（best）`;
 }
 
@@ -3842,12 +3842,9 @@ async function createObservationRecord(items) {
   const normalizedItems = normalizeObservationItems(items)
     .map((item) => ({
       name: item.name,
-      time: item.time,
-      timeLabel: item.timeLabel || formatObservationTimeLabel(item.time),
-      price: item.price,
-      stopLoss: item.stopLoss,
+      description: item.description,
     }))
-    .filter((item) => item.name && item.time && item.price && item.stopLoss);
+    .filter((item) => item.name);
   if (!normalizedItems.length) throw new Error('记录内容不能为空');
   const legacyContent = buildObservationLegacyContent(normalizedItems);
   const payload = {
@@ -3889,167 +3886,67 @@ async function deleteObservationRecords(ids) {
   if (!res.ok) throw new Error(await res.text());
 }
 
-function renderObservationDailyFieldsHtml(price, stopLoss) {
-  const priceLabel = escapeHtml(String(price ?? '').trim() || '—');
-  const stopLabel = escapeHtml(String(stopLoss ?? '').trim() || '—');
-  return [
-    '<div class="admin-item__concessions admin-item__concessions--daily" aria-label="日线观测字段">',
-    '<div class="admin-concession admin-concession--daily-row">',
-    '<span class="admin-concession__label">价格</span>',
-    `<span class="admin-concession__value">${priceLabel}</span>`,
-    '</div>',
-    '<div class="admin-concession admin-concession--daily-row">',
-    '<span class="admin-concession__label">止损</span>',
-    `<span class="admin-concession__value">${stopLabel}</span>`,
-    '</div>',
-    '</div>',
-  ].join('');
-}
-
-function getObservationItemSide(item) {
-  const price = toNumber(item?.price);
-  const stopLoss = toNumber(item?.stopLoss);
-  if (price == null || stopLoss == null) return 'flat';
-  if (price === stopLoss) return 'flat';
-  return price > stopLoss ? 'long' : 'short';
-}
-
-function renderObservationLegacyBodyHtml(items) {
-  const normalizedItems = normalizeObservationItems(items);
-  if (!normalizedItems.length) {
-    return '<p class="obs-template-empty">暂无日线观测记录</p>';
-  }
-  return [
-    '<div class="obs-template">',
-    normalizedItems.map((item) => [
-      '<div class="obs-template__row">',
-      `<h3 class="obs-template__name">${escapeHtml(item.name)}</h3>`,
-      item.description
-        ? `<p class="obs-template__desc">${escapeHtml(item.description)}</p>`
-        : '<p class="obs-template__desc obs-template__desc--empty">暂无描述</p>',
-      '</div>',
-    ].join('')).join(''),
-    '</div>',
-  ].join('');
-}
-
 function renderObservationRecordItem(record) {
   const rawId = String(record?.id ?? '').trim();
   const id = escapeHtml(rawId);
   const items = normalizeObservationItems(record.items);
-  const trendItem = items.find((item) => item.time || item.price || item.stopLoss) || null;
+  const primary = items[0] || { name: '未命名', description: '' };
   const checked = rawId && selectedObservationIds.has(rawId) ? ' checked' : '';
   const disabled = isDeletingObservations ? ' disabled' : '';
   const selectorDisabled = isDeletingObservations ? ' is-disabled' : '';
-
-  if (!trendItem) {
-    const selectHtml = rawId && isObsSelectionMode
-      ? [
-        `<label class="admin-item__selector${selectorDisabled}" aria-label="选择日线观测记录">`,
-        `<input type="checkbox" class="admin-item__select" data-id="${id}"${checked}${disabled}>`,
-        '<span class="admin-item__checkmark" aria-hidden="true"></span>',
-        '</label>',
-      ].join('')
-      : '';
-    return [
-      '<article class="admin-item admin-item--flat obs-record">',
-      '<header class="admin-item__head">',
-      selectHtml,
-      '<div class="admin-item__title-wrap">',
-      `<span class="admin-item__title">${escapeHtml(formatStrategyCardTitle(items[0]?.name || '未命名'))}</span>`,
-      '</div>',
-      '</header>',
-      renderObservationLegacyBodyHtml(items),
-      '</article>',
-    ].join('');
-  }
-
-  const title = escapeHtml(formatStrategyCardTitle(trendItem.name));
-  const titleLabel = escapeHtml(String(trendItem.name || '未命名').trim() || '未命名');
-  const sideMod = getPositionSideMod(getObservationItemSide(trendItem));
-  const timeRange = escapeHtml(formatObservationTimeRange(trendItem.time, trendItem.timeLabel));
-  const endAt = getObservationEndAt(trendItem.time);
-  const timeBadgeHtml = renderObservationCountdownBadgeHtml(endAt);
-  const priceDecimalPlaces = getPriceDecimalPlacesFromValues(trendItem.price, trendItem.stopLoss);
-  const refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(
-    trendItem.price,
-    trendItem.stopLoss,
-    priceDecimalPlaces,
-  );
-  const refTakeProfitHtml = refTakeProfitLabel == null
-    ? ''
-    : renderReferenceTakeProfitHtml('admin-item__ref-tp', refTakeProfitLabel);
   const selectHtml = rawId && isObsSelectionMode
     ? [
-      `<label class="admin-item__selector${selectorDisabled}" aria-label="选择 ${titleLabel}">`,
+      `<label class="admin-item__selector${selectorDisabled}" aria-label="选择观测日志">`,
       `<input type="checkbox" class="admin-item__select" data-id="${id}"${checked}${disabled}>`,
       '<span class="admin-item__checkmark" aria-hidden="true"></span>',
       '</label>',
     ].join('')
     : '';
-  const headRightHtml = timeBadgeHtml
+  const createdAt = record?.createdAt ? new Date(record.createdAt) : null;
+  const timeLabel = createdAt && !Number.isNaN(createdAt.getTime())
+    ? formatStartSlotValue(createdAt)
+    : '';
+  const timeHtml = timeLabel
     ? [
       '<div class="admin-item__head-right">',
-      timeBadgeHtml,
+      `<span class="obs-record__time" aria-label="创建时间">${escapeHtml(timeLabel)}</span>`,
       '</div>',
     ].join('')
     : '';
+  const descHtml = primary.description
+    ? `<p class="obs-template__desc">${escapeHtml(primary.description)}</p>`
+    : '<p class="obs-template__desc obs-template__desc--empty">暂无描述</p>';
 
   return [
-    `<article class="admin-item admin-item--${sideMod} obs-record">`,
+    '<article class="admin-item admin-item--flat obs-record">',
     '<header class="admin-item__head">',
     selectHtml,
     '<div class="admin-item__title-wrap">',
-    `<span class="admin-item__title">${title}</span>`,
+    `<span class="admin-item__title">${escapeHtml(formatStrategyCardTitle(primary.name || '未命名'))}</span>`,
     '</div>',
-    headRightHtml,
+    timeHtml,
     '</header>',
-    renderObservationDailyFieldsHtml(trendItem.price, trendItem.stopLoss),
-    refTakeProfitHtml,
-    '<div class="admin-item__actions">',
-    '<div class="admin-item__meta">',
-    `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
+    '<div class="obs-template">',
+    '<div class="obs-template__row">',
+    descHtml,
     '</div>',
     '</div>',
     '</article>',
   ].join('');
 }
 
-function renderObservationTimeOptions(selectedValue = '') {
-  const slots = getObservationDailyTimeSlots();
-  const activeValue = resolveStartTimeSelection(OBS_DAILY_TIMEFRAME, selectedValue);
-  const options = [
-    '<option value="">请选择</option>',
-    ...slots.map((slot) => {
-      const selected = slot.value === activeValue ? ' selected' : '';
-      return `<option value="${escapeHtml(slot.value)}"${selected}>${escapeHtml(slot.label)}</option>`;
-    }),
-  ];
-  return options.join('');
-}
-
 function renderObservationFormRow(item = {}) {
   const name = escapeHtml(String(item?.name ?? ''));
-  const price = escapeHtml(String(item?.price ?? ''));
-  const stopLoss = escapeHtml(String(item?.stopLoss ?? ''));
-  const timeValue = String(item?.time ?? '').trim();
+  const description = escapeHtml(String(item?.description ?? ''));
   return [
     '<div class="obs-form-row">',
     '<label class="obs-form-field obs-form-field--name">',
     '<span class="obs-form-field__label">名称</span>',
     `<input class="obs-form-row__name" type="text" value="${name}" placeholder="例如 BTC、ETH、纳指" autocomplete="off" autocapitalize="characters" spellcheck="false" />`,
     '</label>',
-    '<label class="obs-form-field obs-form-field--time">',
-    '<span class="obs-form-field__label">时间</span>',
-    `<select class="obs-form-row__time" autocomplete="off">${renderObservationTimeOptions(timeValue)}</select>`,
-    '</label>',
-    '<label class="obs-form-field obs-form-field--price">',
-    '<span class="obs-form-field__label">价格</span>',
-    `<input class="obs-form-row__price" type="text" inputmode="decimal" value="${price}" placeholder="开始价格" autocomplete="off" />`,
-    '</label>',
-    '<label class="obs-form-field obs-form-field--stop">',
-    '<span class="obs-form-field__label">止损</span>',
-    `<input class="obs-form-row__stop" type="text" inputmode="decimal" value="${stopLoss}" placeholder="止损" autocomplete="off" />`,
+    '<label class="obs-form-field obs-form-field--desc">',
+    '<span class="obs-form-field__label">描述</span>',
+    `<textarea class="obs-form-row__desc" rows="4" placeholder="选填" autocomplete="off">${description}</textarea>`,
     '</label>',
     '</div>',
   ].join('');
@@ -4066,19 +3963,11 @@ function renderObservationFormList() {
 
 function collectObservationFormItems() {
   return Array.from(document.querySelectorAll('#obs-form-list .obs-form-row'))
-    .map((row) => {
-      const timeSelect = row.querySelector('.obs-form-row__time');
-      const time = String(timeSelect?.value ?? '').trim();
-      const timeLabel = String(timeSelect?.selectedOptions?.[0]?.textContent ?? '').trim();
-      return {
-        name: String(row.querySelector('.obs-form-row__name')?.value ?? '').trim(),
-        time,
-        timeLabel: timeLabel === '请选择' ? '' : timeLabel,
-        price: String(row.querySelector('.obs-form-row__price')?.value ?? '').trim(),
-        stopLoss: String(row.querySelector('.obs-form-row__stop')?.value ?? '').trim(),
-      };
-    })
-    .filter((item) => item.name || item.time || item.price || item.stopLoss);
+    .map((row) => ({
+      name: String(row.querySelector('.obs-form-row__name')?.value ?? '').trim(),
+      description: String(row.querySelector('.obs-form-row__desc')?.value ?? '').trim(),
+    }))
+    .filter((item) => item.name || item.description);
 }
 
 let selectedObservationIds = new Set();
@@ -4169,7 +4058,7 @@ function setVisibleObsSelection(selected) {
 
 function confirmDeleteObservations(count) {
   if (typeof window.confirm !== 'function') return true;
-  return window.confirm(count > 1 ? `确认删除选中的 ${count} 条日线观测记录？` : '确认删除这条日线观测记录？');
+  return window.confirm(count > 1 ? `确认删除选中的 ${count} 条观测日志？` : '确认删除这条观测日志？');
 }
 
 function showObsDeleteError() {
@@ -4215,7 +4104,7 @@ async function renderObservationsPage() {
     if (records.length === 0) {
       visibleObservationIds = [];
       selectedObservationIds.clear();
-      listEl.innerHTML = '<p class="obs-empty">暂无日线观测记录，点击下方按钮新增。</p>';
+      listEl.innerHTML = '<p class="obs-empty">暂无观测日志，点击下方按钮新增。</p>';
       updateObsSelectionControls();
       syncAdminCountdownTimer();
       return;
@@ -4260,7 +4149,7 @@ async function submitObservationForm() {
   const submitBtn = document.getElementById('obs-form-submit');
   const items = collectObservationFormItems();
   if (!items.length) {
-    if (errorEl) errorEl.textContent = '请填写名称、时间、价格和止损。';
+    if (errorEl) errorEl.textContent = '请填写名称。';
     document.querySelector('#obs-form-list .obs-form-row__name')?.focus();
     return;
   }
@@ -4268,23 +4157,6 @@ async function submitObservationForm() {
   if (!item.name) {
     if (errorEl) errorEl.textContent = '请填写名称。';
     document.querySelector('#obs-form-list .obs-form-row__name')?.focus();
-    return;
-  }
-  if (!item.time) {
-    if (errorEl) errorEl.textContent = '请选择时间。';
-    document.querySelector('#obs-form-list .obs-form-row__time')?.focus();
-    return;
-  }
-  const price = toNumber(item.price);
-  if (price == null || price <= 0) {
-    if (errorEl) errorEl.textContent = '请填写有效的价格。';
-    document.querySelector('#obs-form-list .obs-form-row__price')?.focus();
-    return;
-  }
-  const stopLoss = toNumber(item.stopLoss);
-  if (stopLoss == null || stopLoss <= 0) {
-    if (errorEl) errorEl.textContent = '请填写有效的止损。';
-    document.querySelector('#obs-form-list .obs-form-row__stop')?.focus();
     return;
   }
   if (errorEl) errorEl.textContent = '';
@@ -4298,9 +4170,8 @@ async function submitObservationForm() {
 
   try {
     await createObservationRecord([{
-      ...item,
-      price: String(item.price).trim(),
-      stopLoss: String(item.stopLoss).trim(),
+      name: item.name,
+      description: item.description,
     }]);
     closeObservationFormPicker();
     showToast('记录已保存');
@@ -4404,10 +4275,11 @@ function setPage(mode) {
   btnMethodology.classList.toggle('is-active', toMethodology);
   btnCases.classList.toggle('is-active', toCases);
   btnObservations.classList.toggle('is-active', toObservations);
+  btnObservations.setAttribute('aria-selected', toObservations ? 'true' : 'false');
 
   const moreToggle = document.getElementById('admin-more-toggle');
   if (moreToggle) {
-    moreToggle.classList.toggle('is-active', toStats || toMethodology || toCases || toObservations);
+    moreToggle.classList.toggle('is-active', toStats || toMethodology || toCases);
   }
   closeAdminMoreMenu();
 
