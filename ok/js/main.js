@@ -817,8 +817,7 @@ const METHODOLOGY_SECTIONS = [
       '反趋势限定方向空，时间空间都满足，否则不做。优先级还是新的趋势跟随单。',
       '严格选品，分批挂单。保持最佳位置挂单的好习惯，经常会有惊喜。',
       '分仓不如集中子弹到最优势的单子，多维度去解读操作。基于方向的确定性，实现收益最大化。',
-      '坚持到底，不要浪费行情。可以留小仓位验证。',
-      '不对劲就跑，亏不了多少。无需纠结，集中力量到下一单。',
+      '不符合模型就跑，亏不了多少。无需纠结，集中力量到下一单。',
       '放弃多空临界值的单子，做好趋势交易的本分。',
       '钝感力，松弛感。',
       '趋势跟随确认正确以后加仓。反趋势预设确认正确以后转吃鱼助手。',
@@ -827,9 +826,9 @@ const METHODOLOGY_SECTIONS = [
       '错过一些机会证明我的风控做的很好，要继续保持，不要觊觎其他的力量。',
       '已经认证过可行性，只需坚定循环执行。不要调整，稳定盈利才是王道。',
       '所有操作必须有体系结论，无结论坚决不操作。杜绝一切临时起意的奇怪想法。',
-      '行情有三种形态：趋势跟随、反趋势、追涨杀跌。每个形态都可以用体系辅助解析。',
+      '行情有四种形态：趋势跟随、反趋势、追涨杀跌、极限逼空。每个形态都可以用体系辅助解析。',
       '顶级判断力，缺乏执行力。实际操作中，保留底仓长线+部分短线操作可以有效缓解执行焦虑。',
-      '禁止市价全平，改为99%平仓，保留原始单据，动态加减仓。对的要坚持，错的要止损换对的，不纠结。看不出对错别操作。',
+      '每天早中晚发掘新计划，只做最好的，不纠结利润率问题。',
       '在行情剧烈时候操作，在行情缓慢时候思考。',
     ],
   },
@@ -4537,7 +4536,6 @@ async function copyStrategyOutput() {
       await createStrategy(record);
       saved = true;
       logSave('info', '保存成功');
-      if (currentPage === 'admin') await renderAdminList();
     } catch (err) {
       logSave('error', 'Supabase 保存失败', {
         message: err?.message || String(err),
@@ -4548,7 +4546,7 @@ async function copyStrategyOutput() {
     }
     if (saved) {
       showToast('保存成功');
-      resetFrontPage();
+      setPage('admin');
     }
     flashCopyStrategyBtn(btn, saved ? '已保存' : '保存失败');
   } finally {
@@ -4601,9 +4599,8 @@ async function saveAssistOutput() {
     });
     await createStrategy(record);
     saved = true;
-    if (currentPage === 'admin') await renderAdminList();
     showToast('保存成功');
-    resetAssistPage();
+    setPage('admin');
     flashCopyStrategyBtn(btn, '已保存');
   } catch (err) {
     logSave('error', '吃鱼助手保存失败', {
