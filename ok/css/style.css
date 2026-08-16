@@ -1448,6 +1448,19 @@ body.login-mode {
   color: #a16207;
 }
 
+.strategy-concession-best-group {
+  background: linear-gradient(180deg, #fffbeb 0%, #fef9c3 100%);
+  box-shadow: inset 3px 0 0 #eab308;
+}
+
+.strategy-concession-best-group .strategy-concession + .strategy-concession {
+  border-top-color: rgba(202, 138, 4, 0.22);
+}
+
+.strategy-concession-best-group .strategy-concession__rate {
+  color: #a16207;
+}
+
 .admin-concession--head {
   background: #f8fafc;
   color: #64748b;

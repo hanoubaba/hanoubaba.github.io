@@ -1804,7 +1804,7 @@ function formatCounterTrendRate(rate) {
   return `${Math.round(n)}R`;
 }
 
-/** 0% / 10% / 20% / 30% 统一标记为 best */
+/** 0% / 10% / 20% / 30% 统一标记为 best三选一 */
 const BEST_CONCESSION_RATE_MAX = 0.3;
 
 function isBestConcessionRate(rate) {
@@ -1815,8 +1815,14 @@ function isBestConcessionRate(rate) {
 function withBestConcessionLabel(label, rate) {
   const text = String(label ?? '');
   if (!isBestConcessionRate(rate)) return text;
-  if (text.includes('（best）') || text.includes('（鱼头）') || text.includes('（鱼头三选一）') || text.includes('（鱼尾）')) return text;
-  return `${text}（best）`;
+  if (
+    text.includes('（best三选一）')
+    || text.includes('（best）')
+    || text.includes('（鱼头）')
+    || text.includes('（鱼头三选一）')
+    || text.includes('（鱼尾）')
+  ) return text;
+  return `${text}（best三选一）`;
 }
 
 function getDisplayConcessionItems(items) {
@@ -1995,6 +2001,7 @@ function renderStrategyConcessionsHtml(items, stopLabel, options = {}) {
     reverseOrder: options.reverseOrder === true,
     assistLabels: options.assistLabels === true,
     formatRate: options.formatRate,
+    groupBestPeers: options.groupBestPeers !== false,
   });
 }
 
