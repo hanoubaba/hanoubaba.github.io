@@ -1470,6 +1470,46 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
+function renderCopyableNumberHtml(value, className) {
+  const text = String(value ?? '').trim();
+  const safeClass = String(className || '').trim();
+  if (!text || text === '—') {
+    return `<span class="${safeClass}">${escapeHtml(text || '—')}</span>`;
+  }
+  return [
+    `<button type="button" class="${safeClass} admin-copy-value" data-copy-text="${escapeHtml(text)}" title="点击复制" aria-label="复制 ${escapeHtml(text)}">`,
+    escapeHtml(text),
+    '</button>',
+  ].join('');
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text ?? '');
+  if (!value) return false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // fallback below
+  }
+  try {
+    const el = document.createElement('textarea');
+    el.value = value;
+    el.setAttribute('readonly', '');
+    el.style.position = 'fixed';
+    el.style.opacity = '0';
+    document.body.appendChild(el);
+    el.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(el);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 function clearMethodologyPage() {
   const container = document.querySelector('#methodology-page .methodology-content');
   if (container) container.innerHTML = '';
@@ -1706,29 +1746,36 @@ function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) 
 }
 
 function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel, refTakeProfitLabel = null) {
-  const tp = escapeHtml(String(takeProfitLabel ?? '').trim() || '—');
-  const sl = escapeHtml(String(stopLossLabel ?? '').trim() || '—');
+  const tpRaw = String(takeProfitLabel ?? '').trim() || '—';
+  const slRaw = String(stopLossLabel ?? '').trim() || '—';
   const refRaw = String(refTakeProfitLabel ?? '').trim();
   const hasRef = Boolean(refRaw && refRaw !== '—');
+
+  const renderBlock = (modClass, label, value, ariaLabel, { copyable = true } = {}) => {
+    const text = String(value ?? '').trim() || '—';
+    const canCopy = copyable && Boolean(text && text !== '—');
+    const className = `admin-item__tp-sl-item ${modClass}${canCopy ? ' admin-copy-value' : ''}`.trim();
+    const tag = canCopy ? 'button' : 'span';
+    const copyAttrs = canCopy
+      ? ` type="button" data-copy-text="${escapeHtml(text)}" title="点击复制" aria-label="复制${escapeHtml(label)} ${escapeHtml(text)}"`
+      : ` aria-label="${escapeHtml(ariaLabel)}"`;
+    return [
+      `<${tag} class="${className}"${copyAttrs}>`,
+      `<span class="admin-item__tp-sl-label">${escapeHtml(label)}</span>`,
+      `<span class="admin-item__tp-sl-value">${escapeHtml(text)}</span>`,
+      `</${tag}>`,
+    ].join('');
+  };
+
   const refHtml = hasRef
-    ? [
-      '<span class="admin-item__tp-sl-ref" aria-label="参考止盈">',
-      '<span class="admin-item__tp-sl-label">参考止盈</span>',
-      `<span class="admin-item__tp-sl-value">${escapeHtml(refRaw)}</span>`,
-      '</span>',
-    ].join('')
-    : '<span class="admin-item__tp-sl-ref admin-item__tp-sl-ref--empty" aria-hidden="true"></span>';
+    ? renderBlock('admin-item__tp-sl-item--ref admin-item__tp-sl-ref', '参考止盈', refRaw, '参考止盈', { copyable: false })
+    : '<span class="admin-item__tp-sl-item admin-item__tp-sl-ref admin-item__tp-sl-ref--empty" aria-hidden="true"></span>';
+
   return [
     `<div class="admin-item__tp-sl${hasRef ? ' admin-item__tp-sl--with-ref' : ''}" aria-label="止盈止损">`,
     refHtml,
-    '<span class="admin-item__tp-sl-item" aria-label="止盈价格">',
-    '<span class="admin-item__tp-sl-label">止盈</span>',
-    `<span class="admin-item__tp-sl-value">${tp}</span>`,
-    '</span>',
-    '<span class="admin-item__tp-sl-item" aria-label="止损价格">',
-    '<span class="admin-item__tp-sl-label">止损</span>',
-    `<span class="admin-item__tp-sl-value">${sl}</span>`,
-    '</span>',
+    renderBlock('admin-item__tp-sl-item--tp', '止盈', tpRaw, '止盈价格'),
+    renderBlock('admin-item__tp-sl-item--sl', '止损', slRaw, '止损价格'),
     '</div>',
   ].join('');
 }
@@ -1898,16 +1945,30 @@ function renderConcessionRowHtml({
   hideQuantity = false,
   hideStop = false,
   strikeRate = false,
+  copyableNumbers = false,
 }) {
   const rateClass = strikeRate
     ? `${rowClass}__rate ${rowClass}__rate--strike`
     : `${rowClass}__rate`;
+  const priceHtml = copyableNumbers
+    ? renderCopyableNumberHtml(item.price, `${rowClass}__price`)
+    : `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`;
+  const qtyHtml = hideQuantity
+    ? `<span class="${rowClass}__qty"></span>`
+    : (copyableNumbers
+      ? renderCopyableNumberHtml(item.quantity, `${rowClass}__qty`)
+      : `<span class="${rowClass}__qty">${escapeHtml(item.quantity)}</span>`);
+  const stopHtml = hideStop
+    ? ''
+    : (copyableNumbers
+      ? renderCopyableNumberHtml(stop, `${rowClass}__stop`)
+      : `<span class="${rowClass}__stop">${stop}</span>`);
   return [
     `<div class="${rowClass}">`,
     `<span class="${rateClass}">${escapeHtml(rateLabel)}</span>`,
-    `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`,
-    `<span class="${rowClass}__qty">${hideQuantity ? '' : escapeHtml(item.quantity)}</span>`,
-    hideStop ? '' : `<span class="${rowClass}__stop">${stop}</span>`,
+    priceHtml,
+    qtyHtml,
+    stopHtml,
     '</div>',
   ].join('');
 }
@@ -1949,6 +2010,7 @@ function renderConcessionsHtml({
     hideQuantity: assistLabels && shouldHideAssistQuantity(item.rate),
     hideStop: hideStopColumn,
     strikeRate: assistLabels && shouldHideAssistQuantity(item.rate),
+    copyableNumbers: prefix === 'admin',
   });
 
   let bodyHtml = '';
@@ -4730,6 +4792,17 @@ if (adminListEl) {
   adminListEl.addEventListener('click', async (e) => {
     const target = e.target instanceof HTMLElement ? e.target : null;
     if (!target) return;
+
+    const copyBtn = target.closest('.admin-copy-value');
+    if (copyBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const text = String(copyBtn.getAttribute('data-copy-text') ?? '').trim();
+      if (!text) return;
+      const ok = await copyTextToClipboard(text);
+      showToast(ok ? '已复制' : '复制失败');
+      return;
+    }
 
     const multiplierBtn = target.closest('[data-cost-multiplier-delta]');
     if (multiplierBtn) {
