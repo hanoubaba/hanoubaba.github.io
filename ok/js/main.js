@@ -1709,18 +1709,18 @@ function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel, refTakePr
   const tp = escapeHtml(String(takeProfitLabel ?? '').trim() || '—');
   const sl = escapeHtml(String(stopLossLabel ?? '').trim() || '—');
   const refRaw = String(refTakeProfitLabel ?? '').trim();
-  const refHtml = refRaw && refRaw !== '—'
+  const hasRef = Boolean(refRaw && refRaw !== '—');
+  const refHtml = hasRef
     ? [
       '<span class="admin-item__tp-sl-ref" aria-label="参考止盈">',
       '<span class="admin-item__tp-sl-label">参考止盈</span>',
       `<span class="admin-item__tp-sl-value">${escapeHtml(refRaw)}</span>`,
       '</span>',
     ].join('')
-    : '';
+    : '<span class="admin-item__tp-sl-ref admin-item__tp-sl-ref--empty" aria-hidden="true"></span>';
   return [
-    '<div class="admin-item__tp-sl" aria-label="止盈止损">',
+    `<div class="admin-item__tp-sl${hasRef ? ' admin-item__tp-sl--with-ref' : ''}" aria-label="止盈止损">`,
     refHtml,
-    '<span class="admin-item__tp-sl-main">',
     '<span class="admin-item__tp-sl-item" aria-label="止盈价格">',
     '<span class="admin-item__tp-sl-label">止盈</span>',
     `<span class="admin-item__tp-sl-value">${tp}</span>`,
@@ -1728,7 +1728,6 @@ function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel, refTakePr
     '<span class="admin-item__tp-sl-item" aria-label="止损价格">',
     '<span class="admin-item__tp-sl-label">止损</span>',
     `<span class="admin-item__tp-sl-value">${sl}</span>`,
-    '</span>',
     '</span>',
     '</div>',
   ].join('');
@@ -1795,7 +1794,9 @@ function getTierOpenCostBudget(openCostTotal, costShare) {
 }
 
 function formatConcessionPercent(rate) {
-  return `${Math.round(rate * 100)}%`;
+  const pct = Math.round(Number(rate) * 100);
+  if (!Number.isFinite(pct)) return '—';
+  return `${String(pct).padStart(2, '0')}%`;
 }
 
 function formatCounterTrendRate(rate) {
