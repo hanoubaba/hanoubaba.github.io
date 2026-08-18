@@ -197,8 +197,8 @@ const OPEN_COST_MULTIPLIER_MAX = 10;
 const OPEN_COST_MULTIPLIER_DEFAULT = 3;
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
-const REF_TAKE_PROFIT_R_LOW = 3;
-const REF_TAKE_PROFIT_R_HIGH = 5;
+const REF_TAKE_PROFIT_R = 3;
+const BEST_TAKE_PROFIT_R = 5;
 const STRATEGY_DURATION_PERIODS = 10;
 /** 反趋势：挂单档位 = 原策略 3/4/5 倍止盈价，止损 = 10 倍止盈价 */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 4, 5];
@@ -1690,36 +1690,24 @@ function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
   if (entry == null || stop == null || entry === stop) return '—';
-  const tpLowR = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R_LOW);
-  const tpHighR = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R_HIGH);
-  if (tpLowR == null || tpHighR == null) return '—';
-  let low = normalizeReferenceTakeProfitPrice(Math.min(tpLowR, tpHighR));
-  let high = normalizeReferenceTakeProfitPrice(Math.max(tpLowR, tpHighR));
-  if (low == null && high == null) return '—';
-  if (low == null) low = high;
-  if (high == null) high = low;
+  const tp = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R);
+  if (tp == null) return '—';
+  const normalized = normalizeReferenceTakeProfitPrice(tp);
+  if (normalized == null) return '—';
   const decimals = decimalPlaces ?? getPriceDecimalPlacesFromValues(entryPrice, stopLoss);
-  const lowLabel = formatTrimmedFixedDecimals(low, decimals);
-  const highLabel = formatTrimmedFixedDecimals(high, decimals);
-  return lowLabel === highLabel ? lowLabel : `${lowLabel}-${highLabel}`;
+  return formatTrimmedFixedDecimals(normalized, decimals);
 }
 
 function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
   if (entry == null || stop == null || entry === stop) return '—';
-  const tpLowR = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R_LOW);
-  const tpHighR = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R_HIGH);
-  if (tpLowR == null || tpHighR == null) return '—';
-  let low = normalizeReferenceTakeProfitPrice(Math.min(tpLowR, tpHighR));
-  let high = normalizeReferenceTakeProfitPrice(Math.max(tpLowR, tpHighR));
-  if (low == null && high == null) return '—';
-  if (low == null) low = high;
-  if (high == null) high = low;
+  const tp = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R);
+  if (tp == null) return '—';
+  const normalized = normalizeReferenceTakeProfitPrice(tp);
+  if (normalized == null) return '—';
   const decimals = Math.max(0, Math.min(20, Math.floor(Number(decimalPlaces) || 0)));
-  const lowLabel = formatTrimmedFixedDecimals(low, decimals);
-  const highLabel = formatTrimmedFixedDecimals(high, decimals);
-  return lowLabel === highLabel ? lowLabel : `${lowLabel}-${highLabel}`;
+  return formatTrimmedFixedDecimals(normalized, decimals);
 }
 
 function renderReferenceTakeProfitHtml(blockClass, label) {
@@ -1737,7 +1725,7 @@ function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) 
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
   if (entry == null || stop == null || entry === stop) return '—';
-  const tp = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R_HIGH);
+  const tp = calcTakeProfit(entry, stop, BEST_TAKE_PROFIT_R);
   if (tp == null) return '—';
   const normalized = normalizeReferenceTakeProfitPrice(tp);
   if (normalized == null) return '—';
@@ -1768,7 +1756,7 @@ function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel, refTakePr
   };
 
   const refHtml = hasRef
-    ? renderBlock('admin-item__tp-sl-item--ref admin-item__tp-sl-ref', '参考止盈', refRaw, '参考止盈', { copyable: false })
+    ? renderBlock('admin-item__tp-sl-item--ref admin-item__tp-sl-ref', '参考止盈', refRaw, '参考止盈')
     : '<span class="admin-item__tp-sl-item admin-item__tp-sl-ref admin-item__tp-sl-ref--empty" aria-hidden="true"></span>';
 
   return [
@@ -1871,6 +1859,10 @@ function withBestConcessionLabel(label, rate) {
     || text.includes('（鱼尾）')
   ) return text;
   return `${text}（best三选一）`;
+}
+
+function stripRateAnnotation(label) {
+  return String(label ?? '').replace(/\s*[（(][^）)]*[）)]/g, '').trim();
 }
 
 function getDisplayConcessionItems(items) {
@@ -2002,16 +1994,22 @@ function renderConcessionsHtml({
     ? `${wrapperClass} ${wrapperClass}--no-stop`.trim()
     : wrapperClass;
 
-  const buildRow = (item) => renderConcessionRowHtml({
-    rowClass,
-    item,
-    rateLabel: withBestConcessionLabel(rateFormatter(item.rate), item.rate),
-    stop,
-    hideQuantity: assistLabels && shouldHideAssistQuantity(item.rate),
-    hideStop: hideStopColumn,
-    strikeRate: assistLabels && shouldHideAssistQuantity(item.rate),
-    copyableNumbers: prefix === 'admin',
-  });
+  const buildRow = (item) => {
+    const formatted = rateFormatter(item.rate);
+    const rateLabel = prefix === 'admin'
+      ? stripRateAnnotation(formatted)
+      : withBestConcessionLabel(formatted, item.rate);
+    return renderConcessionRowHtml({
+      rowClass,
+      item,
+      rateLabel,
+      stop,
+      hideQuantity: assistLabels && shouldHideAssistQuantity(item.rate),
+      hideStop: hideStopColumn,
+      strikeRate: assistLabels && shouldHideAssistQuantity(item.rate),
+      copyableNumbers: prefix === 'admin',
+    });
+  };
 
   let bodyHtml = '';
   if (groupBestPeers) {

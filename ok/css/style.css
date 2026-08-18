@@ -1448,8 +1448,13 @@ body.login-mode {
   border-top-color: rgba(202, 138, 4, 0.22);
 }
 
-.admin-concession-best-group .admin-concession__rate {
+.admin-concession-best-group .admin-concession__rate,
+.admin-concession-best-group .admin-concession__price,
+.admin-concession-best-group .admin-concession__qty,
+.admin-concession-best-group .admin-concession__price.admin-copy-value,
+.admin-concession-best-group .admin-concession__qty.admin-copy-value {
   color: #a16207;
+  font-weight: 700;
 }
 
 .strategy-concession-best-group {
@@ -1471,13 +1476,18 @@ body.login-mode {
   font-weight: 700;
 }
 
+.admin-concession__rate,
+.admin-concession__price,
+.admin-concession__qty {
+  color: var(--primary-strong);
+  font-weight: 700;
+}
+
 .admin-concession__rate {
   min-width: 0;
   max-width: 100%;
   justify-self: stretch;
   text-align: left;
-  color: var(--primary-strong);
-  font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1518,11 +1528,14 @@ body.login-mode {
   width: 100%;
   min-width: 0;
   justify-self: stretch;
+  word-break: break-all;
+}
+
+.admin-concession__stop {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   font-size: 14px;
   color: var(--text);
-  word-break: break-all;
 }
 
 .admin-concession__price {
@@ -1693,6 +1706,12 @@ body.login-mode {
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
+}
+
+.admin-concession__price.admin-copy-value,
+.admin-concession__qty.admin-copy-value {
+  color: var(--primary-strong);
+  font-weight: 700;
 }
 
 .admin-concession__price.admin-copy-value {
@@ -3058,8 +3077,6 @@ body.login-mode {
     font-size: 10px;
   }
 
-  .admin-concession__price,
-  .admin-concession__qty,
   .admin-concession__stop {
     font-size: 13px;
   }
