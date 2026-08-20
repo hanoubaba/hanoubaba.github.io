@@ -2098,22 +2098,6 @@ body.login-mode {
   margin-top: 8px;
 }
 
-.strategy-output {
-  margin: 8px 0 0;
-  padding: 0;
-  min-height: 0;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.strategy-output:empty {
-  min-height: 0;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-}
-
 .strategy-card {
   position: relative;
   border: 1px solid var(--border-soft);
@@ -2839,15 +2823,6 @@ body.login-mode {
     padding: 11px 14px;
     font-size: 14px;
     border-radius: 10px;
-  }
-
-  #front-page > .strategy-output,
-  #front-trend-panel > .strategy-output,
-  #front-assist-panel > .strategy-output {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    margin-top: 6px;
   }
 
   #front-page {

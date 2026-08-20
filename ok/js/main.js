@@ -1592,20 +1592,9 @@ let currentStrategyRecord = null;
 let currentAssistCopyText = '';
 let currentAssistRecord = null;
 
-function clearStrategyOutput(outEl = document.getElementById('strategy-output')) {
-  if (!outEl) return;
-  outEl.textContent = '';
-}
-
-function renderStrategyOutput(outEl, { html }) {
-  if (!outEl) return;
-  outEl.innerHTML = html || '';
-}
-
 function clearStrategyState() {
   currentStrategyCopyText = '';
   currentStrategyRecord = null;
-  clearStrategyOutput();
 }
 
 function setStrategyState(strategy) {
@@ -1615,7 +1604,6 @@ function setStrategyState(strategy) {
   }
   currentStrategyCopyText = String(strategy.copyText ?? '').trim();
   currentStrategyRecord = strategy.record ?? null;
-  renderStrategyOutput(document.getElementById('strategy-output'), strategy);
 }
 
 function getPositionSideMod(side) {
@@ -1743,16 +1731,6 @@ function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces 
   if (normalized == null) return '—';
   const decimals = Math.max(0, Math.min(20, Math.floor(Number(decimalPlaces) || 0)));
   return formatTrimmedFixedDecimals(normalized, decimals);
-}
-
-function renderReferenceTakeProfitHtml(blockClass, label) {
-  const value = escapeHtml(String(label ?? '').trim() || '—');
-  return [
-    `<div class="${blockClass}">`,
-    `<span class="${blockClass}-label">参考止盈</span>`,
-    `<span class="${blockClass}-value">${value}</span>`,
-    '</div>',
-  ].join('');
 }
 
 /** 趋势跟随最佳止盈点位：5R，方向随多空（开>止为多，开<止为空） */
@@ -2081,85 +2059,6 @@ function renderConcessionsHtml({
   ].join('');
 }
 
-function renderStrategyConcessionsHtml(items, stopLabel, options = {}) {
-  return renderConcessionsHtml({
-    prefix: 'strategy',
-    items,
-    stopLabel,
-    stopHeaderLabel: options.stopHeaderLabel,
-    rateHeaderLabel: options.rateHeaderLabel,
-    wrapperClass: 'strategy-card__concessions',
-    reverseOrder: options.reverseOrder === true,
-    assistLabels: options.assistLabels === true,
-    formatRate: options.formatRate,
-    groupBestPeers: options.groupBestPeers !== false,
-  });
-}
-
-function buildStrategyDisplayHtml({
-  side,
-  alarmName,
-  stopLabel,
-  stopHeaderLabel,
-  refTakeProfitLabel,
-  concessionItems,
-  timeRangeLabel,
-  reverseOrder = false,
-  assistLabels = false,
-  titleText = null,
-  titleTagHtml = '',
-  cardMod = '',
-  footerHtml = null,
-}) {
-  const sideMod = getPositionSideMod(side);
-  const title = titleText == null ? formatStrategyCardTitle(alarmName) : String(titleText);
-  const refTakeProfitHtml = refTakeProfitLabel == null
-    ? ''
-    : renderReferenceTakeProfitHtml('strategy-card__ref-tp', refTakeProfitLabel);
-  const timeHtml = timeRangeLabel == null
-    ? ''
-    : `<div class="strategy-card__time"><span class="strategy-card__time-label">时间范围</span><span class="strategy-card__time-value">${escapeHtml(timeRangeLabel)}</span></div>`;
-  const footerBlock = footerHtml == null ? timeHtml : footerHtml;
-  const cardClass = [
-    'strategy-card',
-    `strategy-card--${sideMod}`,
-    cardMod ? `strategy-card--${cardMod}` : '',
-  ].filter(Boolean).join(' ');
-  return [
-    `<div class="${cardClass}">`,
-    '<div class="strategy-card__head">',
-    `<span class="strategy-card__title">${escapeHtml(title)}</span>`,
-    titleTagHtml,
-    '</div>',
-    renderStrategyConcessionsHtml(concessionItems, stopLabel, {
-      stopHeaderLabel,
-      reverseOrder,
-      assistLabels,
-    }),
-    refTakeProfitHtml,
-    footerBlock,
-    '</div>',
-  ].join('');
-}
-
-function buildStrategyPlainText({
-  sideLabel,
-  stopLabel,
-  refTakeProfitLabel,
-  concessionItems,
-  timeRangeLabel,
-}) {
-  const displayItems = getDisplayConcessionItems(concessionItems);
-  return [
-    sideLabel,
-    ...displayItems.map((item) => (
-      `让利${withBestConcessionLabel(formatConcessionPercent(item.rate), item.rate)}：${item.price} / ${item.quantity} / ${stopLabel}`
-    )),
-    `参考止盈：${refTakeProfitLabel}`,
-    `时间范围：${timeRangeLabel}`,
-  ].join('\n');
-}
-
 function formatAdminConcessionItems(items, priceDecimalPlaces = 0) {
   if (!Array.isArray(items)) return [];
   return items.map((item) => ({
@@ -2227,38 +2126,16 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
   const name = String(nameEl?.value ?? '').trim();
   const side = adjustedOpen > stop ? 'long' : 'short';
   const alarmName = name || 'test';
-  const sideLabel = formatStrategyCardTitle(alarmName);
   const startAt = getStartDateTime(startTimeValue);
   const endAt = addPeriodToStart(startTimeValue, spanMinutes);
-  const startDisplay = startAt ? formatFullDateTimeLabel(startAt) : (startTimeLabel || startTimeValue);
-  const endDisplay = endAt ? formatFullDateTimeLabel(endAt) : '—';
-  const timeRangeLabel = `${startDisplay} — ${endDisplay}`;
 
   const priceLabel = formatTrimmedFixedDecimals(adjustedOpen, priceDecimalPlaces);
   const tpLabel = formatTrimmedFixedDecimals(tp, tpDecimals);
   const stopLabel = formatPrice(stop);
-  const refTakeProfitLabel = buildReferenceTakeProfitLabel(adjustedOpen, stop, priceDecimalPlaces);
   const concessionRates = getConcessionRates();
   const concessionItems = buildConcessionItems(adjustedOpen, stop, openCostTotal, priceDecimalPlaces, concessionRates, reverse);
   const primaryItem = concessionItems.find((item) => Math.abs(Number(item.rate) - PRICE_ADJUSTMENT_RATE) < 1e-9);
   const qty = primaryItem?.quantity ?? formatQuantity(quantity);
-
-  const plain = buildStrategyPlainText({
-    sideLabel,
-    stopLabel,
-    refTakeProfitLabel,
-    concessionItems,
-    timeRangeLabel,
-  });
-  const html = buildStrategyDisplayHtml({
-    side,
-    alarmName,
-    stopLabel,
-    stopHeaderLabel: '止损价格',
-    refTakeProfitLabel,
-    concessionItems,
-    timeRangeLabel,
-  });
 
   const copyText = buildStrategyCopyText({
     name: alarmName,
@@ -2297,7 +2174,7 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
     viewMode: STRATEGY_VIEW_MODE_TREND,
   };
 
-  return { plain, html, copyText, record };
+  return { copyText, record };
 }
 
 function buildStrategy(open, stop, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces, tradeMode = getTradeMode()) {
@@ -2422,8 +2299,6 @@ function resetFrontPage() {
 function clearAssistState() {
   currentAssistCopyText = '';
   currentAssistRecord = null;
-  const outEl = document.getElementById('assist-output');
-  if (outEl) outEl.innerHTML = '';
 }
 
 function resetAssistPage() {
@@ -2463,27 +2338,6 @@ function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
 
   const fromLabel = formatTrimmedFixedDecimals(from, priceDecimalPlaces);
   const toLabel = formatTrimmedFixedDecimals(to, priceDecimalPlaces);
-  const html = buildStrategyDisplayHtml({
-    side,
-    alarmName: name,
-    stopLabel,
-    stopHeaderLabel: '止损价格',
-    refTakeProfitLabel: null,
-    concessionItems,
-    timeRangeLabel: null,
-    assistLabels: true,
-    titleText: formatStrategyCardTitle(name),
-    titleTagHtml: '<span class="admin-assist-tag" aria-label="吃鱼助手">吃鱼助手</span>',
-    cardMod: 'assist',
-    footerHtml: [
-      '<div class="strategy-card__time strategy-card__assist-prices">',
-      '<span class="strategy-card__time-label">止盈价格</span>',
-      `<span class="strategy-card__time-value">${escapeHtml(toLabel)}</span>`,
-      '<span class="strategy-card__time-label">止损价格</span>',
-      `<span class="strategy-card__time-value">${escapeHtml(fromLabel)}</span>`,
-      '</div>',
-    ].join(''),
-  });
   const copyText = [
     formatAssistStrategyTitle(name),
     ...concessionItems.map((item) => {
@@ -2526,7 +2380,7 @@ function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
     viewMode: STRATEGY_VIEW_MODE_TREND,
   };
 
-  return { html, copyText, record };
+  return { copyText, record };
 }
 
 function generateAssist() {
@@ -2565,8 +2419,6 @@ function generateAssist() {
 
   currentAssistCopyText = strategy.copyText;
   currentAssistRecord = strategy.record;
-  const outEl = document.getElementById('assist-output');
-  if (outEl) outEl.innerHTML = strategy.html || '';
 }
 
 function autoGenerateAssistIfReady() {
