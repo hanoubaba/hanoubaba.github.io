@@ -160,6 +160,7 @@ function getCurrentTimeSlot(stepMinutes) {
 
 const START_TIME_SLOT_COUNT = 5;
 const DEFAULT_TIMEFRAME = '4h';
+const FRONT_TREND_TIMEFRAMES = ['4h', '1d'];
 
 const TIMEFRAME_MINUTES = {
   '1h': 60,
@@ -176,6 +177,11 @@ const TIMEFRAME_LABELS = {
 function normalizeTimeframeMode(mode) {
   const value = String(mode ?? '').trim();
   return TIMEFRAME_MINUTES[value] ? value : DEFAULT_TIMEFRAME;
+}
+
+function normalizeFrontTrendTimeframe(mode) {
+  const value = String(mode ?? '').trim();
+  return FRONT_TREND_TIMEFRAMES.includes(value) ? value : DEFAULT_TIMEFRAME;
 }
 
 let frontTimeframeMode = DEFAULT_TIMEFRAME;
@@ -237,6 +243,29 @@ function getTimeframeMinutes(mode = getTimeframeMode()) {
 function getTimeframeLabel(mode) {
   const value = String(mode ?? '').trim();
   return TIMEFRAME_LABELS[value] || value;
+}
+
+function getTimeframeShortLabel(mode) {
+  const value = String(mode ?? '').trim();
+  return TIMEFRAME_MINUTES[value] ? value : '';
+}
+
+function syncFrontTimeframeSwitch() {
+  document.querySelectorAll('[data-timeframe]').forEach((btn) => {
+    const active = btn.getAttribute('data-timeframe') === frontTimeframeMode;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
+function setFrontTimeframeMode(mode, { refresh = true } = {}) {
+  const next = normalizeFrontTrendTimeframe(mode);
+  const changed = next !== frontTimeframeMode;
+  frontTimeframeMode = next;
+  syncFrontTimeframeSwitch();
+  if (!refresh || !changed) return;
+  rebuildStartTimeOptions();
+  autoGenerateIfReady();
 }
 
 const FRONT_PAGES = ['front'];
@@ -1600,6 +1629,12 @@ function getPositionSideLabel(side) {
   return '';
 }
 
+function getTimeframeTagHtml(timeframe) {
+  const label = getTimeframeShortLabel(timeframe);
+  if (!label) return '';
+  return `<span class="admin-item__timeframe admin-item__timeframe--${escapeHtml(label)}" aria-label="时间维度 ${label}">${escapeHtml(label)}</span>`;
+}
+
 function formatStrategyCardTitle(name) {
   const base = String(name || '未命名').trim() || '未命名';
   return /[A-Z]/.test(base) ? base.toLowerCase() : base;
@@ -1747,12 +1782,7 @@ function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel, refTakePr
     const copyAttrs = canCopy
       ? ` type="button" data-copy-text="${escapeHtml(text)}" title="点击复制" aria-label="复制${escapeHtml(label)} ${escapeHtml(text)}"`
       : ` aria-label="${escapeHtml(ariaLabel)}"`;
-    return [
-      `<${tag} class="${className}"${copyAttrs}>`,
-      `<span class="admin-item__tp-sl-label">${escapeHtml(label)}</span>`,
-      `<span class="admin-item__tp-sl-value">${escapeHtml(text)}</span>`,
-      `</${tag}>`,
-    ].join('');
+    return `<${tag} class="${className}"${copyAttrs}><span class="admin-item__tp-sl-value">${escapeHtml(text)}</span><span class="admin-item__tp-sl-label">(${escapeHtml(label)})</span></${tag}>`;
   };
 
   const refHtml = hasRef
@@ -2379,6 +2409,7 @@ if (stopInput) stopInput.addEventListener('input', autoGenerateIfReady);
 function resetFrontPage() {
   closeMobileTimePicker();
   startTimeUserPicked = false;
+  setFrontTimeframeMode(DEFAULT_TIMEFRAME, { refresh: false });
   rebuildStartTimeOptions();
   if (openInput) openInput.value = '';
   if (stopInput) stopInput.value = '';
@@ -3449,9 +3480,11 @@ function buildAdminListItemHtml(row) {
   const sideTagHtml = sideLabel
     ? `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
     : '';
+  const timeframeTagHtml = isTrendStrategy ? getTimeframeTagHtml(row?.timeframe) : '';
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
+    timeframeTagHtml,
     sideTagHtml,
     counterTrendHtml,
     assistTagHtml,
@@ -3473,15 +3506,17 @@ function buildAdminListItemHtml(row) {
     selectHtml,
     '<div class="admin-item__head-main">',
     titleGroupHtml,
+    '</div>',
+    headRightHtml,
+    '</header>',
+    '<div class="admin-item__table">',
+    concessionsHtml,
+    tpSlHtml,
     '<div class="admin-item__sub">',
     `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
     buttonsHtml,
     '</div>',
     '</div>',
-    headRightHtml,
-    '</header>',
-    concessionsHtml,
-    tpSlHtml,
     '</article>',
   ].join('');
 }
@@ -4620,6 +4655,12 @@ const btnTabCases = document.getElementById('btn-tab-cases');
 if (btnTabCases) btnTabCases.addEventListener('click', () => setPage('cases'));
 const btnTabObservations = document.getElementById('btn-tab-observations');
 if (btnTabObservations) btnTabObservations.addEventListener('click', () => setPage('observations'));
+document.querySelectorAll('[data-timeframe]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    setFrontTimeframeMode(btn.getAttribute('data-timeframe'));
+  });
+});
+
 const btnFrontModeTrend = document.getElementById('btn-front-mode-trend');
 if (btnFrontModeTrend) btnFrontModeTrend.addEventListener('click', () => setFrontMode(FRONT_MODE_TREND));
 const btnFrontModeAssist = document.getElementById('btn-front-mode-assist');

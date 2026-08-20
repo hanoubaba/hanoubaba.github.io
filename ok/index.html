@@ -63,6 +63,14 @@
       </label>
 
       <div class="field field--spaced">
+        <span class="field-label" id="timeframe-label">时间维度</span>
+        <div class="timeframe-switch" role="tablist" aria-labelledby="timeframe-label">
+          <button id="btn-timeframe-4h" type="button" class="timeframe-switch__btn is-active" role="tab" aria-selected="true" data-timeframe="4h">4h</button>
+          <button id="btn-timeframe-1d" type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-timeframe="1d">1d</button>
+        </div>
+      </div>
+
+      <div class="field field--spaced">
         <span class="field-label" id="start-time-label">开始时间</span>
         <select id="start-time" class="field-input field-input--select" aria-labelledby="start-time-label" autocomplete="off">
           <option value="">请选择</option>
