@@ -1782,7 +1782,7 @@ function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel, refTakePr
     const copyAttrs = canCopy
       ? ` type="button" data-copy-text="${escapeHtml(text)}" title="点击复制" aria-label="复制${escapeHtml(label)} ${escapeHtml(text)}"`
       : ` aria-label="${escapeHtml(ariaLabel)}"`;
-    return `<${tag} class="${className}"${copyAttrs}><span class="admin-item__tp-sl-value">${escapeHtml(text)}</span><span class="admin-item__tp-sl-label">(${escapeHtml(label)})</span></${tag}>`;
+    return `<${tag} class="${className}"${copyAttrs}><span class="admin-item__tp-sl-label">${escapeHtml(label)}</span><span class="admin-item__tp-sl-value">${escapeHtml(text)}</span></${tag}>`;
   };
 
   const refHtml = hasRef
