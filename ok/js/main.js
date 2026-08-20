@@ -3484,10 +3484,10 @@ function buildAdminListItemHtml(row) {
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
-    timeframeTagHtml,
     sideTagHtml,
     counterTrendHtml,
     assistTagHtml,
+    timeframeTagHtml,
     '</div>',
   ].join('');
   const headRightHtml = [
