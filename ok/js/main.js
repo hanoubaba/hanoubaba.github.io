@@ -201,6 +201,8 @@ const OPEN_COST_BASE = 100;
 const OPEN_COST_MULTIPLIER_MIN = 1;
 const OPEN_COST_MULTIPLIER_MAX = 10;
 const OPEN_COST_MULTIPLIER_DEFAULT = 3;
+/** 后台管理：每档固定本金（全局变量，方便后续调整；不再按 costShare 从总额拆分） */
+const ADMIN_TIER_FIXED_OPEN_COST = 100;
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R = 3;
@@ -209,7 +211,7 @@ const STRATEGY_DURATION_PERIODS = 10;
 /** 反趋势：挂单档位 = 原策略 3/4/5 倍止盈价，止损 = 10 倍止盈价 */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 4, 5];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
-/** 辅助开单：10%/20% 复用最小让利档（30%）仓位；本金仅 30%/50% 按 3:2 分配；80% 仅展示 */
+/** 辅助开单：10%/20% 复用最小让利档仓位；后台每档固定本金；80% 仅展示 */
 const ASSIST_TIER_RATIOS = [
   { rate: 0.1, label: '10%（鱼头三选一）', reuseMinTierCost: true },
   { rate: 0.2, label: '20%（鱼头三选一）', reuseMinTierCost: true },
@@ -304,78 +306,35 @@ function getOpenCostTotal(multiplier = OPEN_COST_MULTIPLIER_DEFAULT) {
   return OPEN_COST_BASE * clampOpenCostMultiplier(multiplier);
 }
 
-function getAdminOpenCostMultiplier(strategyId, row) {
-  const storedMultiplier = toNumber(row?.openCostMultiplier);
-  if (storedMultiplier != null && storedMultiplier > 0) {
-    return clampOpenCostMultiplier(storedMultiplier);
-  }
-  const storedTotal = getOpenCostTotalFromRow(row);
-  if (storedTotal != null && storedTotal > 0) {
-    return clampOpenCostMultiplier(storedTotal / OPEN_COST_BASE);
-  }
-  return OPEN_COST_MULTIPLIER_DEFAULT;
+function getAdminTierFixedOpenCost() {
+  return ADMIN_TIER_FIXED_OPEN_COST;
 }
 
-function setAdminRowCostFields(row, multiplier) {
-  if (!row) return null;
-  const nextMultiplier = clampOpenCostMultiplier(multiplier);
-  const openCostTotal = getOpenCostTotal(nextMultiplier);
-  const tierCount = getTierCountFromRow(row);
-  const nextRow = {
-    ...row,
-    openCostMultiplier: nextMultiplier,
-    openCostTotal,
-    openCost: openCostTotal / tierCount,
-    grade: getStrategyGradeFromOpenCost(openCostTotal / tierCount, openCostTotal, tierCount),
-  };
-  const strategyType = getAdminStrategyTypeInfo(row).type;
-  if (strategyType === 'trend') {
-    nextRow.concessions = buildTrendAdminConcessions(nextRow, nextMultiplier);
-    const primaryItem = nextRow.concessions.find((item) => Math.abs(Number(item.rate)) < 1e-9);
-    if (primaryItem?.quantity) nextRow.quantity = primaryItem.quantity;
-  } else if (strategyType === 'assist') {
-    nextRow.concessions = buildAssistConcessionsFromRow(nextRow, nextMultiplier);
-    const primaryItem = nextRow.concessions[0];
-    if (primaryItem?.quantity) nextRow.quantity = primaryItem.quantity;
-    if (primaryItem?.price) nextRow.entryPrice = primaryItem.price;
-  }
-  return nextRow;
+function hasAdminTierCostBudget(openCostTotal = null, fixedTierOpenCost = null) {
+  const fixed = Number(fixedTierOpenCost ?? getAdminTierFixedOpenCost());
+  if (Number.isFinite(fixed) && fixed > 0) return true;
+  const total = Number(openCostTotal);
+  return Number.isFinite(total) && total > 0;
 }
 
-async function setAdminOpenCostMultiplier(strategyId, value, row) {
-  const id = String(strategyId ?? '').trim();
-  if (!id || updatingAdminCostIds.has(id)) return;
-  const nextMultiplier = clampOpenCostMultiplier(value);
-  const nextRow = setAdminRowCostFields(row, nextMultiplier);
-  if (!nextRow) return;
-  updatingAdminCostIds.add(id);
-  renderAdminListItems();
-  try {
-    await updateStrategyOpenCost(id, nextRow);
-    latestAdminRows = latestAdminRows.map((item) => (
-      String(item?.id ?? '').trim() === id ? nextRow : item
-    ));
-  } finally {
-    updatingAdminCostIds.delete(id);
-    renderAdminListItems();
-    renderAdminActiveNames();
-  }
-}
-
-function buildAdminCostMultiplierHtml(strategyId, multiplier) {
-  const rawId = String(strategyId ?? '').trim();
-  const id = escapeHtml(rawId);
-  const value = clampOpenCostMultiplier(multiplier);
-  const isSyncing = updatingAdminCostIds.has(rawId);
-  const minusDisabled = isSyncing || value <= OPEN_COST_MULTIPLIER_MIN ? ' disabled' : '';
-  const plusDisabled = isSyncing || value >= OPEN_COST_MULTIPLIER_MAX ? ' disabled' : '';
-  return [
-    `<div class="admin-cost-multiplier__stepper" role="group" aria-label="成本倍数" data-id="${id}">`,
-    `<button type="button" class="admin-cost-multiplier__btn" data-cost-multiplier-delta="-1" data-id="${id}" aria-label="减少倍数"${minusDisabled}>−</button>`,
-    `<span class="admin-cost-multiplier__value" aria-live="polite">${value}</span>`,
-    `<button type="button" class="admin-cost-multiplier__btn" data-cost-multiplier-delta="1" data-id="${id}" aria-label="增加倍数"${plusDisabled}>+</button>`,
-    '</div>',
-  ].join('');
+function applyAdminFixedTierQuantities(concessions, stopLoss, { isAssist = false } = {}) {
+  if (!hasConcessions(concessions)) return [];
+  const stop = toNumber(stopLoss);
+  if (stop == null || !(getAdminTierFixedOpenCost() > 0)) return concessions.slice();
+  return concessions.map((item) => {
+    const next = { ...item };
+    if (isAssist && shouldHideAssistQuantity(item.rate)) {
+      next.quantity = '0.0';
+      return next;
+    }
+    const price = toNumber(item.price);
+    if (price == null || price === stop) return next;
+    const qty = calcQuantityByRisk(getAdminTierFixedOpenCost(), price, stop);
+    if (qty != null && qty > 0) {
+      next.quantity = formatQuantity(qty);
+    }
+    return next;
+  });
 }
 
 function getConcessionRates() {
@@ -436,8 +395,7 @@ function inferReverseFromConcessions(entryPrice, stopLoss, concessions, decimalP
 function buildUnifiedConcessionsForRow(row) {
   const entryPrice = toNumber(row?.entryPrice);
   const stopLoss = toNumber(row?.stopLossPrice);
-  const openCostTotal = getOpenCostTotalFromRow(row);
-  if (entryPrice == null || stopLoss == null || !(openCostTotal > 0)) return null;
+  if (entryPrice == null || stopLoss == null || !(getAdminTierFixedOpenCost() > 0)) return null;
 
   const decimalPlaces = getPriceDecimalPlacesFromValues(
     row?.entryPrice,
@@ -447,7 +405,15 @@ function buildUnifiedConcessionsForRow(row) {
   );
   const currentConcessions = buildAdminConcessionsForRow(row);
   const reverse = inferReverseFromConcessions(entryPrice, stopLoss, currentConcessions, decimalPlaces);
-  return buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces, getConcessionRates(), reverse);
+  return buildConcessionItems(
+    entryPrice,
+    stopLoss,
+    null,
+    decimalPlaces,
+    getConcessionRates(),
+    reverse,
+    { fixedTierOpenCost: getAdminTierFixedOpenCost() },
+  );
 }
 
 function getSortedDisplayRates(concessions) {
@@ -507,22 +473,44 @@ function getAdminStrategyTypeInfo(row) {
 
 function buildAdminDisplayConcessions(row) {
   const savedConcessions = buildAdminConcessionsForRow(row);
+  const stopLoss = toNumber(row?.stopLossPrice);
   if (isCurrentTrendConcessionSet(savedConcessions)) {
-    return savedConcessions;
+    return applyAdminFixedTierQuantities(savedConcessions, stopLoss);
   }
-  return buildUnifiedConcessionsForRow(row) || savedConcessions;
+  const rebuilt = buildUnifiedConcessionsForRow(row);
+  if (rebuilt) return rebuilt;
+  if (hasConcessions(savedConcessions)) {
+    return applyAdminFixedTierQuantities(savedConcessions, stopLoss);
+  }
+  return buildTrendAdminConcessions(row);
 }
 
-function buildTrendAdminConcessions(row, multiplier = OPEN_COST_MULTIPLIER_DEFAULT) {
+function buildAdminAssistConcessionsForDisplay(row) {
+  const savedConcessions = buildAdminConcessionsForRow(row);
+  const stopLoss = toNumber(row?.inputPrice ?? row?.stopLossPrice);
+  if (isAssistConcessionSet(savedConcessions)) {
+    return applyAdminFixedTierQuantities(savedConcessions, stopLoss, { isAssist: true });
+  }
+  return buildAssistConcessionsFromRow(row);
+}
+
+function buildTrendAdminConcessions(row) {
   const entryPrice = toNumber(row?.entryPrice);
   const stopLoss = toNumber(row?.stopLossPrice);
-  const openCostTotal = getOpenCostTotal(multiplier);
-  if (entryPrice == null || stopLoss == null || !(openCostTotal > 0)) return [];
+  if (entryPrice == null || stopLoss == null || !(getAdminTierFixedOpenCost() > 0)) return [];
 
   const decimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
   const savedConcessions = buildAdminConcessionsForRow(row);
   const reverse = inferReverseFromConcessions(entryPrice, stopLoss, savedConcessions, decimalPlaces);
-  return buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces, getConcessionRates(), reverse);
+  return buildConcessionItems(
+    entryPrice,
+    stopLoss,
+    null,
+    decimalPlaces,
+    getConcessionRates(),
+    reverse,
+    { fixedTierOpenCost: getAdminTierFixedOpenCost() },
+  );
 }
 
 const STRATEGY_VIEW_MODE_TREND = 'trend';
@@ -536,18 +524,17 @@ function normalizeStrategyViewMode(value) {
 
 /**
  * 反趋势策略：以原策略 R 倍数推算挂单价与止损。
- * 例：开 10 / 止 9 → 挂 13、14、15，止损 20；本金均分三档后 qty = 档本金 / |价-止损|
+ * 例：开 10 / 止 9 → 挂 13、14、15，止损 20；每档固定本金后 qty = 档本金 / |价-止损|
  * 参考止盈取原开仓价；时间范围接在原策略结束后再排 10 个周期。
  */
-function buildCounterTrendConcessions(row, multiplier = OPEN_COST_MULTIPLIER_DEFAULT) {
+function buildCounterTrendConcessions(row) {
   const entryPrice = toNumber(row?.entryPrice);
   const stopLoss = toNumber(row?.stopLossPrice);
-  const openCostTotal = getOpenCostTotal(multiplier);
   if (
     entryPrice == null
     || stopLoss == null
     || entryPrice === stopLoss
-    || !(openCostTotal > 0)
+    || !(getAdminTierFixedOpenCost() > 0)
   ) {
     return { items: [], stopLoss: null, refTakeProfit: null };
   }
@@ -558,8 +545,7 @@ function buildCounterTrendConcessions(row, multiplier = OPEN_COST_MULTIPLIER_DEF
     return { items: [], stopLoss: null, refTakeProfit: null };
   }
 
-  const tierShare = 1 / COUNTER_TREND_ENTRY_MULTIPLES.length;
-  const tierOpenCost = getTierOpenCostBudget(openCostTotal, tierShare);
+  const tierOpenCost = getAdminTierFixedOpenCost();
   const items = [];
   for (const multiple of COUNTER_TREND_ENTRY_MULTIPLES) {
     const price = calcTakeProfit(entryPrice, stopLoss, multiple);
@@ -612,12 +598,12 @@ function calcAssistTierPrice(from, to, ratio, decimalPlaces) {
   return Number(formatFixedDecimals(price, decimalPlaces));
 }
 
-function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces) {
+function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces, fixedTierOpenCost = null) {
   if (
     from == null
     || to == null
     || from === to
-    || !(openCostTotal > 0)
+    || !hasAdminTierCostBudget(openCostTotal, fixedTierOpenCost)
   ) {
     return [];
   }
@@ -632,7 +618,7 @@ function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces) {
       ? minFundedShare
       : (costShare != null ? costShare : null);
     const tierOpenCost = share != null && share > 0
-      ? getTierOpenCostBudget(openCostTotal, share)
+      ? resolveTierOpenCost(openCostTotal, share, fixedTierOpenCost)
       : null;
     const qty = tierOpenCost != null ? calcQuantityByRisk(tierOpenCost, price, stop) : null;
     if (share != null && share > 0 && (qty == null || !(qty > 0))) continue;
@@ -648,12 +634,11 @@ function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces) {
   return items;
 }
 
-function buildAssistConcessionsFromRow(row, multiplier = OPEN_COST_MULTIPLIER_DEFAULT) {
+function buildAssistConcessionsFromRow(row) {
   const from = toNumber(row?.inputPrice ?? row?.stopLossPrice);
   const to = toNumber(row?.inputStopLoss);
-  const openCostTotal = getOpenCostTotal(multiplier);
   const decimalPlaces = Math.max(3, getAdminPriceDecimalPlacesFromRow(row));
-  return buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces);
+  return buildAssistConcessionItems(from, to, null, decimalPlaces, getAdminTierFixedOpenCost());
 }
 
 function isAdminCounterTrendView(row) {
@@ -1845,6 +1830,12 @@ function getTierOpenCostBudget(openCostTotal, costShare) {
   return total * share;
 }
 
+function resolveTierOpenCost(openCostTotal, costShare, fixedTierOpenCost = null) {
+  const fixed = Number(fixedTierOpenCost);
+  if (Number.isFinite(fixed) && fixed > 0) return fixed;
+  return getTierOpenCostBudget(openCostTotal, costShare);
+}
+
 function formatConcessionPercent(rate) {
   const pct = Math.round(Number(rate) * 100);
   if (!Number.isFinite(pct)) return '—';
@@ -1908,7 +1899,8 @@ function normalizeConcessionRateConfig(rateConfig) {
   };
 }
 
-function buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces, rates = getConcessionRates(), reverse = false) {
+function buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces, rates = getConcessionRates(), reverse = false, options = {}) {
+  const fixedTierOpenCost = options?.fixedTierOpenCost ?? null;
   const fundedCount = countFundedRateConfigs(rates);
   const minFundedShare = getMinFundedTierCostShare(rates);
   const items = [];
@@ -1918,7 +1910,9 @@ function buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces
     const share = reuseMinTierCost
       ? minFundedShare
       : (costShare != null ? costShare : (fundedCount > 0 ? 1 / fundedCount : null));
-    const tierOpenCost = getTierOpenCostBudget(openCostTotal, share);
+    const tierOpenCost = share != null && share > 0
+      ? resolveTierOpenCost(openCostTotal, share, fixedTierOpenCost)
+      : null;
     const qty = price == null ? null : calcQuantityByRisk(tierOpenCost, price, stopLoss);
     if (price == null || qty == null) continue;
     const item = {
@@ -2627,33 +2621,6 @@ async function deleteStrategies(ids) {
   if (!res.ok) throw new Error(await res.text());
 }
 
-async function updateStrategyOpenCost(id, row) {
-  const encodedId = encodeURIComponent(id);
-  const openCostMultiplier = clampOpenCostMultiplier(row?.openCostMultiplier);
-  const openCostTotal = getOpenCostTotal(openCostMultiplier);
-  const tierCount = getTierCountFromRow(row);
-  const openCost = openCostTotal / tierCount;
-  const concessions = getAdminStrategyTypeInfo(row).type === 'trend'
-    ? buildTrendAdminConcessions(row, openCostMultiplier)
-    : normalizeConcessions(row?.concessions);
-  const primaryItem = concessions.find((item) => Math.abs(Number(item.rate)) < 1e-9);
-  const nextQuantity = primaryItem?.quantity ? toNumber(primaryItem.quantity) : toNumber(row?.quantity);
-  const payload = {
-    open_cost_multiplier: openCostMultiplier,
-    open_cost_total: openCostTotal,
-    open_cost: openCost,
-    grade: getStrategyGradeFromOpenCost(openCost, openCostTotal, tierCount),
-    concessions,
-  };
-  if (nextQuantity != null && nextQuantity > 0) payload.quantity = nextQuantity;
-  const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
-    method: 'PATCH',
-    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error(await res.text());
-}
-
 async function updateStrategyOutcomeStatus(id, outcomeStatus, remark) {
   const encodedId = encodeURIComponent(id);
   const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
@@ -2865,32 +2832,12 @@ function collectAdminNameCounts(rows) {
   return order.map((key) => counts.get(key));
 }
 
-function getAdminVisibleMultiplierTotal(rows = latestAdminRows) {
-  return getFilteredAdminRows(rows).reduce((sum, row) => {
-    const type = getAdminStrategyTypeInfo(row).type;
-    if (type !== 'trend' && type !== 'assist') return sum;
-    const id = String(row?.id ?? '').trim();
-    return sum + getAdminOpenCostMultiplier(id, row);
-  }, 0);
-}
-
 function renderAdminActiveNames(rows = latestAdminRows) {
   const el = document.getElementById('admin-active-names');
   if (!el) return;
   const nameCounts = collectAdminNameCounts(rows);
   const uniqueTotal = nameCounts.length;
-  const showMultiplierTotal = normalizeAdminTimeFilter(adminTimeFilter) === 'active';
-  const multiplierTotal = showMultiplierTotal ? getAdminVisibleMultiplierTotal(rows) : null;
-  const costTotal = multiplierTotal == null ? null : multiplierTotal * OPEN_COST_BASE;
   el.hidden = false;
-  const multiplierHtml = showMultiplierTotal
-    ? [
-      '<span class="admin-active-names__metric" title="当前进行中的趋势跟随与吃鱼助手成本合计">',
-      '<span class="admin-active-names__metric-label">已用本金</span>',
-      `<span class="admin-active-names__metric-value">${costTotal}</span>`,
-      '</span>',
-    ].join('')
-    : '';
   const sortHtml = [
     `<button type="button" class="admin-active-names__sort${adminSortByExpiresAsc ? ' is-active' : ''}" data-admin-sort-expires aria-pressed="${adminSortByExpiresAsc ? 'true' : 'false'}" aria-label="按截止时间由近到远排序，${uniqueTotal} 个名称">`,
     `排序 ${uniqueTotal}`,
@@ -2910,7 +2857,7 @@ function renderAdminActiveNames(rows = latestAdminRows) {
       '</button>',
     ].join('');
   }).join('');
-  el.innerHTML = `${sortHtml}${namesHtml}${multiplierHtml}`;
+  el.innerHTML = `${sortHtml}${namesHtml}`;
 }
 
 function renderAdminControls() {
@@ -2928,7 +2875,6 @@ function resetAdminPageState() {
   selectedStrategyIds.clear();
   visibleAdminStrategyIds = [];
   isDeletingStrategies = false;
-  updatingAdminCostIds.clear();
   updatingAdminViewModeIds.clear();
   renderAdminControls();
   updateAdminSelectionControls();
@@ -2939,7 +2885,6 @@ let isDeletingStrategies = false;
 let isAdminSelectionMode = false;
 let visibleAdminStrategyIds = [];
 let latestAdminRows = [];
-let updatingAdminCostIds = new Set();
 let updatingAdminViewModeIds = new Set();
 
 function getVisibleAdminStrategyIds() {
@@ -3207,7 +3152,6 @@ async function renderAdminList() {
     selectedStrategyIds.clear();
     visibleAdminStrategyIds = [];
     latestAdminRows = [];
-    updatingAdminCostIds.clear();
     updatingAdminViewModeIds.clear();
     listEl.innerHTML = `<div class="admin-sync-error">${escapeHtml(String(err?.message || '同步失败'))}</div>`;
     renderAdminActiveNames([]);
@@ -3240,31 +3184,25 @@ function buildAdminListItemHtml(row) {
   const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
   const priceDecimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
   const isTrendStrategy = strategyType.type === 'trend';
-  const costMultiplier = getAdminOpenCostMultiplier(rawId, row);
-  const multiplierHtml = rawId && (isTrendStrategy || isAssistStrategy)
-    ? buildAdminCostMultiplierHtml(rawId, costMultiplier)
-    : '';
   let concessions;
   let stopLabel;
   let takeProfitLabel;
   let refTakeProfitLabel;
   if (showCounterTrend) {
-    const counter = buildCounterTrendConcessions(row, costMultiplier);
+    const counter = buildCounterTrendConcessions(row);
     concessions = counter.items;
     // 反趋势预设：止盈=原开仓价，止损=10R（计算逻辑不变，仅改展示位置）
     takeProfitLabel = counter.refTakeProfit || '—';
     stopLabel = counter.stopLoss || '—';
     refTakeProfitLabel = null;
   } else if (isAssistStrategy) {
-    concessions = buildAssistConcessionsFromRow(row, costMultiplier);
+    concessions = buildAdminAssistConcessionsForDisplay(row);
     // 吃鱼助手：止盈=to，止损=from（计算逻辑不变）
     takeProfitLabel = formatAdminPriceFromValue(row?.inputStopLoss ?? row?.takeProfitPrice, priceDecimalPlaces) || '—';
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
     refTakeProfitLabel = null;
   } else {
-    concessions = isTrendStrategy
-      ? buildTrendAdminConcessions(row, costMultiplier)
-      : buildAdminDisplayConcessions(row);
+    concessions = buildAdminDisplayConcessions(row);
     // 趋势跟随：止盈=5R 最佳点位（区分多空），止损=原止损；保留参考止盈
     takeProfitLabel = buildAdminBestTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
@@ -3357,9 +3295,6 @@ function buildAdminListItemHtml(row) {
     timeBadgeHtml,
     '</div>',
   ].join('');
-  const buttonsHtml = multiplierHtml
-    ? `<div class="admin-item__buttons">${multiplierHtml}</div>`
-    : '';
   return [
     `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}">`,
     remarkStampHtml,
@@ -3375,7 +3310,6 @@ function buildAdminListItemHtml(row) {
     tpSlHtml,
     '<div class="admin-item__sub">',
     `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
-    buttonsHtml,
     '</div>',
     '</div>',
     '</article>',
@@ -4701,27 +4635,6 @@ if (adminListEl) {
       if (!text) return;
       const ok = await copyTextToClipboard(text);
       showToast(ok ? '已复制' : '复制失败');
-      return;
-    }
-
-    const multiplierBtn = target.closest('[data-cost-multiplier-delta]');
-    if (multiplierBtn) {
-      e.preventDefault();
-      e.stopPropagation();
-      const id = String(multiplierBtn.getAttribute('data-id') ?? '').trim();
-      const delta = Number(multiplierBtn.getAttribute('data-cost-multiplier-delta'));
-      if (!id || !Number.isFinite(delta)) return;
-      const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
-      if (!row) return;
-      const current = getAdminOpenCostMultiplier(id, row);
-      multiplierBtn.disabled = true;
-      try {
-        await setAdminOpenCostMultiplier(id, current + delta, row);
-      } catch (err) {
-        console.error('[admin-cost-sync]', err);
-        showToast('成本同步失败');
-        renderAdminListItems();
-      }
       return;
     }
 

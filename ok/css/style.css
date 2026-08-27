@@ -647,32 +647,6 @@ body.login-mode {
   display: none !important;
 }
 
-.admin-active-names__metric {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  box-sizing: border-box;
-  padding: 4px 9px;
-  min-height: 26px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.2;
-  color: var(--primary-strong);
-  background: var(--surface-tint);
-  border: 1px solid var(--border);
-  white-space: nowrap;
-}
-
-.admin-active-names__metric-label {
-  color: var(--muted);
-}
-
-.admin-active-names__metric-value {
-  font-variant-numeric: tabular-nums;
-}
-
 .admin-active-names__sort {
   display: inline-flex;
   align-items: center;
@@ -1829,15 +1803,6 @@ body.login-mode {
   align-items: baseline;
 }
 
-.admin-item__buttons {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex: none;
-  gap: 7px;
-  margin-left: auto;
-}
-
 .panel {
   border: 1px solid var(--border);
   background: linear-gradient(180deg, var(--surface-tint), #ffffff);
@@ -1891,64 +1856,6 @@ body.login-mode {
 
 .field--spaced {
   margin-top: 8px;
-}
-
-.admin-cost-multiplier__stepper {
-  display: inline-flex;
-  align-items: stretch;
-  flex-shrink: 0;
-  height: 26px;
-  border: 1px solid #d9d9d9;
-  border-radius: 6px;
-  overflow: hidden;
-  background: #fff;
-  box-sizing: border-box;
-}
-
-.admin-cost-multiplier__btn {
-  width: 26px;
-  border: none;
-  border-radius: 0;
-  background: #fafafa;
-  color: rgba(0, 0, 0, 0.88);
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0;
-}
-
-.admin-cost-multiplier__btn + .admin-cost-multiplier__value,
-.admin-cost-multiplier__value + .admin-cost-multiplier__btn {
-  border-left: 1px solid #d9d9d9;
-}
-
-.admin-cost-multiplier__btn:hover:not(:disabled) {
-  background: #f0f0f0;
-  color: rgba(0, 0, 0, 0.88);
-}
-
-.admin-cost-multiplier__btn:disabled {
-  color: rgba(0, 0, 0, 0.25);
-  cursor: not-allowed;
-}
-
-.admin-cost-multiplier__btn:active:not(:disabled) {
-  background: #e6e6e6;
-}
-
-.admin-cost-multiplier__value {
-  min-width: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-  background: #fff;
-  color: rgba(0, 0, 0, 0.88);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
-  user-select: none;
 }
 
 .tabs {
@@ -3076,26 +2983,6 @@ body.login-mode {
   }
 
   .admin-item__time-range {
-    font-size: 13px;
-  }
-
-  .admin-item__buttons {
-    flex: none;
-    width: auto;
-    margin-left: auto;
-  }
-
-  .admin-item__sub .admin-cost-multiplier__stepper {
-    height: 24px;
-  }
-
-  .admin-item__sub .admin-cost-multiplier__btn {
-    width: 24px;
-    font-size: 15px;
-  }
-
-  .admin-item__sub .admin-cost-multiplier__value {
-    min-width: 24px;
     font-size: 13px;
   }
 
