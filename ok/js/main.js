@@ -844,7 +844,9 @@ const METHODOLOGY_SECTIONS = [
       '顶级判断力，缺乏执行力。实际操作中，保留底仓长线+部分短线操作可以有效缓解执行焦虑。',
       '每天早中晚发掘新机会，只做最好的，排行前三开单。不纠结利用率问题。',
       '在行情剧烈时候操作，在行情缓慢时候思考。',
-      '趋势跟随坚持到底，反趋势见好就收。'
+      '趋势跟随坚持到底，反趋势见好就收。',
+      '排行榜前10是最大的机会，种类不超过三。',
+      '打好基础，指数增长。技术爆炸。螺旋上升。',
     ],
   },
   {
@@ -1445,13 +1447,25 @@ function bindMobileTimePickerEvents() {
   });
 }
 
-function rebuildStartTimeOptions(preferredValue = null) {
+function rebuildStartTimeOptions(preferredValue = null, { ensurePreferredSlot = false } = {}) {
   const sel = document.getElementById('start-time');
   if (!sel) return;
 
   const mode = getTimeframeMode();
-  const slots = getTimeSlotsByMode(mode);
+  let slots = getTimeSlotsByMode(mode);
   const selectedValue = resolveStartTimeSelection(mode, preferredValue ?? sel.value);
+
+  if (ensurePreferredSlot && selectedValue && !slots.some((slot) => slot.value === selectedValue)) {
+    const extraAt = parseStartSlotValue(selectedValue);
+    if (extraAt) {
+      slots = [{
+        value: selectedValue,
+        label: formatFullDateTimeLabel(extraAt),
+        time: formatHHMM(extraAt.getHours(), extraAt.getMinutes()),
+        at: extraAt,
+      }, ...slots];
+    }
+  }
 
   const frag = document.createDocumentFragment();
   if (!selectedValue || !slots.some((slot) => slot.value === selectedValue)) {
@@ -1585,6 +1599,90 @@ let currentStrategyCopyText = '';
 let currentStrategyRecord = null;
 let currentAssistCopyText = '';
 let currentAssistRecord = null;
+let editingStrategyId = null;
+let editingStrategyPreserve = null;
+
+function clearEditingStrategy() {
+  editingStrategyId = null;
+  editingStrategyPreserve = null;
+  updateSaveButtonLabels();
+}
+
+function updateSaveButtonLabels() {
+  const trendBtn = document.getElementById('btn-copy-strategy');
+  const assistBtn = document.getElementById('btn-save-assist');
+  const isEditing = Boolean(editingStrategyId);
+  if (trendBtn) {
+    const label = isEditing && isFrontTrendMode() ? '保存修改' : '保存';
+    trendBtn.textContent = label;
+    trendBtn.dataset.defaultLabel = label;
+  }
+  if (assistBtn) {
+    const label = isEditing && isFrontAssistMode() ? '保存修改' : '保存';
+    assistBtn.textContent = label;
+    assistBtn.dataset.defaultLabel = label;
+  }
+}
+
+function getStartSlotValueFromRow(row) {
+  const startAt = parseDateValue(row?.startAt);
+  if (!startAt) return '';
+  const mode = normalizeFrontTrendTimeframe(row?.timeframe);
+  const stepMinutes = getTimeframeMinutes(mode);
+  return formatStartSlotValue(floorDateToStep(startAt, stepMinutes));
+}
+
+function populateTrendFormFromRow(row) {
+  const nameEl = document.getElementById('name-input');
+  const openEl = document.getElementById('open-price-input');
+  const stopEl = document.getElementById('stop-price-input');
+  if (nameEl) nameEl.value = String(row?.strategyName ?? '').trim();
+  if (openEl) openEl.value = String(row?.inputPrice ?? '').trim();
+  if (stopEl) stopEl.value = String(row?.inputStopLoss ?? '').trim();
+  setFrontTimeframeMode(row?.timeframe || DEFAULT_TIMEFRAME, { refresh: false });
+  const startSlot = getStartSlotValueFromRow(row);
+  startTimeUserPicked = true;
+  rebuildStartTimeOptions(startSlot, { ensurePreferredSlot: true });
+}
+
+function populateAssistFormFromRow(row) {
+  const nameEl = document.getElementById('assist-name-input');
+  const fromEl = document.getElementById('assist-from-input');
+  const toEl = document.getElementById('assist-to-input');
+  if (nameEl) nameEl.value = String(row?.strategyName ?? '').trim();
+  if (fromEl) fromEl.value = String(row?.inputPrice ?? '').trim();
+  if (toEl) toEl.value = String(row?.inputStopLoss ?? '').trim();
+  setFrontTimeframeMode(row?.timeframe || DEFAULT_TIMEFRAME, { refresh: false });
+  const startSlot = getStartSlotValueFromRow(row);
+  startTimeUserPicked = true;
+  rebuildStartTimeOptions(startSlot, { ensurePreferredSlot: true });
+}
+
+function startEditStrategy(row) {
+  const id = String(row?.id ?? '').trim();
+  if (!id) return;
+
+  editingStrategyId = id;
+  editingStrategyPreserve = {
+    outcomeStatus: row?.outcomeStatus,
+    outcomeRemark: row?.outcomeRemark,
+    viewMode: row?.viewMode,
+  };
+
+  const strategyType = getAdminStrategyTypeInfo(row);
+  if (strategyType.type === 'assist') {
+    populateAssistFormFromRow(row);
+    setPage('front', { preserveFrontForm: true, frontMode: FRONT_MODE_ASSIST });
+    generateAssist();
+  } else {
+    populateTrendFormFromRow(row);
+    setPage('front', { preserveFrontForm: true, frontMode: FRONT_MODE_TREND });
+    generate();
+  }
+
+  updateSaveButtonLabels();
+  showToast('已进入修改模式');
+}
 
 function clearStrategyState() {
   currentStrategyCopyText = '';
@@ -1665,6 +1763,11 @@ function enrichStrategyRecordForSubmit(record) {
     const endAt = addPeriodToStart(startValue, durationMinutes);
     next.startAt = startAt ? startAt.toISOString() : next.startAt;
     next.expiresAt = endAt ? endAt.toISOString() : next.expiresAt;
+  }
+  if (editingStrategyId && editingStrategyPreserve) {
+    next.outcomeStatus = editingStrategyPreserve.outcomeStatus ?? next.outcomeStatus;
+    next.outcomeRemark = editingStrategyPreserve.outcomeRemark ?? '';
+    next.viewMode = editingStrategyPreserve.viewMode ?? next.viewMode;
   }
   return next;
 }
@@ -2289,6 +2392,7 @@ if (stopInput) stopInput.addEventListener('input', autoGenerateIfReady);
 function resetFrontPage() {
   closeMobileTimePicker();
   startTimeUserPicked = false;
+  clearEditingStrategy();
   setFrontTimeframeMode(DEFAULT_TIMEFRAME, { refresh: false });
   rebuildStartTimeOptions();
   if (openInput) openInput.value = '';
@@ -2598,6 +2702,39 @@ async function createStrategy(record) {
   }
   const bodyText = res.ok ? '' : await res.text();
   logSave(res.ok ? 'info' : 'error', 'Supabase 响应', {
+    status: res.status,
+    ok: res.ok,
+    body: bodyText || '(empty)',
+  });
+  if (!res.ok) throw new Error(bodyText || `HTTP ${res.status}`);
+}
+
+async function updateStrategy(id, record) {
+  const normalizedId = String(id ?? '').trim();
+  if (!normalizedId) throw new Error('缺少策略 ID');
+  const payload = toDbRecord(record);
+  logSave('info', '准备更新 Supabase 策略', {
+    id: normalizedId,
+    endpoint: STRATEGIES_ENDPOINT,
+    payload,
+  });
+  let res;
+  try {
+    res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodeURIComponent(normalizedId)}`, {
+      method: 'PATCH',
+      headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    logSave('error', '网络请求失败（未到达 Supabase）', {
+      message: err?.message || String(err),
+      endpoint: STRATEGIES_ENDPOINT,
+      id: normalizedId,
+    });
+    throw err;
+  }
+  const bodyText = res.ok ? '' : await res.text();
+  logSave(res.ok ? 'info' : 'error', 'Supabase 更新响应', {
     status: res.status,
     ok: res.ok,
     body: bodyText || '(empty)',
@@ -3289,6 +3426,9 @@ function buildAdminListItemHtml(row) {
     timeframeTagHtml,
     '</div>',
   ].join('');
+  const editBtnHtml = rawId && !isAdminSelectionMode
+    ? `<button type="button" class="admin-edit-btn" data-admin-edit data-id="${id}" aria-label="修改 ${titleLabel}">修改</button>`
+    : '';
   const headRightHtml = [
     '<div class="admin-item__head-right">',
     outcomeStatusHtml,
@@ -3310,6 +3450,7 @@ function buildAdminListItemHtml(row) {
     tpSlHtml,
     '<div class="admin-item__sub">',
     `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
+    editBtnHtml,
     '</div>',
     '</div>',
     '</article>',
@@ -4095,7 +4236,12 @@ async function submitObservationForm() {
 
 function setFrontMode(mode) {
   const nextMode = normalizeFrontMode(mode);
+  const prevMode = frontMode;
   frontMode = nextMode;
+
+  if (editingStrategyId && prevMode !== nextMode) {
+    clearEditingStrategy();
+  }
 
   const trendPanel = document.getElementById('front-trend-panel');
   const assistPanel = document.getElementById('front-assist-panel');
@@ -4124,7 +4270,8 @@ function setFrontMode(mode) {
   }
 }
 
-function setPage(mode) {
+function setPage(mode, options = {}) {
+  const { preserveFrontForm = false } = options;
   if (!isAuthReady) {
     showLoginPage();
     return;
@@ -4145,7 +4292,7 @@ function setPage(mode) {
 
   // 兼容旧入口：trend / assist 都归入前台
   let requestedMode = mode;
-  let requestedFrontMode = null;
+  let requestedFrontMode = options.frontMode ?? null;
   if (mode === 'trend') {
     requestedMode = 'front';
     requestedFrontMode = FRONT_MODE_TREND;
@@ -4222,12 +4369,15 @@ function setPage(mode) {
   } else if (toFront) {
     resetAdminPageState();
     if (!wasFront) {
-      resetFrontPage();
-      resetAssistPage();
-      frontMode = FRONT_MODE_TREND;
+      if (!preserveFrontForm) {
+        resetFrontPage();
+        resetAssistPage();
+        frontMode = FRONT_MODE_TREND;
+      }
     }
     if (requestedFrontMode) frontMode = requestedFrontMode;
     setFrontMode(frontMode);
+    if (preserveFrontForm) updateSaveButtonLabels();
   }
 
   syncAdminCountdownTimer();
@@ -4310,10 +4460,15 @@ async function copyStrategyOutput() {
     }
     const record = enrichStrategyRecordForSubmit(currentStrategyRecord);
     logSave('info', 'record 已就绪', record);
+    const isEditing = Boolean(editingStrategyId);
     try {
-      await createStrategy(record);
+      if (isEditing) {
+        await updateStrategy(editingStrategyId, record);
+      } else {
+        await createStrategy(record);
+      }
       saved = true;
-      logSave('info', '保存成功');
+      logSave('info', isEditing ? '更新成功' : '保存成功');
     } catch (err) {
       logSave('error', 'Supabase 保存失败', {
         message: err?.message || String(err),
@@ -4323,10 +4478,11 @@ async function copyStrategyOutput() {
       return;
     }
     if (saved) {
-      showToast('保存成功');
+      showToast(isEditing ? '修改成功' : '保存成功');
+      clearEditingStrategy();
       setPage('admin');
     }
-    flashCopyStrategyBtn(btn, saved ? '已保存' : '保存失败');
+    flashCopyStrategyBtn(btn, saved ? (isEditing ? '已修改' : '已保存') : '保存失败');
   } finally {
     isSavingStrategy = false;
     if (btn) {
@@ -4370,16 +4526,22 @@ async function saveAssistOutput() {
   }
 
   let saved = false;
+  const isEditing = Boolean(editingStrategyId);
   try {
     const record = enrichStrategyRecordForSubmit({
       ...currentAssistRecord,
       strategyName: name,
     });
-    await createStrategy(record);
+    if (isEditing) {
+      await updateStrategy(editingStrategyId, record);
+    } else {
+      await createStrategy(record);
+    }
     saved = true;
-    showToast('保存成功');
+    showToast(isEditing ? '修改成功' : '保存成功');
+    clearEditingStrategy();
     setPage('admin');
-    flashCopyStrategyBtn(btn, '已保存');
+    flashCopyStrategyBtn(btn, isEditing ? '已修改' : '已保存');
   } catch (err) {
     logSave('error', '吃鱼助手保存失败', {
       message: err?.message || String(err),
@@ -4635,6 +4797,17 @@ if (adminListEl) {
       if (!text) return;
       const ok = await copyTextToClipboard(text);
       showToast(ok ? '已复制' : '复制失败');
+      return;
+    }
+
+    const editBtn = target.closest('[data-admin-edit]');
+    if (editBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = String(editBtn.getAttribute('data-id') ?? '').trim();
+      if (!id || isAdminSelectionMode || isDeletingStrategies) return;
+      const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
+      if (row) startEditStrategy(row);
       return;
     }
 
