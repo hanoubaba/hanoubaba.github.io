@@ -3366,29 +3366,10 @@ function buildAdminListItemHtml(row) {
   const sideTagHtml = sideLabel
     ? `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
     : '';
-  const outcomeStatus = normalizeOutcomeStatus(row?.outcomeStatus);
-  const outcomeTimeStatus = getTimeRangeStatusByEndAt(getStrategyEndAt(row));
-  const outcomeInfo = getOutcomeStatusInfo(outcomeStatus);
-  const outcomeStatusHtml = id
-    ? [
-      `<button type="button" class="admin-outcome-status admin-outcome-status--${outcomeInfo.type} admin-outcome-status--actionable" data-id="${id}" data-time-status="${outcomeTimeStatus}" data-outcome-status="${escapeHtml(outcomeStatus)}" data-outcome-remark="${escapeHtml(String(row?.outcomeRemark ?? ''))}" aria-haspopup="dialog" aria-controls="status-picker" aria-label="修改盈利状态">`,
-      `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
-      '</button>',
-    ].join('')
-    : [
-      `<div class="admin-outcome-status admin-outcome-status--${outcomeInfo.type}">`,
-      `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
-      '</div>',
-    ].join('');
-  const editBtnHtml = rawId && !isAdminSelectionMode
-    ? `<button type="button" class="admin-edit-btn" data-admin-edit data-id="${id}" aria-label="修改 ${titleLabel}">修改</button>`
-    : '';
   const concessionsHtml = renderAdminConcessionsHtml(concessions, stopLabel, {
     priceDecimalPlaces,
     assistLabels: isAssistStrategy,
     hideStopColumn: true,
-    rateHeaderSuffixHtml: sideTagHtml,
-    qtyHeaderPrefixHtml: outcomeStatusHtml,
     ...(showCounterTrend
       ? {
         formatRate: formatCounterTrendRate,
@@ -3441,18 +3422,14 @@ function buildAdminListItemHtml(row) {
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
-    concessionsHtml ? '' : sideTagHtml,
+    sideTagHtml,
     counterTrendHtml,
     assistTagHtml,
     timeframeTagHtml,
     '</div>',
   ].join('');
-  const headRightContent = [
-    concessionsHtml ? '' : outcomeStatusHtml,
-    timeBadgeHtml,
-  ].join('');
-  const headRightHtml = headRightContent
-    ? `<div class="admin-item__head-right">${headRightContent}</div>`
+  const headRightHtml = timeBadgeHtml
+    ? `<div class="admin-item__head-right">${timeBadgeHtml}</div>`
     : '';
   return [
     `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}">`,
@@ -3469,7 +3446,6 @@ function buildAdminListItemHtml(row) {
     tpSlHtml,
     '<div class="admin-item__sub">',
     `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
-    editBtnHtml,
     '</div>',
     '</div>',
     '</article>',
