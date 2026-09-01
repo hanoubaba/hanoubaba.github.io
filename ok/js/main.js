@@ -2088,6 +2088,8 @@ function renderConcessionsHtml({
   stopLabel,
   stopHeaderLabel = '止损价格',
   rateHeaderLabel = '让利',
+  rateHeaderSuffixHtml = '',
+  qtyHeaderPrefixHtml = '',
   wrapperClass,
   reverseOrder = false,
   reversePriceQty = false,
@@ -2155,12 +2157,21 @@ function renderConcessionsHtml({
     bodyHtml = displayItems.map(buildRow).join('');
   }
 
+  const suffixHtml = String(rateHeaderSuffixHtml ?? '').trim();
+  const rateHeaderInner = suffixHtml
+    ? `${rateHeader}${suffixHtml}`
+    : rateHeader;
+  const qtyPrefixHtml = String(qtyHeaderPrefixHtml ?? '').trim();
+  const qtyHeaderInner = qtyPrefixHtml
+    ? `${qtyPrefixHtml}数量`
+    : '数量';
+
   return [
     `<div class="${wrapper}" aria-label="${assistLabels ? '吃鱼助手位置' : '让利档位'}">`,
     `<div class="${rowClass} ${rowClass}--head">`,
-    `<span class="${rowClass}__rate">${rateHeader}</span>`,
+    `<span class="${rowClass}__rate">${rateHeaderInner}</span>`,
     `<span class="${rowClass}__price">价格</span>`,
-    `<span class="${rowClass}__qty">数量</span>`,
+    `<span class="${rowClass}__qty">${qtyHeaderInner}</span>`,
     hideStopColumn ? '' : `<span class="${rowClass}__stop">${stopHeader}</span>`,
     '</div>',
     bodyHtml,
@@ -2186,6 +2197,8 @@ function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
     stopLabel: hideStopColumn ? '' : formatAdminPriceFromValue(stopLabel, priceDecimalPlaces),
     stopHeaderLabel: options.stopHeaderLabel,
     rateHeaderLabel: options.rateHeaderLabel,
+    rateHeaderSuffixHtml: options.rateHeaderSuffixHtml,
+    qtyHeaderPrefixHtml: options.qtyHeaderPrefixHtml,
     wrapperClass: 'admin-item__concessions',
     reversePriceQty: options.reversePriceQty === true,
     reverseOrder: options.reverseOrder === true,
@@ -3349,10 +3362,33 @@ function buildAdminListItemHtml(row) {
     refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
   }
   const tpSlHtml = renderAdminTakeProfitStopHtml(takeProfitLabel, stopLabel, refTakeProfitLabel);
+  const sideLabel = getPositionSideLabel(sideMod);
+  const sideTagHtml = sideLabel
+    ? `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
+    : '';
+  const outcomeStatus = normalizeOutcomeStatus(row?.outcomeStatus);
+  const outcomeTimeStatus = getTimeRangeStatusByEndAt(getStrategyEndAt(row));
+  const outcomeInfo = getOutcomeStatusInfo(outcomeStatus);
+  const outcomeStatusHtml = id
+    ? [
+      `<button type="button" class="admin-outcome-status admin-outcome-status--${outcomeInfo.type} admin-outcome-status--actionable" data-id="${id}" data-time-status="${outcomeTimeStatus}" data-outcome-status="${escapeHtml(outcomeStatus)}" data-outcome-remark="${escapeHtml(String(row?.outcomeRemark ?? ''))}" aria-haspopup="dialog" aria-controls="status-picker" aria-label="修改盈利状态">`,
+      `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
+      '</button>',
+    ].join('')
+    : [
+      `<div class="admin-outcome-status admin-outcome-status--${outcomeInfo.type}">`,
+      `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
+      '</div>',
+    ].join('');
+  const editBtnHtml = rawId && !isAdminSelectionMode
+    ? `<button type="button" class="admin-edit-btn" data-admin-edit data-id="${id}" aria-label="修改 ${titleLabel}">修改</button>`
+    : '';
   const concessionsHtml = renderAdminConcessionsHtml(concessions, stopLabel, {
     priceDecimalPlaces,
     assistLabels: isAssistStrategy,
     hideStopColumn: true,
+    rateHeaderSuffixHtml: sideTagHtml,
+    qtyHeaderPrefixHtml: outcomeStatusHtml,
     ...(showCounterTrend
       ? {
         formatRate: formatCounterTrendRate,
@@ -3380,10 +3416,7 @@ function buildAdminListItemHtml(row) {
       '</label>',
     ].join('')
     : '';
-  const outcomeStatus = normalizeOutcomeStatus(row?.outcomeStatus);
-  const outcomeTimeStatus = getTimeRangeStatusByEndAt(baseEndAt);
   const timeBadge = getTimeBadgeInfo(endAt);
-  const outcomeInfo = getOutcomeStatusInfo(outcomeStatus);
   const timeBadgeUrgent = timeBadge?.type === 'active' && isCountdownWithinUrgentWindow(endAt)
     ? ' admin-time-status--urgent'
     : '';
@@ -3394,17 +3427,6 @@ function buildAdminListItemHtml(row) {
       '</div>',
     ].join('')
     : '';
-  const outcomeStatusHtml = id
-    ? [
-      `<button type="button" class="admin-outcome-status admin-outcome-status--${outcomeInfo.type} admin-outcome-status--actionable" data-id="${id}" data-time-status="${outcomeTimeStatus}" data-outcome-status="${escapeHtml(outcomeStatus)}" data-outcome-remark="${escapeHtml(String(row?.outcomeRemark ?? ''))}" aria-haspopup="dialog" aria-controls="status-picker" aria-label="修改盈利状态">`,
-      `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
-      '</button>',
-    ].join('')
-    : [
-      `<div class="admin-outcome-status admin-outcome-status--${outcomeInfo.type}">`,
-      `<span class="admin-outcome-status__tag">${escapeHtml(outcomeInfo.label)}</span>`,
-      '</div>',
-    ].join('');
   const counterTrendHtml = rawId && canShowCounterTrend(row)
     ? [
       `<button type="button" class="admin-counter-trend${showCounterTrend ? ' is-active' : ''}${updatingAdminViewModeIds.has(rawId) ? ' is-syncing' : ''}" data-counter-trend-toggle data-id="${id}" aria-pressed="${showCounterTrend ? 'true' : 'false'}" aria-busy="${updatingAdminViewModeIds.has(rawId) ? 'true' : 'false'}"${updatingAdminViewModeIds.has(rawId) ? ' disabled' : ''} aria-label="${showCounterTrend ? '切换回趋势跟随' : '查看反趋势预设'}">`,
@@ -3415,29 +3437,23 @@ function buildAdminListItemHtml(row) {
   const assistTagHtml = isAssistStrategy
     ? '<span class="admin-assist-tag" aria-label="吃鱼助手">吃鱼助手</span>'
     : '';
-  const sideLabel = getPositionSideLabel(sideMod);
-  const sideTagHtml = sideLabel
-    ? `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
-    : '';
   const timeframeTagHtml = isTrendStrategy ? getTimeframeTagHtml(row?.timeframe) : '';
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
-    sideTagHtml,
+    concessionsHtml ? '' : sideTagHtml,
     counterTrendHtml,
     assistTagHtml,
     timeframeTagHtml,
     '</div>',
   ].join('');
-  const editBtnHtml = rawId && !isAdminSelectionMode
-    ? `<button type="button" class="admin-edit-btn" data-admin-edit data-id="${id}" aria-label="修改 ${titleLabel}">修改</button>`
-    : '';
-  const headRightHtml = [
-    '<div class="admin-item__head-right">',
-    outcomeStatusHtml,
+  const headRightContent = [
+    concessionsHtml ? '' : outcomeStatusHtml,
     timeBadgeHtml,
-    '</div>',
   ].join('');
+  const headRightHtml = headRightContent
+    ? `<div class="admin-item__head-right">${headRightContent}</div>`
+    : '';
   return [
     `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}">`,
     remarkStampHtml,
