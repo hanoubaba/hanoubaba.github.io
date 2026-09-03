@@ -881,6 +881,7 @@ const METHODOLOGY_SECTIONS = [
       '双向思维，多时间维度分析。',
       '谨慎会导致盈利的缩水，但也是活着的必要代价。',
       '知行合一，星辰大海只是时间问题。',
+      '趋势跟随的机会，往往不在热度排行榜，而是在水下。',
     ],
   },
 ];
@@ -1311,6 +1312,7 @@ function toDbRecord(record) {
     start_at: startAt ? startAt.toISOString() : null,
     expires_at: expiresAt ? expiresAt.toISOString() : null,
     outcome_status: normalizeOutcomeStatus(record.outcomeStatus),
+    outcome_remark: String(record.outcomeRemark ?? '').trim(),
     view_mode: normalizeStrategyViewMode(record.viewMode),
   };
 }
@@ -1471,7 +1473,10 @@ function rebuildStartTimeOptions(preferredValue = null, { ensurePreferredSlot = 
 
   const mode = getTimeframeMode();
   let slots = getTimeSlotsByMode(mode);
-  const selectedValue = resolveStartTimeSelection(mode, preferredValue ?? sel.value);
+  const preferred = String(preferredValue ?? '').trim();
+  const selectedValue = ensurePreferredSlot && preferred
+    ? preferred
+    : resolveStartTimeSelection(mode, preferredValue ?? sel.value);
 
   if (ensurePreferredSlot && selectedValue && !slots.some((slot) => slot.value === selectedValue)) {
     const extraAt = parseStartSlotValue(selectedValue);
@@ -1680,6 +1685,22 @@ function startEditStrategy(row) {
   const id = String(row?.id ?? '').trim();
   if (!id) return;
 
+  const strategyType = getAdminStrategyTypeInfo(row);
+  const isAssist = strategyType.type === 'assist';
+
+  if (isAssist) {
+    resetFrontPage();
+    populateAssistFormFromRow(row);
+  } else {
+    resetAssistPage();
+    populateTrendFormFromRow(row);
+  }
+
+  setPage('front', {
+    preserveFrontForm: true,
+    frontMode: isAssist ? FRONT_MODE_ASSIST : FRONT_MODE_TREND,
+  });
+
   editingStrategyId = id;
   editingStrategyPreserve = {
     outcomeStatus: row?.outcomeStatus,
@@ -1687,19 +1708,13 @@ function startEditStrategy(row) {
     viewMode: row?.viewMode,
   };
 
-  const strategyType = getAdminStrategyTypeInfo(row);
-  if (strategyType.type === 'assist') {
-    populateAssistFormFromRow(row);
-    setPage('front', { preserveFrontForm: true, frontMode: FRONT_MODE_ASSIST });
-    generateAssist();
-  } else {
-    populateTrendFormFromRow(row);
-    setPage('front', { preserveFrontForm: true, frontMode: FRONT_MODE_TREND });
-    generate();
-  }
+  if (isAssist) generateAssist();
+  else generate();
 
   updateSaveButtonLabels();
+  updateHeaderClearButton();
   showToast('已进入修改模式');
+  window.scrollTo(0, 0);
 }
 
 function clearStrategyState() {
@@ -3118,6 +3133,14 @@ function updateHeaderClearButton() {
     return;
   }
 
+  if (isFrontPage() && editingStrategyId) {
+    btnClear.hidden = false;
+    btnClear.textContent = '取消修改';
+    btnClear.disabled = false;
+    btnClear.setAttribute('aria-busy', 'false');
+    return;
+  }
+
   btnClear.hidden = true;
   btnClear.textContent = '删除';
   btnClear.disabled = false;
@@ -3461,6 +3484,9 @@ function buildAdminListItemHtml(row) {
     tpSlHtml,
     '<div class="admin-item__sub">',
     `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
+    rawId && !isAdminSelectionMode
+      ? `<button type="button" class="admin-edit-btn" data-admin-edit data-id="${id}" aria-label="修改 ${titleLabel}">修改</button>`
+      : '',
     '</div>',
     '</div>',
     '</article>',
@@ -4251,6 +4277,9 @@ function setFrontMode(mode) {
 
   if (editingStrategyId && prevMode !== nextMode) {
     clearEditingStrategy();
+    updateSaveButtonLabels();
+    updateHeaderClearButton();
+    showToast('已退出修改模式');
   }
 
   const trendPanel = document.getElementById('front-trend-panel');
@@ -4314,6 +4343,8 @@ function setPage(mode, options = {}) {
   const allowedPages = ['admin', 'stats', 'methodology', 'cases', 'observations', 'front'];
   const normalizedMode = allowedPages.includes(requestedMode) ? requestedMode : 'front';
   const wasFront = isFrontPage(currentPage);
+  const wasEditing = Boolean(editingStrategyId);
+  const leavingEdit = wasEditing && normalizedMode !== 'front';
   const toAdmin = normalizedMode === 'admin';
   const toStats = normalizedMode === 'stats';
   const toMethodology = normalizedMode === 'methodology';
@@ -4387,8 +4418,13 @@ function setPage(mode, options = {}) {
     }
     if (requestedFrontMode) frontMode = requestedFrontMode;
     setFrontMode(frontMode);
-    if (preserveFrontForm) updateSaveButtonLabels();
+    if (preserveFrontForm) {
+      updateSaveButtonLabels();
+      updateHeaderClearButton();
+    }
   }
+
+  if (leavingEdit) showToast('已取消修改');
 
   syncAdminCountdownTimer();
 }
@@ -4468,7 +4504,10 @@ async function copyStrategyOutput() {
       flashCopyStrategyBtn(btn, '保存失败');
       return;
     }
-    const record = enrichStrategyRecordForSubmit(currentStrategyRecord);
+    const record = enrichStrategyRecordForSubmit({
+      ...currentStrategyRecord,
+      strategyName: name,
+    });
     logSave('info', 'record 已就绪', record);
     const isEditing = Boolean(editingStrategyId);
     try {
@@ -4583,6 +4622,10 @@ if (assistFromInput) assistFromInput.addEventListener('input', autoGenerateAssis
 if (assistToInput) assistToInput.addEventListener('input', autoGenerateAssistIfReady);
 
 const clearAll = () => {
+  if (isFrontPage() && editingStrategyId) {
+    setPage('admin');
+    return;
+  }
   if (currentPage === 'admin') {
     if (!isAdminSelectionMode) {
       enterAdminSelectionMode();

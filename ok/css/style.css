@@ -1247,8 +1247,8 @@ body.login-mode {
   justify-content: center;
   white-space: nowrap;
   box-sizing: border-box;
-  border-radius: 4px;
-  padding: 1px 5px;
+  border-radius: 6px;
+  padding: 3px 8px;
   min-height: 0;
   min-width: 0;
   height: auto;
