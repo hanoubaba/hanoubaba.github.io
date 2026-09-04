@@ -317,16 +317,12 @@ function hasAdminTierCostBudget(openCostTotal = null, fixedTierOpenCost = null) 
   return Number.isFinite(total) && total > 0;
 }
 
-function applyAdminFixedTierQuantities(concessions, stopLoss, { isAssist = false } = {}) {
+function applyAdminFixedTierQuantities(concessions, stopLoss, { isAssist: _isAssist = false } = {}) {
   if (!hasConcessions(concessions)) return [];
   const stop = toNumber(stopLoss);
   if (stop == null || !(getAdminTierFixedOpenCost() > 0)) return concessions.slice();
   return concessions.map((item) => {
     const next = { ...item };
-    if (isAssist && shouldHideAssistQuantity(item.rate)) {
-      next.quantity = '0.0';
-      return next;
-    }
     const price = toNumber(item.price);
     if (price == null || price === stop) return next;
     const qty = calcQuantityByRisk(getAdminTierFixedOpenCost(), price, stop);
@@ -491,7 +487,7 @@ function buildAdminAssistConcessionsForDisplay(row) {
   if (isAssistConcessionSet(savedConcessions)) {
     return applyAdminFixedTierQuantities(savedConcessions, stopLoss, { isAssist: true });
   }
-  return buildAssistConcessionsFromRow(row);
+  return applyAdminFixedTierQuantities(buildAssistConcessionsFromRow(row), stopLoss, { isAssist: true });
 }
 
 function buildTrendAdminConcessions(row) {
@@ -883,6 +879,7 @@ const METHODOLOGY_SECTIONS = [
       '知行合一，星辰大海只是时间问题。',
       '趋势跟随的机会，往往不在热度排行榜，而是在水下。',
       '1天＝3个8小时。做1看2，止盈止损两个时间单位。（顺势而为数据化解析）',
+      '想赚钱还是要做头部热度排行榜。',
     ],
   },
 ];
@@ -2154,7 +2151,7 @@ function renderConcessionsHtml({
       item,
       rateLabel,
       stop,
-      hideQuantity: assistLabels && shouldHideAssistQuantity(item.rate),
+      hideQuantity: assistLabels && prefix !== 'admin' && shouldHideAssistQuantity(item.rate),
       hideStop: hideStopColumn,
       strikeRate: assistLabels && shouldHideAssistQuantity(item.rate),
       copyableNumbers: prefix === 'admin',
