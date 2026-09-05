@@ -1719,6 +1719,11 @@ body.login-mode {
   white-space: nowrap;
 }
 
+.admin-item__time-range--assist {
+  color: #0f766e;
+  font-weight: 700;
+}
+
 .admin-item__tp-sl {
   display: grid;
   grid-template-columns: var(--admin-tier-cols, repeat(3, minmax(0, 1fr)));
@@ -2845,7 +2850,8 @@ body.login-mode {
   .panel[aria-label="参数输入"] > label.field.field--spaced,
   .panel[aria-label="参数输入"] > div.field.field--spaced,
   .panel[aria-label="吃鱼助手参数"] > label.field:first-of-type,
-  .panel[aria-label="吃鱼助手参数"] > label.field.field--spaced {
+  .panel[aria-label="吃鱼助手参数"] > label.field.field--spaced,
+  .panel[aria-label="吃鱼助手参数"] > div.field.field--spaced {
     grid-column: 1;
     margin-top: 0;
   }

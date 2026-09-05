@@ -160,7 +160,12 @@ function getCurrentTimeSlot(stepMinutes) {
 
 const START_TIME_SLOT_COUNT = 5;
 const DEFAULT_TIMEFRAME = '4h';
+const DEFAULT_ASSIST_TIMEFRAME = '8h';
 const FRONT_TREND_TIMEFRAMES = ['4h', '8h', '1d'];
+const FRONT_PAGES = ['front'];
+const FRONT_MODE_TREND = 'trend';
+const FRONT_MODE_ASSIST = 'assist';
+let frontMode = FRONT_MODE_TREND;
 
 const TIMEFRAME_MINUTES = {
   '1h': 60,
@@ -186,7 +191,11 @@ function normalizeFrontTrendTimeframe(mode) {
   return FRONT_TREND_TIMEFRAMES.includes(value) ? value : DEFAULT_TIMEFRAME;
 }
 
-let frontTimeframeMode = DEFAULT_TIMEFRAME;
+let trendTimeframeMode = DEFAULT_TIMEFRAME;
+let assistTimeframeMode = DEFAULT_ASSIST_TIMEFRAME;
+let startTimeUserPicked = false;
+let assistStartTimeUserPicked = false;
+let mobileTimePickerScope = 'trend';
 
 const PRICE_ADJUSTMENT_RATE = 0;
 const CONCESSION_RATES = [
@@ -211,6 +220,7 @@ const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R = 3;
 const BEST_TAKE_PROFIT_R = 5;
 const STRATEGY_DURATION_PERIODS = 10;
+const ASSIST_DURATION_PERIODS = 4;
 /** 反趋势：挂单档位 = 原策略 3/4/5 倍止盈价，止损 = 10 倍止盈价 */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 4, 5];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
@@ -237,8 +247,12 @@ function clampOpenCostMultiplier(value) {
   return Math.min(OPEN_COST_MULTIPLIER_MAX, Math.max(OPEN_COST_MULTIPLIER_MIN, n));
 }
 
-function getTimeframeMode() {
-  return frontTimeframeMode;
+function getFrontFormScope() {
+  return frontMode === FRONT_MODE_ASSIST ? 'assist' : 'trend';
+}
+
+function getTimeframeMode(scope = getFrontFormScope()) {
+  return scope === 'assist' ? assistTimeframeMode : trendTimeframeMode;
 }
 
 function getTimeframeMinutes(mode = getTimeframeMode()) {
@@ -255,28 +269,37 @@ function getTimeframeShortLabel(mode) {
   return TIMEFRAME_MINUTES[value] ? value : '';
 }
 
-function syncFrontTimeframeSwitch() {
-  document.querySelectorAll('[data-timeframe]').forEach((btn) => {
-    const active = btn.getAttribute('data-timeframe') === frontTimeframeMode;
+function syncFrontTimeframeSwitch(scope = getFrontFormScope()) {
+  const root = document.getElementById(scope === 'assist' ? 'front-assist-panel' : 'front-trend-panel');
+  const mode = getTimeframeMode(scope);
+  const buttons = root
+    ? root.querySelectorAll('[data-timeframe]')
+    : document.querySelectorAll('[data-timeframe]');
+  buttons.forEach((btn) => {
+    const active = btn.getAttribute('data-timeframe') === mode;
     btn.classList.toggle('is-active', active);
     btn.setAttribute('aria-selected', active ? 'true' : 'false');
   });
 }
 
-function setFrontTimeframeMode(mode, { refresh = true } = {}) {
+function setFrontTimeframeMode(mode, { refresh = true, scope = getFrontFormScope() } = {}) {
   const next = normalizeFrontTrendTimeframe(mode);
-  const changed = next !== frontTimeframeMode;
-  frontTimeframeMode = next;
-  syncFrontTimeframeSwitch();
+  if (scope === 'assist') {
+    const changed = next !== assistTimeframeMode;
+    assistTimeframeMode = next;
+    syncFrontTimeframeSwitch('assist');
+    if (!refresh || !changed) return;
+    rebuildStartTimeOptions(null, { scope: 'assist' });
+    autoGenerateAssistIfReady();
+    return;
+  }
+  const changed = next !== trendTimeframeMode;
+  trendTimeframeMode = next;
+  syncFrontTimeframeSwitch('trend');
   if (!refresh || !changed) return;
-  rebuildStartTimeOptions();
+  rebuildStartTimeOptions(null, { scope: 'trend' });
   autoGenerateIfReady();
 }
-
-const FRONT_PAGES = ['front'];
-const FRONT_MODE_TREND = 'trend';
-const FRONT_MODE_ASSIST = 'assist';
-let frontMode = FRONT_MODE_TREND;
 
 function normalizeFrontMode(mode) {
   return mode === FRONT_MODE_ASSIST ? FRONT_MODE_ASSIST : FRONT_MODE_TREND;
@@ -1443,19 +1466,40 @@ function resolveStartTimeSelection(mode, prevValue) {
   return slots[slots.length - 1].value;
 }
 
-function updateStartTimeTriggerLabel() {
-  const trigger = document.getElementById('start-time-trigger');
-  const sel = document.getElementById('start-time');
+function getStartTimeFieldEls(scope = getFrontFormScope()) {
+  if (scope === 'assist') {
+    return {
+      sel: document.getElementById('assist-start-time'),
+      trigger: document.getElementById('assist-start-time-trigger'),
+    };
+  }
+  return {
+    sel: document.getElementById('start-time'),
+    trigger: document.getElementById('start-time-trigger'),
+  };
+}
+
+function isStartTimeUserPicked(scope = getFrontFormScope()) {
+  return scope === 'assist' ? assistStartTimeUserPicked : startTimeUserPicked;
+}
+
+function setStartTimeUserPicked(value, scope = getFrontFormScope()) {
+  if (scope === 'assist') assistStartTimeUserPicked = Boolean(value);
+  else startTimeUserPicked = Boolean(value);
+}
+
+function updateStartTimeTriggerLabel(scope = getFrontFormScope()) {
+  const { trigger, sel } = getStartTimeFieldEls(scope);
   if (!trigger || !sel) return;
   const label = String(sel.selectedOptions?.[0]?.textContent ?? '').trim();
   const v = String(sel.value ?? '').trim();
   trigger.textContent = label || v || '请选择';
 }
 
-function renderMobileTimePickerOptions(selectedValue) {
+function renderMobileTimePickerOptions(selectedValue, scope = mobileTimePickerScope) {
   const list = document.getElementById('time-picker-list');
   if (!list) return;
-  const mode = getTimeframeMode();
+  const mode = getTimeframeMode(scope);
   const slots = getTimeSlotsByMode(mode);
   const fallbackValue = resolveStartTimeSelection(mode, selectedValue);
   const activeValue = slots.some((slot) => slot.value === selectedValue) ? selectedValue : fallbackValue;
@@ -1484,11 +1528,12 @@ function scrollMobilePickerToSelected() {
   list.scrollTop = Math.max(0, targetTop);
 }
 
-function openMobileTimePicker() {
+function openMobileTimePicker(scope = getFrontFormScope()) {
   const picker = document.getElementById('start-time-picker');
-  const sel = document.getElementById('start-time');
+  const { sel } = getStartTimeFieldEls(scope);
   if (!picker || !sel) return;
-  renderMobileTimePickerOptions(String(sel.value ?? '').trim());
+  mobileTimePickerScope = scope;
+  renderMobileTimePickerOptions(String(sel.value ?? '').trim(), scope);
   picker.hidden = false;
   document.body.style.overflow = 'hidden';
   window.requestAnimationFrame(scrollMobilePickerToSelected);
@@ -1499,11 +1544,11 @@ function closeMobileTimePicker() {
   if (!picker) return;
   picker.hidden = true;
   document.body.style.overflow = '';
-  updateStartTimeTriggerLabel();
+  updateStartTimeTriggerLabel(mobileTimePickerScope);
 }
 
 function applyMobileTimePickerValue(value) {
-  const sel = document.getElementById('start-time');
+  const { sel } = getStartTimeFieldEls(mobileTimePickerScope);
   const selected = String(value ?? '').trim();
   if (!sel || !selected) {
     closeMobileTimePicker();
@@ -1513,21 +1558,22 @@ function applyMobileTimePickerValue(value) {
     sel.value = selected;
     sel.dispatchEvent(new Event('change', { bubbles: true }));
   } else {
-    updateStartTimeTriggerLabel();
+    updateStartTimeTriggerLabel(mobileTimePickerScope);
   }
   closeMobileTimePicker();
 }
 
 function bindMobileTimePickerEvents() {
   const picker = document.getElementById('start-time-picker');
-  const trigger = document.getElementById('start-time-trigger');
   const list = document.getElementById('time-picker-list');
-  const sel = document.getElementById('start-time');
-  if (!picker || !trigger || !list || !sel) return;
+  if (!picker || !list) return;
 
-  trigger.addEventListener('click', () => {
-    if (!isMobileTimePickerEnabled()) return;
-    openMobileTimePicker();
+  ['trend', 'assist'].forEach((scope) => {
+    const { trigger } = getStartTimeFieldEls(scope);
+    trigger?.addEventListener('click', () => {
+      if (!isMobileTimePickerEnabled()) return;
+      openMobileTimePicker(scope);
+    });
   });
 
   picker.addEventListener('click', (e) => {
@@ -1549,11 +1595,11 @@ function bindMobileTimePickerEvents() {
   });
 }
 
-function rebuildStartTimeOptions(preferredValue = null, { ensurePreferredSlot = false } = {}) {
-  const sel = document.getElementById('start-time');
+function rebuildStartTimeOptions(preferredValue = null, { ensurePreferredSlot = false, scope = getFrontFormScope() } = {}) {
+  const { sel } = getStartTimeFieldEls(scope);
   if (!sel) return;
 
-  const mode = getTimeframeMode();
+  const mode = getTimeframeMode(scope);
   let slots = getTimeSlotsByMode(mode);
   const preferred = String(preferredValue ?? '').trim();
   const selectedValue = ensurePreferredSlot && preferred
@@ -1597,9 +1643,9 @@ function rebuildStartTimeOptions(preferredValue = null, { ensurePreferredSlot = 
     sel.value = '';
   }
 
-  updateStartTimeTriggerLabel();
-  if (!document.getElementById('start-time-picker')?.hidden) {
-    renderMobileTimePickerOptions(sel.value);
+  updateStartTimeTriggerLabel(scope);
+  if (!document.getElementById('start-time-picker')?.hidden && mobileTimePickerScope === scope) {
+    renderMobileTimePickerOptions(sel.value, scope);
     scrollMobilePickerToSelected();
   }
 }
@@ -1744,10 +1790,10 @@ function populateTrendFormFromRow(row) {
   if (nameEl) nameEl.value = String(row?.strategyName ?? '').trim();
   if (openEl) openEl.value = String(row?.inputPrice ?? '').trim();
   if (stopEl) stopEl.value = String(row?.inputStopLoss ?? '').trim();
-  setFrontTimeframeMode(row?.timeframe || DEFAULT_TIMEFRAME, { refresh: false });
+  setFrontTimeframeMode(row?.timeframe || DEFAULT_TIMEFRAME, { refresh: false, scope: 'trend' });
   const startSlot = getStartSlotValueFromRow(row);
-  startTimeUserPicked = true;
-  rebuildStartTimeOptions(startSlot, { ensurePreferredSlot: true });
+  setStartTimeUserPicked(true, 'trend');
+  rebuildStartTimeOptions(startSlot, { ensurePreferredSlot: true, scope: 'trend' });
 }
 
 function populateAssistFormFromRow(row) {
@@ -1757,10 +1803,10 @@ function populateAssistFormFromRow(row) {
   if (nameEl) nameEl.value = String(row?.strategyName ?? '').trim();
   if (fromEl) fromEl.value = String(row?.inputPrice ?? '').trim();
   if (toEl) toEl.value = String(row?.inputStopLoss ?? '').trim();
-  setFrontTimeframeMode(row?.timeframe || DEFAULT_TIMEFRAME, { refresh: false });
+  setFrontTimeframeMode(row?.timeframe || DEFAULT_ASSIST_TIMEFRAME, { refresh: false, scope: 'assist' });
   const startSlot = getStartSlotValueFromRow(row);
-  startTimeUserPicked = true;
-  rebuildStartTimeOptions(startSlot, { ensurePreferredSlot: true });
+  setStartTimeUserPicked(true, 'assist');
+  rebuildStartTimeOptions(startSlot, { ensurePreferredSlot: true, scope: 'assist' });
 }
 
 function startEditStrategy(row) {
@@ -1871,7 +1917,7 @@ function enrichStrategyRecordForSubmit(record) {
     validPeriods,
     durationMinutes,
   };
-  const timeEl = document.getElementById('start-time');
+  const timeEl = getStartTimeFieldEls().sel;
   const startValue = timeEl && 'value' in timeEl ? String(timeEl.value).trim() : '';
   if (startValue) {
     const startAt = getStartDateTime(startValue);
@@ -2474,13 +2520,14 @@ function generate() {
   });
 }
 
-let startTimeUserPicked = false;
-rebuildStartTimeOptions();
+rebuildStartTimeOptions(null, { scope: 'trend' });
+rebuildStartTimeOptions(null, { scope: 'assist' });
 bindMobileTimePickerEvents();
 
 const openInput = document.getElementById('open-price-input');
 const stopInput = document.getElementById('stop-price-input');
 const startTimeSelect = document.getElementById('start-time');
+const assistStartTimeSelect = document.getElementById('assist-start-time');
 
 function onEnter(e) {
   if (e.key === 'Enter') generate();
@@ -2490,9 +2537,16 @@ if (stopInput) stopInput.addEventListener('keydown', onEnter);
 if (startTimeSelect) {
   startTimeSelect.addEventListener('keydown', onEnter);
   startTimeSelect.addEventListener('change', () => {
-    updateStartTimeTriggerLabel();
-    startTimeUserPicked = true;
+    updateStartTimeTriggerLabel('trend');
+    setStartTimeUserPicked(true, 'trend');
     autoGenerateIfReady();
+  });
+}
+if (assistStartTimeSelect) {
+  assistStartTimeSelect.addEventListener('change', () => {
+    updateStartTimeTriggerLabel('assist');
+    setStartTimeUserPicked(true, 'assist');
+    autoGenerateAssistIfReady();
   });
 }
 
@@ -2513,10 +2567,10 @@ if (stopInput) stopInput.addEventListener('input', autoGenerateIfReady);
 
 function resetFrontPage() {
   closeMobileTimePicker();
-  startTimeUserPicked = false;
+  setStartTimeUserPicked(false, 'trend');
   clearEditingStrategy();
-  setFrontTimeframeMode(DEFAULT_TIMEFRAME, { refresh: false });
-  rebuildStartTimeOptions();
+  setFrontTimeframeMode(DEFAULT_TIMEFRAME, { refresh: false, scope: 'trend' });
+  rebuildStartTimeOptions(null, { scope: 'trend' });
   if (openInput) openInput.value = '';
   if (stopInput) stopInput.value = '';
   if (nameInput) nameInput.value = '';
@@ -2539,6 +2593,9 @@ function resetAssistPage() {
   if (fromEl) fromEl.value = '';
   if (toEl) toEl.value = '';
   if (errEl) errEl.textContent = '';
+  setStartTimeUserPicked(false, 'assist');
+  setFrontTimeframeMode(DEFAULT_ASSIST_TIMEFRAME, { refresh: false, scope: 'assist' });
+  rebuildStartTimeOptions(null, { scope: 'assist' });
   clearAssistState();
 }
 
@@ -2553,15 +2610,13 @@ function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
   const concessionItems = buildAssistConcessionItems(from, to, openCostTotal, priceDecimalPlaces);
   if (!concessionItems.length) return null;
   const primaryItem = concessionItems[0];
-  const timeframe = getTimeframeMode();
+  const timeframe = getTimeframeMode('assist');
   const unitMin = getTimeframeMinutes(timeframe);
-  const spanMinutes = unitMin * STRATEGY_DURATION_PERIODS;
-  const timeEl = document.getElementById('start-time');
+  const spanMinutes = unitMin * ASSIST_DURATION_PERIODS;
+  const timeEl = getStartTimeFieldEls('assist').sel;
   const startValue = timeEl && 'value' in timeEl ? String(timeEl.value).trim() : '';
-  const startAt = startValue ? getStartDateTime(startValue) : new Date();
-  const endAt = startValue
-    ? addPeriodToStart(startValue, spanMinutes)
-    : (startAt ? new Date(startAt.getTime() + spanMinutes * 60 * 1000) : null);
+  const startAt = startValue ? getStartDateTime(startValue) : null;
+  const endAt = startValue ? addPeriodToStart(startValue, spanMinutes) : null;
   const openCostMultiplier = OPEN_COST_MULTIPLIER_DEFAULT;
   const openCost = openCostTotal / DEFAULT_TIER_COUNT;
 
@@ -2601,7 +2656,7 @@ function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
     timeframe,
     timeframeMinutes: unitMin,
     timeframeLabel: getTimeframeLabel(timeframe),
-    validPeriods: STRATEGY_DURATION_PERIODS,
+    validPeriods: ASSIST_DURATION_PERIODS,
     durationMinutes: spanMinutes,
     startAt: startAt ? startAt.toISOString() : null,
     expiresAt: endAt ? endAt.toISOString() : null,
@@ -2615,9 +2670,11 @@ function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
 function generateAssist() {
   const fromEl = document.getElementById('assist-from-input');
   const toEl = document.getElementById('assist-to-input');
+  const timeEl = getStartTimeFieldEls('assist').sel;
   const errEl = document.getElementById('assist-error');
   const from = toNumber(fromEl && 'value' in fromEl ? fromEl.value : '');
   const to = toNumber(toEl && 'value' in toEl ? toEl.value : '');
+  const startTime = timeEl && 'value' in timeEl ? String(timeEl.value).trim() : '';
   const openCostTotal = getOpenCostTotal();
 
   if (errEl) errEl.textContent = '';
@@ -2634,6 +2691,11 @@ function generateAssist() {
   }
   if (from === to) {
     if (errEl) errEl.textContent = 'from 与 to 不能相同。';
+    clearAssistState();
+    return;
+  }
+  if (!startTime) {
+    if (errEl) errEl.textContent = '请选择开始时间。';
     clearAssistState();
     return;
   }
@@ -2671,16 +2733,22 @@ function autoGenerateAssistIfReady() {
  * 这里在用户尚未手动选择时，定时 + 切回标签页时重新对齐到当前时间格。
  */
 function syncStartTimeToNow() {
-  const sel = document.getElementById('start-time');
-  if (!sel || startTimeUserPicked) return;
   const picker = document.getElementById('start-time-picker');
-  if (picker && !picker.hidden) return; // 移动端选择器打开时不打扰
-  const stepMinutes = getTimeframeMinutes();
-  const nowSlot = getCurrentTimeSlot(stepMinutes);
-  if (sel.value === nowSlot) return;
-  rebuildStartTimeOptions(nowSlot);
-  updateStartTimeTriggerLabel();
-  autoGenerateIfReady();
+  if (picker && !picker.hidden) return;
+  let trendChanged = false;
+  let assistChanged = false;
+  ['trend', 'assist'].forEach((scope) => {
+    if (isStartTimeUserPicked(scope)) return;
+    const { sel } = getStartTimeFieldEls(scope);
+    if (!sel) return;
+    const nowSlot = getCurrentTimeSlot(getTimeframeMinutes(getTimeframeMode(scope)));
+    if (sel.value === nowSlot) return;
+    rebuildStartTimeOptions(nowSlot, { scope });
+    if (scope === 'assist') assistChanged = true;
+    else trendChanged = true;
+  });
+  if (trendChanged) autoGenerateIfReady();
+  if (assistChanged) autoGenerateAssistIfReady();
 }
 
 setInterval(syncStartTimeToNow, 30 * 1000);
@@ -3450,7 +3518,6 @@ function buildAdminListItemHtml(row) {
   );
   const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
   const priceDecimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
-  const isTrendStrategy = strategyType.type === 'trend';
   let concessions;
   let stopLabel;
   let takeProfitLabel;
@@ -3528,7 +3595,7 @@ function buildAdminListItemHtml(row) {
   const assistTagHtml = isAssistStrategy
     ? '<span class="admin-assist-tag" aria-label="吃鱼助手">吃鱼助手</span>'
     : '';
-  const timeframeTagHtml = isTrendStrategy ? getTimeframeTagHtml(row?.timeframe) : '';
+  const timeframeTagHtml = getTimeframeTagHtml(row?.timeframe);
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
@@ -3555,7 +3622,7 @@ function buildAdminListItemHtml(row) {
     concessionsHtml,
     tpSlHtml,
     '<div class="admin-item__sub">',
-    `<span class="admin-item__time-range" aria-label="时间范围">${timeRange}</span>`,
+    `<span class="admin-item__time-range${isAssistStrategy ? ' admin-item__time-range--assist' : ''}" aria-label="时间范围">${timeRange}</span>`,
     rawId && !isAdminSelectionMode
       ? `<button type="button" class="admin-edit-btn" data-admin-edit data-id="${id}" aria-label="修改 ${titleLabel}">修改</button>`
       : '',
@@ -4364,6 +4431,7 @@ function setFrontMode(mode) {
 
   if (trendPanel) trendPanel.hidden = toAssist;
   if (assistPanel) assistPanel.hidden = !toAssist;
+  if (prevMode !== nextMode) closeMobileTimePicker();
   if (btnTrend) {
     btnTrend.classList.toggle('is-active', !toAssist);
     btnTrend.setAttribute('aria-selected', toAssist ? 'false' : 'true');
@@ -4754,7 +4822,8 @@ const btnTabObservations = document.getElementById('btn-tab-observations');
 if (btnTabObservations) btnTabObservations.addEventListener('click', () => setPage('observations'));
 document.querySelectorAll('[data-timeframe]').forEach((btn) => {
   btn.addEventListener('click', () => {
-    setFrontTimeframeMode(btn.getAttribute('data-timeframe'));
+    const scope = btn.closest('#front-assist-panel') ? 'assist' : 'trend';
+    setFrontTimeframeMode(btn.getAttribute('data-timeframe'), { scope });
   });
 });
 

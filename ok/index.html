@@ -101,6 +101,23 @@
         <input id="assist-name-input" class="field-input" autocomplete="off" />
       </label>
 
+      <div class="field field--spaced">
+        <span class="field-label" id="assist-timeframe-label">时间维度</span>
+        <div class="timeframe-switch" role="tablist" aria-labelledby="assist-timeframe-label">
+          <button type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-timeframe="4h">4h</button>
+          <button type="button" class="timeframe-switch__btn is-active" role="tab" aria-selected="true" data-timeframe="8h">8h</button>
+          <button type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-timeframe="1d">1d</button>
+        </div>
+      </div>
+
+      <div class="field field--spaced">
+        <span class="field-label" id="assist-start-time-label">开始时间</span>
+        <select id="assist-start-time" class="field-input field-input--select" aria-labelledby="assist-start-time-label" autocomplete="off">
+          <option value="">请选择</option>
+        </select>
+        <button id="assist-start-time-trigger" class="field-input field-input--select start-time-trigger" type="button" hidden aria-labelledby="assist-start-time-label" aria-haspopup="dialog" aria-controls="start-time-picker">请选择</button>
+      </div>
+
       <label class="field field--spaced">
         <span class="field-label">from</span>
         <input id="assist-from-input" class="field-input" inputmode="decimal" autocomplete="off" />
