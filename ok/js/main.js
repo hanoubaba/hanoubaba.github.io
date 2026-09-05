@@ -160,17 +160,19 @@ function getCurrentTimeSlot(stepMinutes) {
 
 const START_TIME_SLOT_COUNT = 5;
 const DEFAULT_TIMEFRAME = '4h';
-const FRONT_TREND_TIMEFRAMES = ['4h', '1d'];
+const FRONT_TREND_TIMEFRAMES = ['4h', '8h', '1d'];
 
 const TIMEFRAME_MINUTES = {
   '1h': 60,
   '4h': 240,
+  '8h': 480,
   '1d': 1440,
 };
 
 const TIMEFRAME_LABELS = {
   '1h': '1小时',
   '4h': '4小时',
+  '8h': '8小时',
   '1d': '1天',
 };
 
@@ -201,8 +203,9 @@ const OPEN_COST_BASE = 100;
 const OPEN_COST_MULTIPLIER_MIN = 1;
 const OPEN_COST_MULTIPLIER_MAX = 10;
 const OPEN_COST_MULTIPLIER_DEFAULT = 3;
-/** 后台管理：每档固定本金（全局变量，方便后续调整；不再按 costShare 从总额拆分） */
+/** 后台管理：每档固定本金默认值；实际取值见 getAdminTierFixedOpenCost()（数据统计可自定义并落库） */
 const ADMIN_TIER_FIXED_OPEN_COST = 100;
+let cachedUnitCost = ADMIN_TIER_FIXED_OPEN_COST;
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R = 3;
@@ -306,8 +309,79 @@ function getOpenCostTotal(multiplier = OPEN_COST_MULTIPLIER_DEFAULT) {
   return OPEN_COST_BASE * clampOpenCostMultiplier(multiplier);
 }
 
+function normalizeUnitCost(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
 function getAdminTierFixedOpenCost() {
-  return ADMIN_TIER_FIXED_OPEN_COST;
+  const n = Number(cachedUnitCost);
+  return Number.isFinite(n) && n > 0 ? n : ADMIN_TIER_FIXED_OPEN_COST;
+}
+
+function syncUnitCostInput() {
+  const el = document.getElementById('unit-cost-input');
+  if (!el || document.activeElement === el) return;
+  el.value = String(getAdminTierFixedOpenCost());
+}
+
+async function fetchAppSettings() {
+  const res = await supabaseFetch(`${SETTINGS_ENDPOINT}?id=eq.${encodeURIComponent(APP_SETTINGS_ID)}&select=unit_cost`);
+  if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+  const rows = await res.json();
+  const row = Array.isArray(rows) ? rows[0] : null;
+  const cost = normalizeUnitCost(row?.unit_cost);
+  if (cost != null) cachedUnitCost = cost;
+  syncUnitCostInput();
+  return getAdminTierFixedOpenCost();
+}
+
+async function saveAppSettings(unitCost) {
+  const cost = normalizeUnitCost(unitCost);
+  if (cost == null) throw new Error('请输入大于 0 的单位本金');
+  const res = await supabaseFetch(`${SETTINGS_ENDPOINT}?on_conflict=id`, {
+    method: 'POST',
+    headers: {
+      Prefer: 'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify({
+      id: APP_SETTINGS_ID,
+      unit_cost: cost,
+    }),
+  });
+  if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+  cachedUnitCost = cost;
+  syncUnitCostInput();
+  return cost;
+}
+
+async function handleUnitCostSave() {
+  const input = document.getElementById('unit-cost-input');
+  const errorEl = document.getElementById('unit-cost-error');
+  const btn = document.getElementById('unit-cost-save');
+  const cost = normalizeUnitCost(String(input?.value ?? '').trim());
+  if (errorEl) errorEl.textContent = '';
+  if (cost == null) {
+    if (errorEl) errorEl.textContent = '请输入大于 0 的数字。';
+    input?.focus();
+    return;
+  }
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '保存中';
+  }
+  try {
+    await saveAppSettings(cost);
+    showToast('单位本金已保存');
+  } catch (err) {
+    if (errorEl) errorEl.textContent = String(err?.message || '保存失败');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '保存';
+    }
+  }
 }
 
 function hasAdminTierCostBudget(openCostTotal = null, fixedTierOpenCost = null) {
@@ -679,6 +753,8 @@ const STRATEGIES_ENDPOINT = `${SUPABASE_URL}/rest/v1/strategies`;
 const STRATEGY_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_strategy_stats`;
 const RECENT_10_STATS_ENDPOINT = `${SUPABASE_URL}/rest/v1/rpc/get_recent_10_stats`;
 const OBSERVATIONS_ENDPOINT = `${SUPABASE_URL}/rest/v1/observation_records`;
+const SETTINGS_ENDPOINT = `${SUPABASE_URL}/rest/v1/app_settings`;
+const APP_SETTINGS_ID = 'default';
 const STRATEGY_GRADE_PREMIUM = '优质';
 const STRATEGY_GRADE_NORMAL = '普通';
 function getStrategyGradeFromOpenCost(openCost, openCostTotal, tierCount = DEFAULT_TIER_COUNT) {
@@ -839,14 +915,14 @@ const METHODOLOGY_SECTIONS = [
     title: '20、最新感悟',
     items: [
       '格局大点，没到100万都是欢乐豆。',
-      '优先级：趋势跟随＞反趋势预设＞吃鱼助手',
+      '优先级：趋势跟随＞趋势力预测＞吃鱼助手',
       '反趋势限定方向空，时间空间都满足，否则不做。优先级还是新的趋势跟随单。',
       '严格选品，分批挂单。保持最佳位置挂单的好习惯，经常会有惊喜。',
       '分仓不如集中子弹到最优势的单子，多维度去解读操作。基于方向的确定性，实现收益最大化。',
       '不符合模型就跑，亏不了多少。无需纠结，集中力量到下一单。',
       '放弃多空临界值的单子，做好趋势交易的本分。',
       '钝感力，松弛感。',
-      '趋势跟随确认正确以后加仓。反趋势预设确认正确以后转吃鱼助手。',
+      '趋势跟随确认正确以后加仓。趋势力预测确认正确以后转吃鱼助手。',
       '严格选品，耐心等待，保守前进。',
       '多做多错，少做不错。 非必要不操作是最好的操作。',
       '错过一些机会证明我的风控做的很好，要继续保持，不要觊觎其他的力量。',
@@ -880,6 +956,7 @@ const METHODOLOGY_SECTIONS = [
       '趋势跟随的机会，往往不在热度排行榜，而是在水下。',
       '1天＝3个8小时。做1看2，止盈止损两个时间单位。（顺势而为数据化解析）',
       '想赚钱还是要做头部热度排行榜。',
+      '认真挂好每一单，永远相信美好的事情即将发生。',
     ],
   },
 ];
@@ -1137,8 +1214,7 @@ async function handleLoginSubmit(event) {
   }
   try {
     await loginWithPassword(normalizeLoginEmail(account), password);
-    showApp();
-    setPage('admin');
+    await enterAuthenticatedApp();
   } catch (err) {
     if (errorEl) errorEl.textContent = String(err?.message || '登录失败');
   } finally {
@@ -1150,27 +1226,35 @@ async function handleLoginSubmit(event) {
   }
 }
 
+async function enterAuthenticatedApp() {
+  showApp();
+  try {
+    await fetchAppSettings();
+  } catch {
+    cachedUnitCost = ADMIN_TIER_FIXED_OPEN_COST;
+    syncUnitCostInput();
+  }
+  setPage('admin');
+}
+
 async function initApp() {
   loadAuthSession();
   if (authSession?.refresh_token) {
     try {
       await ensureAuthSession();
-      showApp();
-      setPage('admin');
+      await enterAuthenticatedApp();
       return;
     } catch (err) {
       if (isAuthRefreshTokenInvalid(err)) {
         clearAuthSession();
       } else if (isAccessTokenValid()) {
         scheduleAuthRefresh();
-        showApp();
-        setPage('admin');
+        await enterAuthenticatedApp();
         return;
       }
     }
   } else if (authSession?.access_token && isAccessTokenValid()) {
-    showApp();
-    setPage('admin');
+    await enterAuthenticatedApp();
     return;
   }
   showLoginPage();
@@ -1583,7 +1667,7 @@ function renderMethodologyBalanceBannerHtml() {
     '</div>',
     '<span class="methodology-balance__arrow" aria-hidden="true">==&gt;</span>',
     '<div class="methodology-balance__side">',
-    '<span class="methodology-balance__stage">反趋势预设</span>',
+    '<span class="methodology-balance__stage">趋势力预测</span>',
     '<span class="methodology-balance__desc">时间空间都满足，止损空间翻倍非常安全</span>',
     '</div>',
     '<span class="methodology-balance__arrow" aria-hidden="true">==&gt;</span>',
@@ -1874,11 +1958,9 @@ function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) 
   return formatTrimmedFixedDecimals(normalized, decimals);
 }
 
-function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel, refTakeProfitLabel = null) {
+function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel) {
   const tpRaw = String(takeProfitLabel ?? '').trim() || '—';
   const slRaw = String(stopLossLabel ?? '').trim() || '—';
-  const refRaw = String(refTakeProfitLabel ?? '').trim();
-  const hasRef = Boolean(refRaw && refRaw !== '—');
 
   const renderBlock = (modClass, label, value, ariaLabel, { copyable = true } = {}) => {
     const text = String(value ?? '').trim() || '—';
@@ -1891,13 +1973,9 @@ function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel, refTakePr
     return `<${tag} class="${className}"${copyAttrs}><span class="admin-item__tp-sl-label">${escapeHtml(label)}</span><span class="admin-item__tp-sl-value">${escapeHtml(text)}</span></${tag}>`;
   };
 
-  const refHtml = hasRef
-    ? renderBlock('admin-item__tp-sl-item--ref admin-item__tp-sl-ref', '参考止盈', refRaw, '参考止盈')
-    : '<span class="admin-item__tp-sl-item admin-item__tp-sl-ref admin-item__tp-sl-ref--empty" aria-hidden="true"></span>';
-
   return [
-    `<div class="admin-item__tp-sl${hasRef ? ' admin-item__tp-sl--with-ref' : ''}" aria-label="止盈止损">`,
-    refHtml,
+    '<div class="admin-item__tp-sl" aria-label="止盈止损">',
+    '<span class="admin-item__tp-sl-item admin-item__tp-sl-spacer" aria-hidden="true"></span>',
     renderBlock('admin-item__tp-sl-item--tp', '止盈', tpRaw, '止盈价格'),
     renderBlock('admin-item__tp-sl-item--sl', '止损', slRaw, '止损价格'),
     '</div>',
@@ -3376,28 +3454,24 @@ function buildAdminListItemHtml(row) {
   let concessions;
   let stopLabel;
   let takeProfitLabel;
-  let refTakeProfitLabel;
   if (showCounterTrend) {
     const counter = buildCounterTrendConcessions(row);
     concessions = counter.items;
-    // 反趋势预设：止盈=原开仓价，止损=10R（计算逻辑不变，仅改展示位置）
+    // 趋势力预测：止盈=原开仓价，止损=10R（计算逻辑不变，仅改展示位置）
     takeProfitLabel = counter.refTakeProfit || '—';
     stopLabel = counter.stopLoss || '—';
-    refTakeProfitLabel = null;
   } else if (isAssistStrategy) {
     concessions = buildAdminAssistConcessionsForDisplay(row);
     // 吃鱼助手：止盈=to，止损=from（计算逻辑不变）
     takeProfitLabel = formatAdminPriceFromValue(row?.inputStopLoss ?? row?.takeProfitPrice, priceDecimalPlaces) || '—';
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
-    refTakeProfitLabel = null;
   } else {
     concessions = buildAdminDisplayConcessions(row);
-    // 趋势跟随：止盈=5R 最佳点位（区分多空），止损=原止损；保留参考止盈
+    // 趋势跟随：止盈=5R 最佳点位（区分多空），止损=原止损
     takeProfitLabel = buildAdminBestTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
-    refTakeProfitLabel = buildAdminReferenceTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
   }
-  const tpSlHtml = renderAdminTakeProfitStopHtml(takeProfitLabel, stopLabel, refTakeProfitLabel);
+  const tpSlHtml = renderAdminTakeProfitStopHtml(takeProfitLabel, stopLabel);
   const sideLabel = getPositionSideLabel(sideMod);
   const sideTagHtml = sideLabel
     ? `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
@@ -3446,8 +3520,8 @@ function buildAdminListItemHtml(row) {
     : '';
   const counterTrendHtml = rawId && canShowCounterTrend(row)
     ? [
-      `<button type="button" class="admin-counter-trend${showCounterTrend ? ' is-active' : ''}${updatingAdminViewModeIds.has(rawId) ? ' is-syncing' : ''}" data-counter-trend-toggle data-id="${id}" aria-pressed="${showCounterTrend ? 'true' : 'false'}" aria-busy="${updatingAdminViewModeIds.has(rawId) ? 'true' : 'false'}"${updatingAdminViewModeIds.has(rawId) ? ' disabled' : ''} aria-label="${showCounterTrend ? '切换回趋势跟随' : '查看反趋势预设'}">`,
-      `<span class="admin-counter-trend__tag">${showCounterTrend ? '反趋势预设' : '趋势跟随'}</span>`,
+      `<button type="button" class="admin-counter-trend${showCounterTrend ? ' is-active' : ''}${updatingAdminViewModeIds.has(rawId) ? ' is-syncing' : ''}" data-counter-trend-toggle data-id="${id}" aria-pressed="${showCounterTrend ? 'true' : 'false'}" aria-busy="${updatingAdminViewModeIds.has(rawId) ? 'true' : 'false'}"${updatingAdminViewModeIds.has(rawId) ? ' disabled' : ''} aria-label="${showCounterTrend ? '切换回趋势跟随' : '查看趋势力预测'}">`,
+      `<span class="admin-counter-trend__tag">${showCounterTrend ? '趋势力预测' : '趋势跟随'}</span>`,
       '</button>',
     ].join('')
     : '';
@@ -3551,9 +3625,11 @@ async function renderStatsPage() {
   const statsEl = document.getElementById('stats-recent-10');
   if (!statsEl) return;
 
+  syncUnitCostInput();
   statsEl.innerHTML = '<div class="stats-loading">加载中...</div>';
 
   try {
+    await fetchAppSettings().catch(() => syncUnitCostInput());
     // 获取全部数据的统计和近10单统计
     const [allStats, recent10Stats] = await Promise.all([
       fetchStrategyStats('all', { ignoreAdminFilters: true }),
@@ -4657,6 +4733,19 @@ const btnTabAdmin = document.getElementById('btn-tab-admin');
 if (btnTabAdmin) btnTabAdmin.addEventListener('click', () => setPage('admin'));
 const btnTabStats = document.getElementById('btn-tab-stats');
 if (btnTabStats) btnTabStats.addEventListener('click', () => setPage('stats'));
+const btnUnitCostSave = document.getElementById('unit-cost-save');
+if (btnUnitCostSave) btnUnitCostSave.addEventListener('click', () => {
+  handleUnitCostSave().catch(() => {});
+});
+const unitCostInput = document.getElementById('unit-cost-input');
+if (unitCostInput) {
+  unitCostInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleUnitCostSave().catch(() => {});
+    }
+  });
+}
 const btnTabMethodology = document.getElementById('btn-tab-methodology');
 if (btnTabMethodology) btnTabMethodology.addEventListener('click', () => setPage('methodology'));
 const btnTabCases = document.getElementById('btn-tab-cases');

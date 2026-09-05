@@ -49,7 +49,7 @@ create table if not exists public.strategies (
   constraint strategies_position_side_check
     check (position_side in ('long', 'short')),
   constraint strategies_timeframe_check
-    check (timeframe in ('1h', '4h', '1d')),
+    check (timeframe in ('1h', '4h', '8h', '1d')),
   constraint strategies_outcome_status_check
     check (outcome_status in ('pending', 'profit', 'loss', 'not_filled')),
   constraint strategies_view_mode_check
@@ -532,7 +532,7 @@ drop constraint if exists strategies_timeframe_check;
 
 alter table public.strategies
 add constraint strategies_timeframe_check
-check (timeframe in ('1h', '4h', '1d'));
+check (timeframe in ('1h', '4h', '8h', '1d'));
 
 alter table public.strategies
 add column if not exists view_mode text;
@@ -554,5 +554,59 @@ drop constraint if exists strategies_view_mode_check;
 alter table public.strategies
 add constraint strategies_view_mode_check
 check (view_mode in ('trend', 'counter_trend'));
+
+-- ------------------------------------------------------------
+-- 6. 应用设置（单位本金，数据统计页可改）
+-- ------------------------------------------------------------
+
+create table if not exists public.app_settings (
+  id text primary key default 'default',
+  unit_cost numeric not null default 100,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint app_settings_unit_cost_positive_check check (unit_cost > 0)
+);
+
+alter table public.app_settings
+add column if not exists unit_cost numeric;
+
+update public.app_settings
+set unit_cost = 100
+where unit_cost is null or unit_cost <= 0;
+
+alter table public.app_settings
+alter column unit_cost set default 100;
+
+alter table public.app_settings
+alter column unit_cost set not null;
+
+alter table public.app_settings
+drop constraint if exists app_settings_unit_cost_positive_check;
+
+alter table public.app_settings
+add constraint app_settings_unit_cost_positive_check
+check (unit_cost > 0);
+
+insert into public.app_settings (id, unit_cost)
+values ('default', 100)
+on conflict (id) do nothing;
+
+drop trigger if exists app_settings_set_updated_at on public.app_settings;
+create trigger app_settings_set_updated_at
+before update on public.app_settings
+for each row
+execute function public.set_updated_at();
+
+alter table public.app_settings enable row level security;
+
+drop policy if exists "allow authenticated all app_settings" on public.app_settings;
+create policy "allow authenticated all app_settings"
+on public.app_settings
+for all
+to authenticated
+using (true)
+with check (true);
+
+grant select, insert, update on public.app_settings to authenticated;
 
 notify pgrst, 'reload schema';
