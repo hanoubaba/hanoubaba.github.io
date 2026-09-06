@@ -556,7 +556,7 @@ add constraint strategies_view_mode_check
 check (view_mode in ('trend', 'counter_trend'));
 
 -- ------------------------------------------------------------
--- 6. 应用设置（unit_cost 存输入框数值；单位本金由前端按整合/拆分单向换算）
+-- 6. 应用设置（unit_cost：每档单位本金，数据统计页可改）
 -- ------------------------------------------------------------
 
 create table if not exists public.app_settings (

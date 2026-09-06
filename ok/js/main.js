@@ -159,7 +159,7 @@ function getCurrentTimeSlot(stepMinutes) {
 }
 
 const START_TIME_SLOT_COUNT = 5;
-const DEFAULT_TIMEFRAME = '4h';
+const DEFAULT_TIMEFRAME = '8h';
 const DEFAULT_ASSIST_TIMEFRAME = '8h';
 const FRONT_TREND_TIMEFRAMES = ['4h', '8h', '1d'];
 const FRONT_PAGES = ['front'];
@@ -212,13 +212,9 @@ const OPEN_COST_BASE = 100;
 const OPEN_COST_MULTIPLIER_MIN = 1;
 const OPEN_COST_MULTIPLIER_MAX = 10;
 const OPEN_COST_MULTIPLIER_DEFAULT = 3;
-/** 后台管理：输入框数值落库为 unit_cost；单位本金 = 输入值（拆分时 ÷5），单向推导不回写输入框 */
+/** 数据统计：输入框数值落库为 unit_cost，并作为每档单位本金使用 */
 const ADMIN_TIER_FIXED_OPEN_COST = 100;
-const UNIT_COST_MODE_INTEGRATED = 'integrated';
-const UNIT_COST_MODE_SPLIT = 'split';
-const UNIT_COST_SPLIT_DIVISOR = 5;
 let cachedUnitCostInput = ADMIN_TIER_FIXED_OPEN_COST;
-let unitCostMode = UNIT_COST_MODE_INTEGRATED;
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R = 3;
@@ -343,60 +339,20 @@ function normalizeUnitCost(value) {
   return n;
 }
 
-function normalizeUnitCostMode(mode) {
-  return mode === UNIT_COST_MODE_SPLIT ? UNIT_COST_MODE_SPLIT : UNIT_COST_MODE_INTEGRATED;
-}
-
-function resolveUnitCostByMode(value, mode = unitCostMode) {
-  const cost = normalizeUnitCost(value);
-  if (cost == null) return null;
-  if (normalizeUnitCostMode(mode) !== UNIT_COST_MODE_SPLIT) return cost;
-  return normalizeUnitCost(cost / UNIT_COST_SPLIT_DIVISOR);
-}
-
 function getUnitCostInputValue() {
   const el = document.getElementById('unit-cost-input');
   return String(el?.value ?? '').trim();
 }
 
-/** 单位本金来源：优先当前输入框，否则用已保存的输入值；再按模式单向换算 */
-function getUnitCostSourceValue() {
-  return normalizeUnitCost(getUnitCostInputValue())
-    ?? normalizeUnitCost(cachedUnitCostInput)
-    ?? ADMIN_TIER_FIXED_OPEN_COST;
-}
-
 function getAdminTierFixedOpenCost() {
-  return resolveUnitCostByMode(getUnitCostSourceValue(), unitCostMode) ?? ADMIN_TIER_FIXED_OPEN_COST;
+  return normalizeUnitCost(cachedUnitCostInput) ?? ADMIN_TIER_FIXED_OPEN_COST;
 }
 
-function syncUnitCostModeSwitch() {
-  const root = document.getElementById('unit-cost-mode');
-  if (!root) return;
-  root.querySelectorAll('[data-unit-cost-mode]').forEach((btn) => {
-    const active = btn.getAttribute('data-unit-cost-mode') === unitCostMode;
-    btn.classList.toggle('is-active', active);
-    btn.setAttribute('aria-selected', active ? 'true' : 'false');
-  });
-}
-
-/** 仅从已保存的输入值恢复输入框（加载数据），不是单位本金回显 */
+/** 仅从已保存值恢复输入框（加载数据） */
 function restoreUnitCostInput() {
   const el = document.getElementById('unit-cost-input');
   if (!el || document.activeElement === el) return;
-  el.value = String(cachedUnitCostInput);
-}
-
-function setUnitCostMode(mode, { refresh = true } = {}) {
-  const next = normalizeUnitCostMode(mode);
-  const changed = next !== unitCostMode;
-  unitCostMode = next;
-  syncUnitCostModeSwitch();
-  if ((!changed && !refresh) || !refresh) return unitCostMode;
-  if (currentPage === 'admin') {
-    renderAdminListItems();
-  }
-  return unitCostMode;
+  el.value = String(getAdminTierFixedOpenCost());
 }
 
 async function fetchAppSettings() {
@@ -406,7 +362,6 @@ async function fetchAppSettings() {
   const row = Array.isArray(rows) ? rows[0] : null;
   const inputValue = normalizeUnitCost(row?.unit_cost);
   if (inputValue != null) cachedUnitCostInput = inputValue;
-  syncUnitCostModeSwitch();
   restoreUnitCostInput();
   return getAdminTierFixedOpenCost();
 }
@@ -432,13 +387,9 @@ async function saveAppSettings(inputValue) {
 async function handleUnitCostSave() {
   const input = document.getElementById('unit-cost-input');
   const btn = document.getElementById('unit-cost-save');
-  const mode = unitCostMode;
   const inputValue = normalizeUnitCost(getUnitCostInputValue());
-  const effective = resolveUnitCostByMode(inputValue, mode);
-  if (inputValue == null || effective == null) {
-    showToast(mode === UNIT_COST_MODE_SPLIT
-      ? '请输入大于 0 的数字（拆分后需 > 0）'
-      : '请输入大于 0 的数字');
+  if (inputValue == null) {
+    showToast('请输入大于 0 的数字');
     input?.focus();
     return;
   }
@@ -448,12 +399,7 @@ async function handleUnitCostSave() {
   }
   try {
     await saveAppSettings(inputValue);
-    showToast(mode === UNIT_COST_MODE_SPLIT
-      ? `已保存，单位本金 ${effective}`
-      : '已保存');
-    if (currentPage === 'admin') {
-      renderAdminListItems();
-    }
+    showToast('单位本金已保存');
   } catch (err) {
     showToast(String(err?.message || '保存失败'));
   } finally {
@@ -1042,6 +988,16 @@ const METHODOLOGY_SECTIONS = [
       '咒语-验证-结局。',
     ],
   },
+  {
+    title: '22、思路无敌，操作拉跨的解决方案',
+    items: [
+      '确立思路是做8小时日内趋势，8小时内不操作，不看小趋势。',
+      '8点开单，12-16-20调整，24点结束。',
+      '主动出击，立即成交。时间点调整补仓减仓调整。确保成交率，保留调整机会。',
+      '仓位控制，不要心态影响操作。时间才是最好的杠杆。',
+      '龙头机会最大，这是不争的事实。',
+    ],
+  },
 ];
 
 let authSession = null;
@@ -1315,7 +1271,6 @@ async function enterAuthenticatedApp() {
     await fetchAppSettings();
   } catch {
     cachedUnitCostInput = ADMIN_TIER_FIXED_OPEN_COST;
-    syncUnitCostModeSwitch();
     restoreUnitCostInput();
   }
   setPage('admin');
@@ -3803,6 +3758,7 @@ async function renderStatsPage() {
   const statsEl = document.getElementById('stats-recent-10');
   if (!statsEl) return;
 
+  restoreUnitCostInput();
   statsEl.innerHTML = '<div class="stats-loading">加载中...</div>';
 
   try {
@@ -4079,6 +4035,23 @@ function renderObservationCountdownBadgeHtml(endAt) {
   ].join('');
 }
 
+function getObservationTemplateFields(item = {}) {
+  return [
+    { key: 'heat', label: '热度', value: String(item?.heat ?? '').trim() },
+    { key: 'volume', label: '交易量', value: String(item?.volume ?? '').trim() },
+    { key: 'change', label: '涨跌幅', value: String(item?.change ?? '').trim() },
+    { key: 'pattern', label: '形态', value: String(item?.pattern ?? '').trim() },
+  ].filter((field) => field.value);
+}
+
+function hasObservationItemContent(item = {}) {
+  return Boolean(
+    String(item?.name ?? '').trim()
+    || String(item?.description ?? '').trim()
+    || getObservationTemplateFields(item).length
+  );
+}
+
 function normalizeObservationItems(items) {
   const source = Array.isArray(items) ? items : [];
   return source
@@ -4090,6 +4063,10 @@ function normalizeObservationItems(items) {
       const price = String(item?.price ?? '').trim();
       const stopLoss = String(item?.stopLoss ?? item?.stop ?? item?.stop_loss ?? '').trim();
       const description = String(item?.description ?? item?.desc ?? item?.note ?? legacyDescription).trim();
+      const heat = String(item?.heat ?? item?.hot ?? '').trim();
+      const volume = String(item?.volume ?? item?.vol ?? '').trim();
+      const change = String(item?.change ?? item?.changePct ?? item?.pct ?? '').trim();
+      const pattern = String(item?.pattern ?? item?.form ?? item?.shape ?? '').trim();
       return {
         name,
         time,
@@ -4097,9 +4074,13 @@ function normalizeObservationItems(items) {
         price,
         stopLoss,
         description,
+        heat,
+        volume,
+        change,
+        pattern,
       };
     })
-    .filter((item) => item.name);
+    .filter((item) => hasObservationItemContent(item));
 }
 
 function parseLegacyObservationContent(content) {
@@ -4157,6 +4138,9 @@ async function fetchObservationRecords() {
 function buildObservationLegacyContent(items) {
   return normalizeObservationItems(items)
     .map((item) => {
+      const fields = getObservationTemplateFields(item)
+        .map((field) => `${field.label}：${field.value}`);
+      if (item.description) fields.push(item.description);
       if (item.time || item.price || item.stopLoss) {
         const timeRange = formatObservationTimeRange(item.time, item.timeLabel);
         return [
@@ -4164,20 +4148,27 @@ function buildObservationLegacyContent(items) {
           timeRange ? `时间范围：${timeRange}` : '',
           item.price ? `价格：${item.price}` : '',
           item.stopLoss ? `止损：${item.stopLoss}` : '',
+          ...fields,
         ].filter(Boolean).join('\n');
       }
-      return [item.name, item.description].filter(Boolean).join('\n');
+      return [item.name, ...fields].filter(Boolean).join('\n');
     })
     .join('\n\n');
 }
 
 async function createObservationRecord(items) {
   const normalizedItems = normalizeObservationItems(items)
-    .map((item) => ({
-      name: item.name,
-      description: item.description,
-    }))
-    .filter((item) => item.name);
+    .map((item) => {
+      const next = {};
+      if (item.name) next.name = item.name;
+      if (item.heat) next.heat = item.heat;
+      if (item.volume) next.volume = item.volume;
+      if (item.change) next.change = item.change;
+      if (item.pattern) next.pattern = item.pattern;
+      if (item.description) next.description = item.description;
+      return next;
+    })
+    .filter((item) => hasObservationItemContent(item));
   if (!normalizedItems.length) throw new Error('记录内容不能为空');
   const legacyContent = buildObservationLegacyContent(normalizedItems);
   const payload = {
@@ -4223,7 +4214,7 @@ function renderObservationRecordItem(record) {
   const rawId = String(record?.id ?? '').trim();
   const id = escapeHtml(rawId);
   const items = normalizeObservationItems(record.items);
-  const primary = items[0] || { name: '未命名', description: '' };
+  const primary = items[0] || {};
   const checked = rawId && selectedObservationIds.has(rawId) ? ' checked' : '';
   const disabled = isDeletingObservations ? ' disabled' : '';
   const selectorDisabled = isDeletingObservations ? ' is-disabled' : '';
@@ -4240,46 +4231,62 @@ function renderObservationRecordItem(record) {
     ? formatStartSlotValue(createdAt)
     : '';
   const timeHtml = timeLabel
-    ? [
-      '<div class="admin-item__head-right">',
-      `<span class="obs-record__time" aria-label="创建时间">${escapeHtml(timeLabel)}</span>`,
+    ? `<span class="obs-record__time" aria-label="创建时间">${escapeHtml(timeLabel)}</span>`
+    : '';
+  const templateFields = getObservationTemplateFields(primary);
+  const fieldHtml = templateFields
+    .map((field) => [
+      '<div class="obs-template__field">',
+      `<span class="obs-template__field-label">${escapeHtml(field.label)}</span>`,
+      `<span class="obs-template__field-value">${escapeHtml(field.value)}</span>`,
       '</div>',
+    ].join(''))
+    .join('');
+  const legacyDescHtml = !templateFields.length && primary.description
+    ? `<p class="obs-template__desc">${escapeHtml(primary.description)}</p>`
+    : '';
+  const bodyHtml = fieldHtml || legacyDescHtml
+    ? `<div class="obs-template__row">${fieldHtml}${legacyDescHtml}</div>`
+    : '';
+  const headHtml = (selectHtml || timeHtml)
+    ? [
+      '<header class="admin-item__head obs-record__head">',
+      selectHtml,
+      timeHtml,
+      '</header>',
     ].join('')
     : '';
-  const descHtml = primary.description
-    ? `<p class="obs-template__desc">${escapeHtml(primary.description)}</p>`
-    : '<p class="obs-template__desc obs-template__desc--empty">暂无描述</p>';
 
   return [
     '<article class="admin-item admin-item--flat obs-record">',
-    '<header class="admin-item__head">',
-    selectHtml,
-    '<div class="admin-item__title-wrap">',
-    `<span class="admin-item__title">${escapeHtml(formatStrategyCardTitle(primary.name || '未命名'))}</span>`,
-    '</div>',
-    timeHtml,
-    '</header>',
-    '<div class="obs-template">',
-    '<div class="obs-template__row">',
-    descHtml,
-    '</div>',
-    '</div>',
+    headHtml,
+    bodyHtml ? `<div class="obs-template">${bodyHtml}</div>` : '',
     '</article>',
   ].join('');
 }
 
 function renderObservationFormRow(item = {}) {
-  const name = escapeHtml(String(item?.name ?? ''));
-  const description = escapeHtml(String(item?.description ?? ''));
+  const heat = escapeHtml(String(item?.heat ?? ''));
+  const volume = escapeHtml(String(item?.volume ?? ''));
+  const change = escapeHtml(String(item?.change ?? ''));
+  const pattern = escapeHtml(String(item?.pattern ?? ''));
   return [
     '<div class="obs-form-row">',
-    '<label class="obs-form-field obs-form-field--name">',
-    '<span class="obs-form-field__label">名称</span>',
-    `<input class="obs-form-row__name" type="text" value="${name}" placeholder="例如 BTC、ETH、纳指" autocomplete="off" autocapitalize="characters" spellcheck="false" />`,
+    '<label class="obs-form-field">',
+    '<span class="obs-form-field__label">热度</span>',
+    `<input class="obs-form-row__input obs-form-row__heat" type="text" value="${heat}" placeholder="选填" autocomplete="off" />`,
     '</label>',
-    '<label class="obs-form-field obs-form-field--desc">',
-    '<span class="obs-form-field__label">描述</span>',
-    `<textarea class="obs-form-row__desc" rows="4" placeholder="选填" autocomplete="off">${description}</textarea>`,
+    '<label class="obs-form-field">',
+    '<span class="obs-form-field__label">交易量</span>',
+    `<input class="obs-form-row__input obs-form-row__volume" type="text" value="${volume}" placeholder="选填" autocomplete="off" />`,
+    '</label>',
+    '<label class="obs-form-field">',
+    '<span class="obs-form-field__label">涨跌幅</span>',
+    `<input class="obs-form-row__input obs-form-row__change" type="text" value="${change}" placeholder="选填" autocomplete="off" />`,
+    '</label>',
+    '<label class="obs-form-field">',
+    '<span class="obs-form-field__label">形态</span>',
+    `<input class="obs-form-row__input obs-form-row__pattern" type="text" value="${pattern}" placeholder="选填" autocomplete="off" />`,
     '</label>',
     '</div>',
   ].join('');
@@ -4290,17 +4297,19 @@ function renderObservationFormList() {
   if (!listEl) return;
   listEl.innerHTML = renderObservationFormRow();
   requestAnimationFrame(() => {
-    listEl.querySelector('.obs-form-row__name')?.focus();
+    listEl.querySelector('.obs-form-row__heat')?.focus();
   });
 }
 
 function collectObservationFormItems() {
   return Array.from(document.querySelectorAll('#obs-form-list .obs-form-row'))
     .map((row) => ({
-      name: String(row.querySelector('.obs-form-row__name')?.value ?? '').trim(),
-      description: String(row.querySelector('.obs-form-row__desc')?.value ?? '').trim(),
+      heat: String(row.querySelector('.obs-form-row__heat')?.value ?? '').trim(),
+      volume: String(row.querySelector('.obs-form-row__volume')?.value ?? '').trim(),
+      change: String(row.querySelector('.obs-form-row__change')?.value ?? '').trim(),
+      pattern: String(row.querySelector('.obs-form-row__pattern')?.value ?? '').trim(),
     }))
-    .filter((item) => item.name || item.description);
+    .filter((item) => hasObservationItemContent(item));
 }
 
 let selectedObservationIds = new Set();
@@ -4482,16 +4491,11 @@ async function submitObservationForm() {
   const submitBtn = document.getElementById('obs-form-submit');
   const items = collectObservationFormItems();
   if (!items.length) {
-    if (errorEl) errorEl.textContent = '请填写名称。';
-    document.querySelector('#obs-form-list .obs-form-row__name')?.focus();
+    if (errorEl) errorEl.textContent = '请至少填写一项。';
+    document.querySelector('#obs-form-list .obs-form-row__heat')?.focus();
     return;
   }
   const item = items[0];
-  if (!item.name) {
-    if (errorEl) errorEl.textContent = '请填写名称。';
-    document.querySelector('#obs-form-list .obs-form-row__name')?.focus();
-    return;
-  }
   if (errorEl) errorEl.textContent = '';
   if (isSavingObservation) return;
 
@@ -4503,8 +4507,10 @@ async function submitObservationForm() {
 
   try {
     await createObservationRecord([{
-      name: item.name,
-      description: item.description,
+      heat: item.heat,
+      volume: item.volume,
+      change: item.change,
+      pattern: item.pattern,
     }]);
     closeObservationFormPicker();
     showToast('记录已保存');
@@ -4643,7 +4649,6 @@ function setPage(mode, options = {}) {
     resetFrontPage();
     resetAssistPage();
     resetAdminPageState();
-    syncUnitCostModeSwitch();
     renderAdminList().catch(() => {});
   } else if (toStats) {
     resetFrontPage();
@@ -4931,11 +4936,6 @@ if (unitCostInput) {
     }
   });
 }
-document.querySelectorAll('[data-unit-cost-mode]').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    setUnitCostMode(btn.getAttribute('data-unit-cost-mode'));
-  });
-});
 const btnTabMethodology = document.getElementById('btn-tab-methodology');
 if (btnTabMethodology) btnTabMethodology.addEventListener('click', () => setPage('methodology'));
 const btnTabCases = document.getElementById('btn-tab-cases');
