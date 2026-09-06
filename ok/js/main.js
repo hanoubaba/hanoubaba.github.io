@@ -212,12 +212,12 @@ const OPEN_COST_BASE = 100;
 const OPEN_COST_MULTIPLIER_MIN = 1;
 const OPEN_COST_MULTIPLIER_MAX = 10;
 const OPEN_COST_MULTIPLIER_DEFAULT = 3;
-/** 后台管理：每档固定本金默认值；实际取值见 getAdminTierFixedOpenCost()（后台管理页可自定义并落库） */
+/** 后台管理：输入框数值落库为 unit_cost；单位本金 = 输入值（拆分时 ÷5），单向推导不回写输入框 */
 const ADMIN_TIER_FIXED_OPEN_COST = 100;
 const UNIT_COST_MODE_INTEGRATED = 'integrated';
 const UNIT_COST_MODE_SPLIT = 'split';
 const UNIT_COST_SPLIT_DIVISOR = 5;
-let cachedUnitCost = ADMIN_TIER_FIXED_OPEN_COST;
+let cachedUnitCostInput = ADMIN_TIER_FIXED_OPEN_COST;
 let unitCostMode = UNIT_COST_MODE_INTEGRATED;
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
@@ -354,9 +354,20 @@ function resolveUnitCostByMode(value, mode = unitCostMode) {
   return normalizeUnitCost(cost / UNIT_COST_SPLIT_DIVISOR);
 }
 
+function getUnitCostInputValue() {
+  const el = document.getElementById('unit-cost-input');
+  return String(el?.value ?? '').trim();
+}
+
+/** 单位本金来源：优先当前输入框，否则用已保存的输入值；再按模式单向换算 */
+function getUnitCostSourceValue() {
+  return normalizeUnitCost(getUnitCostInputValue())
+    ?? normalizeUnitCost(cachedUnitCostInput)
+    ?? ADMIN_TIER_FIXED_OPEN_COST;
+}
+
 function getAdminTierFixedOpenCost() {
-  const n = Number(cachedUnitCost);
-  return Number.isFinite(n) && n > 0 ? n : ADMIN_TIER_FIXED_OPEN_COST;
+  return resolveUnitCostByMode(getUnitCostSourceValue(), unitCostMode) ?? ADMIN_TIER_FIXED_OPEN_COST;
 }
 
 function syncUnitCostModeSwitch() {
@@ -369,10 +380,11 @@ function syncUnitCostModeSwitch() {
   });
 }
 
-function syncUnitCostInput() {
+/** 仅从已保存的输入值恢复输入框（加载数据），不是单位本金回显 */
+function restoreUnitCostInput() {
   const el = document.getElementById('unit-cost-input');
   if (!el || document.activeElement === el) return;
-  el.value = String(getAdminTierFixedOpenCost());
+  el.value = String(cachedUnitCostInput);
 }
 
 function setUnitCostMode(mode, { refresh = true } = {}) {
@@ -380,15 +392,9 @@ function setUnitCostMode(mode, { refresh = true } = {}) {
   const changed = next !== unitCostMode;
   unitCostMode = next;
   syncUnitCostModeSwitch();
-  if (!changed && !refresh) return unitCostMode;
-
-  const input = document.getElementById('unit-cost-input');
-  const effective = resolveUnitCostByMode(String(input?.value ?? '').trim(), unitCostMode);
-  if (effective != null) {
-    cachedUnitCost = effective;
-    if (refresh && currentPage === 'admin') {
-      renderAdminListItems();
-    }
+  if ((!changed && !refresh) || !refresh) return unitCostMode;
+  if (currentPage === 'admin') {
+    renderAdminListItems();
   }
   return unitCostMode;
 }
@@ -398,17 +404,16 @@ async function fetchAppSettings() {
   if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
   const rows = await res.json();
   const row = Array.isArray(rows) ? rows[0] : null;
-  const cost = normalizeUnitCost(row?.unit_cost);
-  if (cost != null) cachedUnitCost = cost;
-  unitCostMode = UNIT_COST_MODE_INTEGRATED;
+  const inputValue = normalizeUnitCost(row?.unit_cost);
+  if (inputValue != null) cachedUnitCostInput = inputValue;
   syncUnitCostModeSwitch();
-  syncUnitCostInput();
+  restoreUnitCostInput();
   return getAdminTierFixedOpenCost();
 }
 
-async function saveAppSettings(unitCost) {
-  const cost = normalizeUnitCost(unitCost);
-  if (cost == null) throw new Error('请输入大于 0 的单位本金');
+async function saveAppSettings(inputValue) {
+  const cost = normalizeUnitCost(inputValue);
+  if (cost == null) throw new Error('请输入大于 0 的数字');
   const res = await supabaseFetch(`${SETTINGS_ENDPOINT}?on_conflict=id`, {
     method: 'POST',
     headers: {
@@ -420,10 +425,7 @@ async function saveAppSettings(unitCost) {
     }),
   });
   if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
-  cachedUnitCost = cost;
-  unitCostMode = UNIT_COST_MODE_INTEGRATED;
-  syncUnitCostModeSwitch();
-  syncUnitCostInput();
+  cachedUnitCostInput = cost;
   return cost;
 }
 
@@ -431,8 +433,9 @@ async function handleUnitCostSave() {
   const input = document.getElementById('unit-cost-input');
   const btn = document.getElementById('unit-cost-save');
   const mode = unitCostMode;
-  const cost = resolveUnitCostByMode(String(input?.value ?? '').trim(), mode);
-  if (cost == null) {
+  const inputValue = normalizeUnitCost(getUnitCostInputValue());
+  const effective = resolveUnitCostByMode(inputValue, mode);
+  if (inputValue == null || effective == null) {
     showToast(mode === UNIT_COST_MODE_SPLIT
       ? '请输入大于 0 的数字（拆分后需 > 0）'
       : '请输入大于 0 的数字');
@@ -444,10 +447,10 @@ async function handleUnitCostSave() {
     btn.textContent = '保存中';
   }
   try {
-    await saveAppSettings(cost);
+    await saveAppSettings(inputValue);
     showToast(mode === UNIT_COST_MODE_SPLIT
-      ? `单位本金已保存（${cost}）`
-      : '单位本金已保存');
+      ? `已保存，单位本金 ${effective}`
+      : '已保存');
     if (currentPage === 'admin') {
       renderAdminListItems();
     }
@@ -1311,10 +1314,9 @@ async function enterAuthenticatedApp() {
   try {
     await fetchAppSettings();
   } catch {
-    cachedUnitCost = ADMIN_TIER_FIXED_OPEN_COST;
-    unitCostMode = UNIT_COST_MODE_INTEGRATED;
+    cachedUnitCostInput = ADMIN_TIER_FIXED_OPEN_COST;
     syncUnitCostModeSwitch();
-    syncUnitCostInput();
+    restoreUnitCostInput();
   }
   setPage('admin');
 }
@@ -4642,7 +4644,6 @@ function setPage(mode, options = {}) {
     resetAssistPage();
     resetAdminPageState();
     syncUnitCostModeSwitch();
-    syncUnitCostInput();
     renderAdminList().catch(() => {});
   } else if (toStats) {
     resetFrontPage();
