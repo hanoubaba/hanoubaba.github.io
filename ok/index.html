@@ -135,6 +135,16 @@
     </section>
 
     <section id="admin-page" class="panel admin-page" aria-label="后台管理">
+      <div class="stats-unit-cost admin-unit-cost">
+        <div id="unit-cost-mode" class="unit-cost-mode" role="tablist" aria-label="单位本金模式">
+          <button type="button" class="unit-cost-mode__btn is-active" role="tab" data-unit-cost-mode="integrated" aria-selected="true">整合</button>
+          <button type="button" class="unit-cost-mode__btn" role="tab" data-unit-cost-mode="split" aria-selected="false">拆分</button>
+        </div>
+        <label class="stats-unit-cost__field">
+          <input id="unit-cost-input" class="stats-unit-cost__input" type="text" inputmode="decimal" autocomplete="off" placeholder="每档单位本金" aria-label="每档单位本金" />
+        </label>
+        <button id="unit-cost-save" type="button" class="stats-unit-cost__save">保存</button>
+      </div>
       <div id="admin-filter-tabs" class="admin-filter-tabs" role="tablist" aria-label="时间状态筛选"></div>
       <div id="admin-active-names" class="admin-active-names" hidden aria-label="当前筛选策略名称"></div>
       <div id="admin-selection" class="admin-selection" hidden>
@@ -150,15 +160,6 @@
 
     <section id="stats-page" class="panel stats-page" aria-label="数据统计" hidden>
       <h2 class="stats-page__title">数据统计</h2>
-      <h3 class="stats-section-title">单位本金</h3>
-      <div class="stats-unit-cost">
-        <label class="stats-unit-cost__field">
-          <span class="stats-unit-cost__label">每档单位本金</span>
-          <input id="unit-cost-input" class="stats-unit-cost__input" type="number" min="0" step="any" inputmode="decimal" autocomplete="off" placeholder="100" />
-        </label>
-        <button id="unit-cost-save" type="button" class="stats-unit-cost__save">保存</button>
-        <p id="unit-cost-error" class="stats-unit-cost__error" role="alert" aria-live="polite"></p>
-      </div>
       <h3 class="stats-section-title">全部数据统计</h3>
       <div id="admin-stats" class="admin-stats"></div>
       <h3 class="stats-section-title">近10单统计</h3>

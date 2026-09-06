@@ -212,9 +212,13 @@ const OPEN_COST_BASE = 100;
 const OPEN_COST_MULTIPLIER_MIN = 1;
 const OPEN_COST_MULTIPLIER_MAX = 10;
 const OPEN_COST_MULTIPLIER_DEFAULT = 3;
-/** 后台管理：每档固定本金默认值；实际取值见 getAdminTierFixedOpenCost()（数据统计可自定义并落库） */
+/** 后台管理：每档固定本金默认值；实际取值见 getAdminTierFixedOpenCost()（后台管理页可自定义并落库） */
 const ADMIN_TIER_FIXED_OPEN_COST = 100;
+const UNIT_COST_MODE_INTEGRATED = 'integrated';
+const UNIT_COST_MODE_SPLIT = 'split';
+const UNIT_COST_SPLIT_DIVISOR = 5;
 let cachedUnitCost = ADMIN_TIER_FIXED_OPEN_COST;
+let unitCostMode = UNIT_COST_MODE_INTEGRATED;
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R = 3;
@@ -339,15 +343,54 @@ function normalizeUnitCost(value) {
   return n;
 }
 
+function normalizeUnitCostMode(mode) {
+  return mode === UNIT_COST_MODE_SPLIT ? UNIT_COST_MODE_SPLIT : UNIT_COST_MODE_INTEGRATED;
+}
+
+function resolveUnitCostByMode(value, mode = unitCostMode) {
+  const cost = normalizeUnitCost(value);
+  if (cost == null) return null;
+  if (normalizeUnitCostMode(mode) !== UNIT_COST_MODE_SPLIT) return cost;
+  return normalizeUnitCost(cost / UNIT_COST_SPLIT_DIVISOR);
+}
+
 function getAdminTierFixedOpenCost() {
   const n = Number(cachedUnitCost);
   return Number.isFinite(n) && n > 0 ? n : ADMIN_TIER_FIXED_OPEN_COST;
+}
+
+function syncUnitCostModeSwitch() {
+  const root = document.getElementById('unit-cost-mode');
+  if (!root) return;
+  root.querySelectorAll('[data-unit-cost-mode]').forEach((btn) => {
+    const active = btn.getAttribute('data-unit-cost-mode') === unitCostMode;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
 }
 
 function syncUnitCostInput() {
   const el = document.getElementById('unit-cost-input');
   if (!el || document.activeElement === el) return;
   el.value = String(getAdminTierFixedOpenCost());
+}
+
+function setUnitCostMode(mode, { refresh = true } = {}) {
+  const next = normalizeUnitCostMode(mode);
+  const changed = next !== unitCostMode;
+  unitCostMode = next;
+  syncUnitCostModeSwitch();
+  if (!changed && !refresh) return unitCostMode;
+
+  const input = document.getElementById('unit-cost-input');
+  const effective = resolveUnitCostByMode(String(input?.value ?? '').trim(), unitCostMode);
+  if (effective != null) {
+    cachedUnitCost = effective;
+    if (refresh && currentPage === 'admin') {
+      renderAdminListItems();
+    }
+  }
+  return unitCostMode;
 }
 
 async function fetchAppSettings() {
@@ -357,6 +400,8 @@ async function fetchAppSettings() {
   const row = Array.isArray(rows) ? rows[0] : null;
   const cost = normalizeUnitCost(row?.unit_cost);
   if (cost != null) cachedUnitCost = cost;
+  unitCostMode = UNIT_COST_MODE_INTEGRATED;
+  syncUnitCostModeSwitch();
   syncUnitCostInput();
   return getAdminTierFixedOpenCost();
 }
@@ -376,18 +421,21 @@ async function saveAppSettings(unitCost) {
   });
   if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
   cachedUnitCost = cost;
+  unitCostMode = UNIT_COST_MODE_INTEGRATED;
+  syncUnitCostModeSwitch();
   syncUnitCostInput();
   return cost;
 }
 
 async function handleUnitCostSave() {
   const input = document.getElementById('unit-cost-input');
-  const errorEl = document.getElementById('unit-cost-error');
   const btn = document.getElementById('unit-cost-save');
-  const cost = normalizeUnitCost(String(input?.value ?? '').trim());
-  if (errorEl) errorEl.textContent = '';
+  const mode = unitCostMode;
+  const cost = resolveUnitCostByMode(String(input?.value ?? '').trim(), mode);
   if (cost == null) {
-    if (errorEl) errorEl.textContent = '请输入大于 0 的数字。';
+    showToast(mode === UNIT_COST_MODE_SPLIT
+      ? '请输入大于 0 的数字（拆分后需 > 0）'
+      : '请输入大于 0 的数字');
     input?.focus();
     return;
   }
@@ -397,9 +445,14 @@ async function handleUnitCostSave() {
   }
   try {
     await saveAppSettings(cost);
-    showToast('单位本金已保存');
+    showToast(mode === UNIT_COST_MODE_SPLIT
+      ? `单位本金已保存（${cost}）`
+      : '单位本金已保存');
+    if (currentPage === 'admin') {
+      renderAdminListItems();
+    }
   } catch (err) {
-    if (errorEl) errorEl.textContent = String(err?.message || '保存失败');
+    showToast(String(err?.message || '保存失败'));
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -981,6 +1034,9 @@ const METHODOLOGY_SECTIONS = [
       '1天＝3个8小时。做1看2，止盈止损两个时间单位。（顺势而为数据化解析）',
       '想赚钱还是要做头部热度排行榜。',
       '认真挂好每一单，永远相信美好的事情即将发生。',
+      '只做龙头日内8小时右侧趋势，8小时内不操作。',
+      '仓位超过10%就会心态失衡，时间空间杠杆的价值就没了，得不偿失。',
+      '咒语-验证-结局。',
     ],
   },
 ];
@@ -1256,6 +1312,8 @@ async function enterAuthenticatedApp() {
     await fetchAppSettings();
   } catch {
     cachedUnitCost = ADMIN_TIER_FIXED_OPEN_COST;
+    unitCostMode = UNIT_COST_MODE_INTEGRATED;
+    syncUnitCostModeSwitch();
     syncUnitCostInput();
   }
   setPage('admin');
@@ -3743,11 +3801,9 @@ async function renderStatsPage() {
   const statsEl = document.getElementById('stats-recent-10');
   if (!statsEl) return;
 
-  syncUnitCostInput();
   statsEl.innerHTML = '<div class="stats-loading">加载中...</div>';
 
   try {
-    await fetchAppSettings().catch(() => syncUnitCostInput());
     // 获取全部数据的统计和近10单统计
     const [allStats, recent10Stats] = await Promise.all([
       fetchStrategyStats('all', { ignoreAdminFilters: true }),
@@ -4585,6 +4641,8 @@ function setPage(mode, options = {}) {
     resetFrontPage();
     resetAssistPage();
     resetAdminPageState();
+    syncUnitCostModeSwitch();
+    syncUnitCostInput();
     renderAdminList().catch(() => {});
   } else if (toStats) {
     resetFrontPage();
@@ -4872,6 +4930,11 @@ if (unitCostInput) {
     }
   });
 }
+document.querySelectorAll('[data-unit-cost-mode]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    setUnitCostMode(btn.getAttribute('data-unit-cost-mode'));
+  });
+});
 const btnTabMethodology = document.getElementById('btn-tab-methodology');
 if (btnTabMethodology) btnTabMethodology.addEventListener('click', () => setPage('methodology'));
 const btnTabCases = document.getElementById('btn-tab-cases');

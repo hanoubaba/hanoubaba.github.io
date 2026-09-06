@@ -556,7 +556,7 @@ add constraint strategies_view_mode_check
 check (view_mode in ('trend', 'counter_trend'));
 
 -- ------------------------------------------------------------
--- 6. 应用设置（单位本金，数据统计页可改）
+-- 6. 应用设置（单位本金，后台管理页可改）
 -- ------------------------------------------------------------
 
 create table if not exists public.app_settings (
