@@ -221,6 +221,7 @@ const REF_TAKE_PROFIT_R = 3;
 const BEST_TAKE_PROFIT_R = 5;
 const STRATEGY_DURATION_PERIODS = 10;
 const ASSIST_DURATION_PERIODS = 4;
+const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
 /** 反趋势：挂单档位 = 原策略 3/4/5 倍止盈价，止损 = 10 倍止盈价 */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 4, 5];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
@@ -1809,6 +1810,39 @@ function populateAssistFormFromRow(row) {
   rebuildStartTimeOptions(startSlot, { ensurePreferredSlot: true, scope: 'assist' });
 }
 
+function readFrontFormDraft(scope) {
+  const isAssist = scope === 'assist';
+  const { sel } = getStartTimeFieldEls(isAssist ? 'assist' : 'trend');
+  return {
+    name: String(document.getElementById(isAssist ? 'assist-name-input' : 'name-input')?.value ?? ''),
+    timeframe: getTimeframeMode(isAssist ? 'assist' : 'trend'),
+    startTime: String(sel?.value ?? '').trim(),
+    startTimePicked: isStartTimeUserPicked(isAssist ? 'assist' : 'trend'),
+    priceA: String(document.getElementById(isAssist ? 'assist-from-input' : 'open-price-input')?.value ?? ''),
+    priceB: String(document.getElementById(isAssist ? 'assist-to-input' : 'stop-price-input')?.value ?? ''),
+  };
+}
+
+function applyFrontFormDraft(draft, scope) {
+  const isAssist = scope === 'assist';
+  const nameEl = document.getElementById(isAssist ? 'assist-name-input' : 'name-input');
+  const priceAEl = document.getElementById(isAssist ? 'assist-from-input' : 'open-price-input');
+  const priceBEl = document.getElementById(isAssist ? 'assist-to-input' : 'stop-price-input');
+  if (nameEl) nameEl.value = draft.name ?? '';
+  if (priceAEl) priceAEl.value = draft.priceA ?? '';
+  if (priceBEl) priceBEl.value = draft.priceB ?? '';
+  setFrontTimeframeMode(
+    draft.timeframe || (isAssist ? DEFAULT_ASSIST_TIMEFRAME : DEFAULT_TIMEFRAME),
+    { refresh: false, scope: isAssist ? 'assist' : 'trend' },
+  );
+  const startTime = String(draft.startTime ?? '').trim();
+  setStartTimeUserPicked(Boolean(draft.startTimePicked && startTime), isAssist ? 'assist' : 'trend');
+  rebuildStartTimeOptions(startTime || null, {
+    ensurePreferredSlot: Boolean(startTime),
+    scope: isAssist ? 'assist' : 'trend',
+  });
+}
+
 function startEditStrategy(row) {
   const id = String(row?.id ?? '').trim();
   if (!id) return;
@@ -1941,6 +1975,18 @@ function calcTakeProfit(open, stop, multiplier = 1) {
   const move = stopDiff * m;
   if (open > stop) return open + move;
   return open - move;
+}
+
+/** 吃鱼助手止盈：以 from→to 为 1 倍空间，默认 2 倍 */
+function calcAssistTakeProfitPrice(from, to, multiple = ASSIST_TAKE_PROFIT_MULTIPLE) {
+  const start = Number(from);
+  const end = Number(to);
+  const m = Number(multiple);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start === end || !Number.isFinite(m) || m <= 0) {
+    return null;
+  }
+  const tp = start + m * (end - start);
+  return Number.isFinite(tp) && tp > 0 ? tp : null;
 }
 
 function getPriceDecimalPlacesFromValues(...values) {
@@ -2604,7 +2650,8 @@ function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
   const name = String(nameEl?.value ?? '').trim() || 'test';
   const side = to > from ? 'long' : 'short';
   const stop = from;
-  const takeProfit = to;
+  const takeProfit = calcAssistTakeProfitPrice(from, to);
+  if (takeProfit == null) return null;
   const stopLabel = formatTrimmedFixedDecimals(stop, priceDecimalPlaces);
   const tpLabel = formatTrimmedFixedDecimals(takeProfit, priceDecimalPlaces);
   const concessionItems = buildAssistConcessionItems(from, to, openCostTotal, priceDecimalPlaces);
@@ -2621,7 +2668,6 @@ function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
   const openCost = openCostTotal / DEFAULT_TIER_COUNT;
 
   const fromLabel = formatTrimmedFixedDecimals(from, priceDecimalPlaces);
-  const toLabel = formatTrimmedFixedDecimals(to, priceDecimalPlaces);
   const copyText = [
     formatAssistStrategyTitle(name),
     ...concessionItems.map((item) => {
@@ -2630,7 +2676,7 @@ function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
         ? `${label}：${item.price}`
         : `${label}：${item.price} / ${item.quantity}`;
     }),
-    `止盈价格：${toLabel}`,
+    `止盈价格：${tpLabel}`,
     `止损价格：${fromLabel}`,
   ].join('\n');
 
@@ -2652,7 +2698,7 @@ function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
     priceAdjustmentRate: 0,
     priceAdjustment: '0',
     concessions: concessionItems,
-    takeProfitRMultiple: TAKE_PROFIT_R_MULTIPLE,
+    takeProfitRMultiple: ASSIST_TAKE_PROFIT_MULTIPLE,
     timeframe,
     timeframeMinutes: unitMin,
     timeframeLabel: getTimeframeLabel(timeframe),
@@ -3529,8 +3575,13 @@ function buildAdminListItemHtml(row) {
     stopLabel = counter.stopLoss || '—';
   } else if (isAssistStrategy) {
     concessions = buildAdminAssistConcessionsForDisplay(row);
-    // 吃鱼助手：止盈=to，止损=from（计算逻辑不变）
-    takeProfitLabel = formatAdminPriceFromValue(row?.inputStopLoss ?? row?.takeProfitPrice, priceDecimalPlaces) || '—';
+    // 吃鱼助手：止盈=from→to 的 2 倍空间，止损=from
+    const assistFrom = toNumber(row?.inputPrice ?? row?.stopLossPrice);
+    const assistTo = toNumber(row?.inputStopLoss);
+    const assistTp = calcAssistTakeProfitPrice(assistFrom, assistTo);
+    takeProfitLabel = assistTp != null
+      ? formatTrimmedFixedDecimals(assistTp, priceDecimalPlaces)
+      : (formatAdminPriceFromValue(row?.takeProfitPrice, priceDecimalPlaces) || '—');
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
   } else {
     concessions = buildAdminDisplayConcessions(row);
@@ -4414,14 +4465,17 @@ async function submitObservationForm() {
 function setFrontMode(mode) {
   const nextMode = normalizeFrontMode(mode);
   const prevMode = frontMode;
-  frontMode = nextMode;
+  const switched = prevMode !== nextMode;
 
-  if (editingStrategyId && prevMode !== nextMode) {
-    clearEditingStrategy();
-    updateSaveButtonLabels();
-    updateHeaderClearButton();
-    showToast('已退出修改模式');
+  if (switched) {
+    closeMobileTimePicker();
+    const draft = prevMode === FRONT_MODE_ASSIST
+      ? readFrontFormDraft('assist')
+      : readFrontFormDraft('trend');
+    applyFrontFormDraft(draft, nextMode === FRONT_MODE_ASSIST ? 'assist' : 'trend');
   }
+
+  frontMode = nextMode;
 
   const trendPanel = document.getElementById('front-trend-panel');
   const assistPanel = document.getElementById('front-assist-panel');
@@ -4431,7 +4485,6 @@ function setFrontMode(mode) {
 
   if (trendPanel) trendPanel.hidden = toAssist;
   if (assistPanel) assistPanel.hidden = !toAssist;
-  if (prevMode !== nextMode) closeMobileTimePicker();
   if (btnTrend) {
     btnTrend.classList.toggle('is-active', !toAssist);
     btnTrend.setAttribute('aria-selected', toAssist ? 'false' : 'true');
@@ -4442,6 +4495,11 @@ function setFrontMode(mode) {
   }
 
   if (!isFrontPage()) return;
+
+  if (switched) {
+    updateSaveButtonLabels();
+    updateHeaderClearButton();
+  }
 
   if (toAssist) {
     autoGenerateAssistIfReady();
