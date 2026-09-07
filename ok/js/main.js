@@ -1746,7 +1746,7 @@ function renderMethodologyPage() {
   if (!isAuthReady) return;
   const container = document.querySelector('#methodology-page .methodology-content');
   if (!container) return;
-  const sectionsHtml = METHODOLOGY_SECTIONS.map((section) => {
+  const sectionsHtml = METHODOLOGY_SECTIONS.slice().reverse().map((section) => {
     let body = '';
     if (section.paragraphs?.length) {
       body = section.paragraphs
@@ -4038,7 +4038,6 @@ function renderObservationCountdownBadgeHtml(endAt) {
 function getObservationTemplateFields(item = {}) {
   return [
     { key: 'heat', label: '热度', value: String(item?.heat ?? '').trim() },
-    { key: 'volume', label: '交易量', value: String(item?.volume ?? '').trim() },
     { key: 'change', label: '涨跌幅', value: String(item?.change ?? '').trim() },
     { key: 'pattern', label: '形态', value: String(item?.pattern ?? '').trim() },
   ].filter((field) => field.value);
@@ -4064,7 +4063,6 @@ function normalizeObservationItems(items) {
       const stopLoss = String(item?.stopLoss ?? item?.stop ?? item?.stop_loss ?? '').trim();
       const description = String(item?.description ?? item?.desc ?? item?.note ?? legacyDescription).trim();
       const heat = String(item?.heat ?? item?.hot ?? '').trim();
-      const volume = String(item?.volume ?? item?.vol ?? '').trim();
       const change = String(item?.change ?? item?.changePct ?? item?.pct ?? '').trim();
       const pattern = String(item?.pattern ?? item?.form ?? item?.shape ?? '').trim();
       return {
@@ -4075,7 +4073,6 @@ function normalizeObservationItems(items) {
         stopLoss,
         description,
         heat,
-        volume,
         change,
         pattern,
       };
@@ -4162,7 +4159,6 @@ async function createObservationRecord(items) {
       const next = {};
       if (item.name) next.name = item.name;
       if (item.heat) next.heat = item.heat;
-      if (item.volume) next.volume = item.volume;
       if (item.change) next.change = item.change;
       if (item.pattern) next.pattern = item.pattern;
       if (item.description) next.description = item.description;
@@ -4267,7 +4263,6 @@ function renderObservationRecordItem(record) {
 
 function renderObservationFormRow(item = {}) {
   const heat = escapeHtml(String(item?.heat ?? ''));
-  const volume = escapeHtml(String(item?.volume ?? ''));
   const change = escapeHtml(String(item?.change ?? ''));
   const pattern = escapeHtml(String(item?.pattern ?? ''));
   return [
@@ -4275,10 +4270,6 @@ function renderObservationFormRow(item = {}) {
     '<label class="obs-form-field">',
     '<span class="obs-form-field__label">热度</span>',
     `<input class="obs-form-row__input obs-form-row__heat" type="text" value="${heat}" placeholder="选填" autocomplete="off" />`,
-    '</label>',
-    '<label class="obs-form-field">',
-    '<span class="obs-form-field__label">交易量</span>',
-    `<input class="obs-form-row__input obs-form-row__volume" type="text" value="${volume}" placeholder="选填" autocomplete="off" />`,
     '</label>',
     '<label class="obs-form-field">',
     '<span class="obs-form-field__label">涨跌幅</span>',
@@ -4305,7 +4296,6 @@ function collectObservationFormItems() {
   return Array.from(document.querySelectorAll('#obs-form-list .obs-form-row'))
     .map((row) => ({
       heat: String(row.querySelector('.obs-form-row__heat')?.value ?? '').trim(),
-      volume: String(row.querySelector('.obs-form-row__volume')?.value ?? '').trim(),
       change: String(row.querySelector('.obs-form-row__change')?.value ?? '').trim(),
       pattern: String(row.querySelector('.obs-form-row__pattern')?.value ?? '').trim(),
     }))
@@ -4508,7 +4498,6 @@ async function submitObservationForm() {
   try {
     await createObservationRecord([{
       heat: item.heat,
-      volume: item.volume,
       change: item.change,
       pattern: item.pattern,
     }]);
@@ -4631,13 +4620,13 @@ function setPage(mode, options = {}) {
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   btnStats.classList.toggle('is-active', toStats);
   btnMethodology.classList.toggle('is-active', toMethodology);
+  btnMethodology.setAttribute('aria-selected', toMethodology ? 'true' : 'false');
   btnCases.classList.toggle('is-active', toCases);
   btnObservations.classList.toggle('is-active', toObservations);
-  btnObservations.setAttribute('aria-selected', toObservations ? 'true' : 'false');
 
   const moreToggle = document.getElementById('admin-more-toggle');
   if (moreToggle) {
-    moreToggle.classList.toggle('is-active', toStats || toMethodology || toCases);
+    moreToggle.classList.toggle('is-active', toStats || toObservations || toCases);
   }
   closeAdminMoreMenu();
 
