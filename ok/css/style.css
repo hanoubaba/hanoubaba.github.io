@@ -3938,6 +3938,11 @@ body.login-mode {
   overflow: hidden;
 }
 
+.obs-page > .admin-filter-tabs {
+  flex-shrink: 0;
+  margin: 12px 14px 0;
+}
+
 .obs-page > .admin-selection {
   flex-shrink: 0;
   margin: 12px 14px 0;
@@ -4288,6 +4293,7 @@ body.login-mode {
     overflow: hidden;
   }
 
+  .obs-page > .admin-filter-tabs,
   .obs-page > .admin-selection {
     flex-shrink: 0;
     margin: 8px 10px 0;

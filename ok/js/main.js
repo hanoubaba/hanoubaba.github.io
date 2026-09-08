@@ -1094,6 +1094,12 @@ const METHODOLOGY_SECTIONS = [
       '不要轻易删数据，历史数据很有研究价值。',
     ],
   },
+  {
+    title: '23、一个模型，三种形态',
+    items: [
+      '只挂前50%优势单，劣势单最多用1个。',
+    ],
+  },
 ];
 
 let authSession = null;
@@ -4496,19 +4502,25 @@ function fromObservationRecord(row) {
   };
 }
 
-async function fetchObservationRecords() {
+async function fetchObservationRecords(filterValue = obsTimeFilter) {
   const selectFields = observationContentColumnAvailable
     ? 'id,created_at,items,content'
     : 'id,created_at,items';
-  const params = `select=${selectFields}&order=created_at.desc`;
-  const res = await supabaseFetch(`${OBSERVATIONS_ENDPOINT}?${params}`, {
+  const params = [`select=${selectFields}`, 'order=created_at.desc'];
+  const filter = normalizeObsTimeFilter(filterValue);
+  if (filter === 'createdToday') {
+    const { start, end } = getLocalDayRange();
+    params.push(`created_at=gte.${encodeURIComponent(start.toISOString())}`);
+    params.push(`created_at=lt.${encodeURIComponent(end.toISOString())}`);
+  }
+  const res = await supabaseFetch(`${OBSERVATIONS_ENDPOINT}?${params.join('&')}`, {
     headers: getSupabaseHeaders(),
   });
   if (!res.ok) {
     const errorText = await res.text();
     if (observationContentColumnAvailable && isMissingObservationContentColumnError(errorText)) {
       observationContentColumnAvailable = false;
-      return fetchObservationRecords();
+      return fetchObservationRecords(filterValue);
     }
     throw new Error(errorText);
   }
@@ -4690,6 +4702,22 @@ let isDeletingObservations = false;
 let isObsSelectionMode = false;
 let visibleObservationIds = [];
 
+const OBS_TIME_FILTER_LABELS = {
+  all: '全部',
+  createdToday: '今日创建',
+};
+const DEFAULT_OBS_TIME_FILTER = 'createdToday';
+let obsTimeFilter = DEFAULT_OBS_TIME_FILTER;
+
+function normalizeObsTimeFilter(value) {
+  return value === 'createdToday' ? 'createdToday' : 'all';
+}
+
+function renderObsFilterTabs() {
+  const tabsEl = document.getElementById('obs-filter-tabs');
+  renderAdminTabGroup(tabsEl, OBS_TIME_FILTER_LABELS, normalizeObsTimeFilter(obsTimeFilter), 'obs-time-filter');
+}
+
 function getVisibleObservationIds() {
   const domIds = Array.from(document.querySelectorAll('#obs-list .admin-item__select'))
     .map((el) => String(el.getAttribute('data-id') ?? '').trim())
@@ -4812,14 +4840,17 @@ async function renderObservationsPage() {
   const listEl = document.getElementById('obs-list');
   if (!listEl) return;
 
+  renderObsFilterTabs();
   listEl.innerHTML = '<p class="obs-loading">加载中...</p>';
 
   try {
-    const records = await fetchObservationRecords();
+    const records = await fetchObservationRecords(obsTimeFilter);
     if (records.length === 0) {
       visibleObservationIds = [];
       selectedObservationIds.clear();
-      listEl.innerHTML = '<p class="obs-empty">暂无观测日志，点击下方按钮新增。</p>';
+      listEl.innerHTML = obsTimeFilter === 'createdToday'
+        ? '<p class="obs-empty">今日暂无观测日志。</p>'
+        : '<p class="obs-empty">暂无观测日志，点击下方按钮新增。</p>';
       updateObsSelectionControls();
       syncAdminCountdownTimer();
       return;
@@ -5545,6 +5576,18 @@ if (adminFilterTabsEl) {
     adminNameFilter = '';
     adminSortByExpiresAsc = false;
     renderAdminList().catch(() => {});
+  });
+}
+
+const obsFilterTabsEl = document.getElementById('obs-filter-tabs');
+if (obsFilterTabsEl) {
+  obsFilterTabsEl.addEventListener('click', (e) => {
+    const target = e.target instanceof HTMLElement ? e.target.closest('[data-obs-time-filter]') : null;
+    if (!target) return;
+    const nextFilter = normalizeObsTimeFilter(target.getAttribute('data-obs-time-filter'));
+    if (obsTimeFilter === nextFilter) return;
+    obsTimeFilter = nextFilter;
+    renderObservationsPage().catch(() => {});
   });
 }
 
