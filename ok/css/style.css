@@ -4014,7 +4014,8 @@ body.login-mode {
 }
 
 .obs-form-row__input,
-.obs-form-row__name {
+.obs-form-row__name,
+.obs-form-row__desc {
   width: 100%;
   min-height: 42px;
   border: 1px solid var(--border);
@@ -4028,14 +4029,24 @@ body.login-mode {
   outline: none;
 }
 
+.obs-form-row__desc {
+  min-height: 84px;
+  padding: 10px 11px;
+  resize: vertical;
+  line-height: 1.45;
+  font-weight: 500;
+}
+
 .obs-form-row__input:focus,
-.obs-form-row__name:focus {
+.obs-form-row__name:focus,
+.obs-form-row__desc:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.18);
 }
 
 .obs-form-row__input::placeholder,
-.obs-form-row__name::placeholder {
+.obs-form-row__name::placeholder,
+.obs-form-row__desc::placeholder {
   color: #94a3b8;
   font-weight: 500;
 }
@@ -4115,11 +4126,17 @@ body.login-mode {
   }
 
   .obs-form-row__input,
-  .obs-form-row__name {
+  .obs-form-row__name,
+  .obs-form-row__desc {
     min-height: 38px;
     border-radius: 8px;
     font-size: 16px;
     padding: 0 9px;
+  }
+
+  .obs-form-row__desc {
+    min-height: 76px;
+    padding: 9px;
   }
 
   .obs-template-empty {

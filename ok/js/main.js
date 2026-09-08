@@ -4281,20 +4281,25 @@ function renderObservationRecordItem(record) {
   const timeHtml = timeLabel
     ? `<span class="obs-record__time" aria-label="创建时间">${escapeHtml(timeLabel)}</span>`
     : '';
-  const templateFields = getObservationTemplateFields(primary);
-  const fieldHtml = templateFields
-    .map((field) => [
-      '<div class="obs-template__field">',
-      `<span class="obs-template__field-label">${escapeHtml(field.label)}</span>`,
-      `<span class="obs-template__field-value">${escapeHtml(field.value)}</span>`,
-      '</div>',
-    ].join(''))
-    .join('');
-  const legacyDescHtml = !templateFields.length && primary.description
+  const nameHtml = primary.name
+    ? `<p class="obs-template__name">${escapeHtml(primary.name)}</p>`
+    : '';
+  const descHtml = primary.description
     ? `<p class="obs-template__desc">${escapeHtml(primary.description)}</p>`
     : '';
-  const bodyHtml = fieldHtml || legacyDescHtml
-    ? `<div class="obs-template__row">${fieldHtml}${legacyDescHtml}</div>`
+  const templateFields = getObservationTemplateFields(primary);
+  const fieldHtml = (!nameHtml && !descHtml)
+    ? templateFields
+      .map((field) => [
+        '<div class="obs-template__field">',
+        `<span class="obs-template__field-label">${escapeHtml(field.label)}</span>`,
+        `<span class="obs-template__field-value">${escapeHtml(field.value)}</span>`,
+        '</div>',
+      ].join(''))
+      .join('')
+    : '';
+  const bodyHtml = nameHtml || descHtml || fieldHtml
+    ? `<div class="obs-template__row">${nameHtml}${descHtml}${fieldHtml}</div>`
     : '';
   const headHtml = (selectHtml || timeHtml)
     ? [
@@ -4314,22 +4319,17 @@ function renderObservationRecordItem(record) {
 }
 
 function renderObservationFormRow(item = {}) {
-  const heat = escapeHtml(String(item?.heat ?? ''));
-  const change = escapeHtml(String(item?.change ?? ''));
-  const pattern = escapeHtml(String(item?.pattern ?? ''));
+  const name = escapeHtml(String(item?.name ?? ''));
+  const description = escapeHtml(String(item?.description ?? ''));
   return [
     '<div class="obs-form-row">',
     '<label class="obs-form-field">',
-    '<span class="obs-form-field__label">热度</span>',
-    `<input class="obs-form-row__input obs-form-row__heat" type="text" value="${heat}" placeholder="选填" autocomplete="off" />`,
+    '<span class="obs-form-field__label">名称</span>',
+    `<input class="obs-form-row__input obs-form-row__name" type="text" value="${name}" placeholder="选填" autocomplete="off" />`,
     '</label>',
     '<label class="obs-form-field">',
-    '<span class="obs-form-field__label">涨跌幅</span>',
-    `<input class="obs-form-row__input obs-form-row__change" type="text" value="${change}" placeholder="选填" autocomplete="off" />`,
-    '</label>',
-    '<label class="obs-form-field">',
-    '<span class="obs-form-field__label">形态</span>',
-    `<input class="obs-form-row__input obs-form-row__pattern" type="text" value="${pattern}" placeholder="选填" autocomplete="off" />`,
+    '<span class="obs-form-field__label">描述</span>',
+    `<textarea class="obs-form-row__input obs-form-row__desc" rows="3" placeholder="选填" autocomplete="off">${description}</textarea>`,
     '</label>',
     '</div>',
   ].join('');
@@ -4340,16 +4340,15 @@ function renderObservationFormList() {
   if (!listEl) return;
   listEl.innerHTML = renderObservationFormRow();
   requestAnimationFrame(() => {
-    listEl.querySelector('.obs-form-row__heat')?.focus();
+    listEl.querySelector('.obs-form-row__name')?.focus();
   });
 }
 
 function collectObservationFormItems() {
   return Array.from(document.querySelectorAll('#obs-form-list .obs-form-row'))
     .map((row) => ({
-      heat: String(row.querySelector('.obs-form-row__heat')?.value ?? '').trim(),
-      change: String(row.querySelector('.obs-form-row__change')?.value ?? '').trim(),
-      pattern: String(row.querySelector('.obs-form-row__pattern')?.value ?? '').trim(),
+      name: String(row.querySelector('.obs-form-row__name')?.value ?? '').trim(),
+      description: String(row.querySelector('.obs-form-row__desc')?.value ?? '').trim(),
     }))
     .filter((item) => hasObservationItemContent(item));
 }
@@ -4533,8 +4532,8 @@ async function submitObservationForm() {
   const submitBtn = document.getElementById('obs-form-submit');
   const items = collectObservationFormItems();
   if (!items.length) {
-    if (errorEl) errorEl.textContent = '请至少填写一项。';
-    document.querySelector('#obs-form-list .obs-form-row__heat')?.focus();
+    if (errorEl) errorEl.textContent = '请填写名称或描述。';
+    document.querySelector('#obs-form-list .obs-form-row__name')?.focus();
     return;
   }
   const item = items[0];
@@ -4549,9 +4548,8 @@ async function submitObservationForm() {
 
   try {
     await createObservationRecord([{
-      heat: item.heat,
-      change: item.change,
-      pattern: item.pattern,
+      name: item.name,
+      description: item.description,
     }]);
     closeObservationFormPicker();
     showToast('记录已保存');
@@ -4672,13 +4670,13 @@ function setPage(mode, options = {}) {
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   btnStats.classList.toggle('is-active', toStats);
   btnMethodology.classList.toggle('is-active', toMethodology);
-  btnMethodology.setAttribute('aria-selected', toMethodology ? 'true' : 'false');
   btnCases.classList.toggle('is-active', toCases);
   btnObservations.classList.toggle('is-active', toObservations);
+  btnObservations.setAttribute('aria-selected', toObservations ? 'true' : 'false');
 
   const moreToggle = document.getElementById('admin-more-toggle');
   if (moreToggle) {
-    moreToggle.classList.toggle('is-active', toStats || toObservations || toCases);
+    moreToggle.classList.toggle('is-active', toStats || toMethodology || toCases);
   }
   closeAdminMoreMenu();
 
