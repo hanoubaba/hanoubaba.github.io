@@ -165,6 +165,7 @@ const FRONT_TREND_TIMEFRAMES = ['4h', '8h', '1d'];
 const FRONT_PAGES = ['front'];
 const FRONT_MODE_TREND = 'trend';
 const FRONT_MODE_ASSIST = 'assist';
+const FRONT_MODE_FISH = 'fish';
 let frontMode = FRONT_MODE_TREND;
 
 const TIMEFRAME_MINUTES = {
@@ -222,6 +223,11 @@ const BEST_TAKE_PROFIT_R = 5;
 const STRATEGY_DURATION_PERIODS = 10;
 const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
+/** 吃鱼助手：与顺势而为同档位，止盈空间 1 倍；无时间 UI，落库用长效占位以满足非空约束 */
+const FISH_TAKE_PROFIT_MULTIPLE = 1;
+const FISH_TIMEFRAME = '1d';
+const FISH_TIMEFRAME_MINUTES = 1440;
+const FISH_VALID_PERIODS = 3650; // ≈10 年，视为长期有效
 /** 反趋势：挂单档位 = 原策略 3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R/20R/30R 价格（无数量） */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 5];
 const COUNTER_TREND_PRICE_ONLY_MULTIPLES = [10, 20, 30];
@@ -245,6 +251,7 @@ const ASSIST_TIER_RATES_LEGACY_10_20_30_50_80 = [0.1, 0.2, 0.3, 0.5, 0.8];
 const ASSIST_TIER_RATES_LEGACY_10_TO_100 = Array.from({ length: 10 }, (_, index) => (index + 1) / 10);
 const ASSIST_TIER_RATES_LEGACY_20_TO_100 = Array.from({ length: 9 }, (_, index) => (index + 2) / 10);
 const ASSIST_TITLE_SUFFIX = ' (顺势而为)';
+const FISH_TITLE_SUFFIX = ' (吃鱼助手)';
 
 function clampOpenCostMultiplier(value) {
   const n = Math.round(Number(value));
@@ -253,7 +260,15 @@ function clampOpenCostMultiplier(value) {
 }
 
 function getFrontFormScope() {
-  return frontMode === FRONT_MODE_ASSIST ? 'assist' : 'trend';
+  if (frontMode === FRONT_MODE_ASSIST) return 'assist';
+  if (frontMode === FRONT_MODE_FISH) return 'fish';
+  return 'trend';
+}
+
+function frontModeToFormScope(mode) {
+  if (mode === FRONT_MODE_ASSIST) return 'assist';
+  if (mode === FRONT_MODE_FISH) return 'fish';
+  return 'trend';
 }
 
 function getTimeframeMode(scope = getFrontFormScope()) {
@@ -307,7 +322,9 @@ function setFrontTimeframeMode(mode, { refresh = true, scope = getFrontFormScope
 }
 
 function normalizeFrontMode(mode) {
-  return mode === FRONT_MODE_ASSIST ? FRONT_MODE_ASSIST : FRONT_MODE_TREND;
+  if (mode === FRONT_MODE_ASSIST) return FRONT_MODE_ASSIST;
+  if (mode === FRONT_MODE_FISH) return FRONT_MODE_FISH;
+  return FRONT_MODE_TREND;
 }
 
 function isFrontPage(page = currentPage) {
@@ -316,6 +333,10 @@ function isFrontPage(page = currentPage) {
 
 function isFrontAssistMode() {
   return isFrontPage() && frontMode === FRONT_MODE_ASSIST;
+}
+
+function isFrontFishMode() {
+  return isFrontPage() && frontMode === FRONT_MODE_FISH;
 }
 
 function isFrontTrendMode() {
@@ -574,13 +595,52 @@ function formatAssistStrategyTitle(name) {
   return `${formatStrategyCardTitle(name)}${ASSIST_TITLE_SUFFIX}`;
 }
 
+function formatFishStrategyTitle(name) {
+  return `${formatStrategyCardTitle(name)}${FISH_TITLE_SUFFIX}`;
+}
+
+function buildFishTimeRange(now = new Date()) {
+  const startAt = new Date(now instanceof Date && !Number.isNaN(now.getTime()) ? now.getTime() : Date.now());
+  startAt.setMilliseconds(0);
+  const durationMinutes = FISH_TIMEFRAME_MINUTES * FISH_VALID_PERIODS;
+  const expiresAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
+  return {
+    timeframe: FISH_TIMEFRAME,
+    timeframeMinutes: FISH_TIMEFRAME_MINUTES,
+    timeframeLabel: getTimeframeLabel(FISH_TIMEFRAME),
+    validPeriods: FISH_VALID_PERIODS,
+    durationMinutes,
+    startAt: startAt.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+  };
+}
+
+function isFishTakeProfitMultiple(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && Math.abs(n - FISH_TAKE_PROFIT_MULTIPLE) < 1e-9;
+}
+
+function isFishStrategyRow(row) {
+  const rawConcessions = hasConcessions(row?.concessions) ? row.concessions : [];
+  const concessions = isAssistConcessionSet(rawConcessions)
+    ? rawConcessions
+    : buildAdminConcessionsForRow(row);
+  return isAssistConcessionSet(concessions) && isFishTakeProfitMultiple(row?.takeProfitRMultiple);
+}
+
 function getAdminStrategyTypeInfo(row) {
   const rawConcessions = hasConcessions(row?.concessions) ? row.concessions : [];
   if (isAssistConcessionSet(rawConcessions)) {
+    if (isFishTakeProfitMultiple(row?.takeProfitRMultiple)) {
+      return { label: '吃鱼助手', type: 'fish' };
+    }
     return { label: '顺势而为', type: 'assist' };
   }
   const savedConcessions = buildAdminConcessionsForRow(row);
   if (isAssistConcessionSet(savedConcessions)) {
+    if (isFishTakeProfitMultiple(row?.takeProfitRMultiple)) {
+      return { label: '吃鱼助手', type: 'fish' };
+    }
     return { label: '顺势而为', type: 'assist' };
   }
   return { label: '趋势建仓', type: 'trend' };
@@ -1444,6 +1504,14 @@ function toDbRecord(record) {
   const expiresAt = parseDateValue(record.expiresAt);
   const openCostTotal = Number(record.openCostTotal) || getOpenCostTotal(record.openCostMultiplier);
   const openCostMultiplier = clampOpenCostMultiplier(record.openCostMultiplier ?? openCostTotal / OPEN_COST_BASE);
+  const isFish = isAssistConcessionSet(record.concessions) && isFishTakeProfitMultiple(record.takeProfitRMultiple);
+  const fishTime = isFish ? buildFishTimeRange(startAt || new Date()) : null;
+  const resolvedStart = isFish
+    ? parseDateValue(fishTime.startAt)
+    : startAt;
+  const resolvedExpires = isFish
+    ? parseDateValue(fishTime.expiresAt)
+    : expiresAt;
   return {
     strategy_name: record.strategyName,
     description: String(record.description ?? '').trim(),
@@ -1464,12 +1532,14 @@ function toDbRecord(record) {
       ? normalizeConcessions(record.concessions)
       : [],
     take_profit_r_multiple: Number(record.takeProfitRMultiple),
-    timeframe: normalizeTimeframeMode(record.timeframe),
-    timeframe_minutes: Number(record.timeframeMinutes) || getTimeframeMinutes(record.timeframe),
-    valid_periods: Number(record.validPeriods),
-    duration_minutes: Number(record.durationMinutes),
-    start_at: startAt ? startAt.toISOString() : null,
-    expires_at: expiresAt ? expiresAt.toISOString() : null,
+    timeframe: isFish ? fishTime.timeframe : normalizeTimeframeMode(record.timeframe),
+    timeframe_minutes: isFish
+      ? fishTime.timeframeMinutes
+      : (Number(record.timeframeMinutes) || getTimeframeMinutes(record.timeframe)),
+    valid_periods: isFish ? fishTime.validPeriods : Number(record.validPeriods),
+    duration_minutes: isFish ? fishTime.durationMinutes : Number(record.durationMinutes),
+    start_at: resolvedStart ? resolvedStart.toISOString() : null,
+    expires_at: resolvedExpires ? resolvedExpires.toISOString() : null,
     outcome_status: normalizeOutcomeStatus(record.outcomeStatus),
     outcome_remark: String(record.outcomeRemark ?? '').trim(),
     view_mode: normalizeStrategyViewMode(record.viewMode),
@@ -1811,11 +1881,38 @@ function clearEditingStrategy() {
   editingStrategyId = null;
   editingStrategyPreserve = null;
   updateSaveButtonLabels();
+  syncFrontModeSwitchLock();
+}
+
+function syncFrontModeSwitchLock() {
+  const locked = Boolean(editingStrategyId);
+  const switchEl = document.querySelector('.front-mode-switch');
+  if (switchEl) {
+    switchEl.classList.toggle('is-locked', locked);
+    switchEl.setAttribute('aria-disabled', locked ? 'true' : 'false');
+  }
+  const buttons = [
+    document.getElementById('btn-front-mode-trend'),
+    document.getElementById('btn-front-mode-assist'),
+    document.getElementById('btn-front-mode-fish'),
+  ];
+  buttons.forEach((btn) => {
+    if (!btn) return;
+    const isCurrent = btn.classList.contains('is-active');
+    btn.disabled = locked && !isCurrent;
+    btn.setAttribute('aria-disabled', locked && !isCurrent ? 'true' : 'false');
+    if (locked) {
+      btn.title = isCurrent ? '修改中，模式不可切换' : '修改中不可切换模式';
+    } else {
+      btn.removeAttribute('title');
+    }
+  });
 }
 
 function updateSaveButtonLabels() {
   const trendBtn = document.getElementById('btn-copy-strategy');
   const assistBtn = document.getElementById('btn-save-assist');
+  const fishBtn = document.getElementById('btn-save-fish');
   const isEditing = Boolean(editingStrategyId);
   if (trendBtn) {
     const label = isEditing && isFrontTrendMode() ? '保存修改' : '保存';
@@ -1827,6 +1924,12 @@ function updateSaveButtonLabels() {
     assistBtn.textContent = label;
     assistBtn.dataset.defaultLabel = label;
   }
+  if (fishBtn) {
+    const label = isEditing && isFrontFishMode() ? '保存修改' : '保存';
+    fishBtn.textContent = label;
+    fishBtn.dataset.defaultLabel = label;
+  }
+  syncFrontModeSwitchLock();
 }
 
 function getStartSlotValueFromRow(row) {
@@ -1838,7 +1941,9 @@ function getStartSlotValueFromRow(row) {
 }
 
 function getDescriptionInputId(scope = getFrontFormScope()) {
-  return scope === 'assist' ? 'assist-desc-input' : 'desc-input';
+  if (scope === 'assist') return 'assist-desc-input';
+  if (scope === 'fish') return 'fish-desc-input';
+  return 'desc-input';
 }
 
 function getStrategyDescription(scope = getFrontFormScope()) {
@@ -1875,7 +1980,29 @@ function populateAssistFormFromRow(row) {
   rebuildStartTimeOptions(startSlot, { ensurePreferredSlot: true, scope: 'assist' });
 }
 
+function populateFishFormFromRow(row) {
+  const nameEl = document.getElementById('fish-name-input');
+  const descEl = document.getElementById('fish-desc-input');
+  const fromEl = document.getElementById('fish-from-input');
+  const toEl = document.getElementById('fish-to-input');
+  if (nameEl) nameEl.value = String(row?.strategyName ?? '').trim();
+  if (descEl) descEl.value = String(row?.description ?? '').trim();
+  if (fromEl) fromEl.value = String(row?.inputPrice ?? '').trim();
+  if (toEl) toEl.value = String(row?.inputStopLoss ?? '').trim();
+}
+
 function readFrontFormDraft(scope) {
+  if (scope === 'fish') {
+    return {
+      name: String(document.getElementById('fish-name-input')?.value ?? ''),
+      description: String(document.getElementById('fish-desc-input')?.value ?? ''),
+      timeframe: '',
+      startTime: '',
+      startTimePicked: false,
+      priceA: String(document.getElementById('fish-from-input')?.value ?? ''),
+      priceB: String(document.getElementById('fish-to-input')?.value ?? ''),
+    };
+  }
   const isAssist = scope === 'assist';
   const { sel } = getStartTimeFieldEls(isAssist ? 'assist' : 'trend');
   return {
@@ -1890,6 +2017,17 @@ function readFrontFormDraft(scope) {
 }
 
 function applyFrontFormDraft(draft, scope) {
+  if (scope === 'fish') {
+    const nameEl = document.getElementById('fish-name-input');
+    const descEl = document.getElementById('fish-desc-input');
+    const priceAEl = document.getElementById('fish-from-input');
+    const priceBEl = document.getElementById('fish-to-input');
+    if (nameEl) nameEl.value = draft.name ?? '';
+    if (descEl) descEl.value = draft.description ?? '';
+    if (priceAEl) priceAEl.value = draft.priceA ?? '';
+    if (priceBEl) priceBEl.value = draft.priceB ?? '';
+    return;
+  }
   const isAssist = scope === 'assist';
   const nameEl = document.getElementById(isAssist ? 'assist-name-input' : 'name-input');
   const descEl = document.getElementById(isAssist ? 'assist-desc-input' : 'desc-input');
@@ -1917,18 +2055,25 @@ function startEditStrategy(row) {
 
   const strategyType = getAdminStrategyTypeInfo(row);
   const isAssist = strategyType.type === 'assist';
+  const isFish = strategyType.type === 'fish';
 
-  if (isAssist) {
+  if (isFish) {
     resetFrontPage();
+    resetAssistPage();
+    populateFishFormFromRow(row);
+  } else if (isAssist) {
+    resetFrontPage();
+    resetFishPage();
     populateAssistFormFromRow(row);
   } else {
     resetAssistPage();
+    resetFishPage();
     populateTrendFormFromRow(row);
   }
 
   setPage('front', {
     preserveFrontForm: true,
-    frontMode: isAssist ? FRONT_MODE_ASSIST : FRONT_MODE_TREND,
+    frontMode: isFish ? FRONT_MODE_FISH : (isAssist ? FRONT_MODE_ASSIST : FRONT_MODE_TREND),
   });
 
   editingStrategyId = id;
@@ -1938,7 +2083,8 @@ function startEditStrategy(row) {
     viewMode: row?.viewMode,
   };
 
-  if (isAssist) generateAssist();
+  if (isFish) generateFish();
+  else if (isAssist) generateAssist();
   else generate();
 
   updateSaveButtonLabels();
@@ -2021,6 +2167,21 @@ function buildStrategyCopyText({ name, price, quantity, takeProfit, stopLoss, de
 
 function enrichStrategyRecordForSubmit(record) {
   if (!record) return null;
+  if (frontMode === FRONT_MODE_FISH || isFishStrategyRow(record)) {
+    const fishTime = buildFishTimeRange();
+    const next = {
+      ...record,
+      description: getStrategyDescription('fish'),
+      ...fishTime,
+      takeProfitRMultiple: FISH_TAKE_PROFIT_MULTIPLE,
+    };
+    if (editingStrategyId && editingStrategyPreserve) {
+      next.outcomeStatus = editingStrategyPreserve.outcomeStatus ?? next.outcomeStatus;
+      next.outcomeRemark = editingStrategyPreserve.outcomeRemark ?? '';
+      next.viewMode = editingStrategyPreserve.viewMode ?? next.viewMode;
+    }
+    return next;
+  }
   const timeframe = getTimeframeMode();
   const timeframeMinutes = getTimeframeMinutes(timeframe);
   const validPeriods = Number(record.validPeriods) || STRATEGY_DURATION_PERIODS;
@@ -2735,6 +2896,28 @@ function resetAssistPage() {
   clearAssistState();
 }
 
+let currentFishCopyText = '';
+let currentFishRecord = null;
+
+function clearFishState() {
+  currentFishCopyText = '';
+  currentFishRecord = null;
+}
+
+function resetFishPage() {
+  const nameEl = document.getElementById('fish-name-input');
+  const descEl = document.getElementById('fish-desc-input');
+  const fromEl = document.getElementById('fish-from-input');
+  const toEl = document.getElementById('fish-to-input');
+  const errEl = document.getElementById('fish-error');
+  if (nameEl) nameEl.value = '';
+  if (descEl) descEl.value = '';
+  if (fromEl) fromEl.value = '';
+  if (toEl) toEl.value = '';
+  if (errEl) errEl.textContent = '';
+  clearFishState();
+}
+
 function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
   const nameEl = document.getElementById('assist-name-input');
   const name = String(nameEl?.value ?? '').trim() || 'test';
@@ -2866,6 +3049,117 @@ function autoGenerateAssistIfReady() {
   clearAssistState();
 }
 
+function buildFishStrategy(from, to, openCostTotal, priceDecimalPlaces) {
+  const nameEl = document.getElementById('fish-name-input');
+  const name = String(nameEl?.value ?? '').trim() || 'test';
+  const side = to > from ? 'long' : 'short';
+  const stop = from;
+  const takeProfit = calcAssistTakeProfitPrice(from, to, FISH_TAKE_PROFIT_MULTIPLE);
+  if (takeProfit == null) return null;
+  const stopLabel = formatTrimmedFixedDecimals(stop, priceDecimalPlaces);
+  const tpLabel = formatTrimmedFixedDecimals(takeProfit, priceDecimalPlaces);
+  const concessionItems = buildAssistConcessionItems(from, to, openCostTotal, priceDecimalPlaces);
+  if (!concessionItems.length) return null;
+  const primaryItem = concessionItems[0];
+  const openCostMultiplier = OPEN_COST_MULTIPLIER_DEFAULT;
+  const openCost = openCostTotal / DEFAULT_TIER_COUNT;
+  const description = getStrategyDescription('fish');
+  const fromLabel = formatTrimmedFixedDecimals(from, priceDecimalPlaces);
+  const fishTime = buildFishTimeRange();
+  const copyText = [
+    formatFishStrategyTitle(name),
+    ...concessionItems.map((item) => {
+      const label = withBestConcessionLabel(getAssistTierLabel(item.rate), item.rate);
+      return shouldHideAssistQuantity(item.rate)
+        ? `${label}：${item.price}`
+        : `${label}：${item.price} / ${item.quantity}`;
+    }),
+    `止盈价格：${tpLabel}`,
+    `止损价格：${fromLabel}`,
+    ...(description ? [`描述：${description}`] : []),
+  ].join('\n');
+
+  const record = {
+    strategyName: name,
+    description,
+    positionSide: side,
+    inputPrice: formatTrimmedFixedDecimals(from, priceDecimalPlaces),
+    inputStopLoss: formatTrimmedFixedDecimals(to, priceDecimalPlaces),
+    entryPrice: primaryItem.price,
+    quantity: primaryItem.quantity,
+    takeProfitPrice: tpLabel,
+    stopLossPrice: stopLabel,
+    openCost,
+    openCostMultiplier,
+    openCostTotal,
+    tierCount: DEFAULT_TIER_COUNT,
+    tradeMode: TRADE_MODE_NORMAL,
+    grade: getStrategyGradeFromOpenCost(openCost, openCostTotal, DEFAULT_TIER_COUNT),
+    priceAdjustmentRate: 0,
+    priceAdjustment: '0',
+    concessions: concessionItems,
+    takeProfitRMultiple: FISH_TAKE_PROFIT_MULTIPLE,
+    ...fishTime,
+    outcomeStatus: 'pending',
+    viewMode: STRATEGY_VIEW_MODE_TREND,
+  };
+
+  return { copyText, record };
+}
+
+function generateFish() {
+  const fromEl = document.getElementById('fish-from-input');
+  const toEl = document.getElementById('fish-to-input');
+  const errEl = document.getElementById('fish-error');
+  const from = toNumber(fromEl && 'value' in fromEl ? fromEl.value : '');
+  const to = toNumber(toEl && 'value' in toEl ? toEl.value : '');
+  const openCostTotal = getOpenCostTotal();
+
+  if (errEl) errEl.textContent = '';
+
+  if (from == null || to == null) {
+    if (errEl) errEl.textContent = '请输入有效的 from 与 to（数字）。';
+    clearFishState();
+    return;
+  }
+  if (!(from > 0) || !(to > 0)) {
+    if (errEl) errEl.textContent = 'from 和 to 须为大于 0 的数字。';
+    clearFishState();
+    return;
+  }
+  if (from === to) {
+    if (errEl) errEl.textContent = 'from 与 to 不能相同。';
+    clearFishState();
+    return;
+  }
+
+  const priceDecimals = Math.max(3, getPriceDecimalPlacesFromValues(fromEl?.value, toEl?.value));
+  const strategy = buildFishStrategy(from, to, openCostTotal, priceDecimals);
+  if (!strategy) {
+    if (errEl) errEl.textContent = '无法生成吃鱼助手档位，请检查 from / to。';
+    clearFishState();
+    return;
+  }
+
+  currentFishCopyText = strategy.copyText;
+  currentFishRecord = strategy.record;
+}
+
+function autoGenerateFishIfReady() {
+  if (!isFrontFishMode()) return;
+  const fromEl = document.getElementById('fish-from-input');
+  const toEl = document.getElementById('fish-to-input');
+  const fromVal = String(fromEl?.value ?? '').trim();
+  const toVal = String(toEl?.value ?? '').trim();
+  if (fromVal && toVal) {
+    generateFish();
+    return;
+  }
+  const errEl = document.getElementById('fish-error');
+  if (errEl) errEl.textContent = '';
+  clearFishState();
+}
+
 /**
  * 开始时间默认值是基于「当前时间」算出来的。页面长时间不刷新时，
  * new Date() 不会重新读取，默认值就会停在过期的时间格上。
@@ -2914,7 +3208,7 @@ function buildStrategiesQuery(filterValue = 'all') {
     params.push(`strategy_name=ilike.${encodeURIComponent(`*${nameSearch}*`)}`);
   }
   if (filter === 'active') {
-    params.push(`expires_at=gt.${encodeURIComponent(new Date().toISOString())}`);
+    params.push(`or=(expires_at.gt.${encodeURIComponent(new Date().toISOString())},expires_at.is.null)`);
     params.push('outcome_status=eq.pending');
   } else if (filter === 'dueToday') {
     const { start, end } = getLocalDayRange();
@@ -3311,7 +3605,7 @@ function renderAdminActiveNames(rows = latestAdminRows) {
   ].join('');
   const activeKey = adminNameFilter;
   const namesHtml = nameCounts.map(({ name, count, type }) => {
-    const strategyType = type === 'assist' ? 'assist' : 'trend';
+    const strategyType = type === 'assist' || type === 'fish' ? type : 'trend';
     const isActive = activeKey && getAdminNameFilterKey(name) === activeKey;
     const countHtml = count > 1
       ? `<span class="admin-active-names__count">${count}</span>`
@@ -3649,11 +3943,15 @@ function buildAdminListItemHtml(row) {
     : baseSideMod;
   const strategyType = getAdminStrategyTypeInfo(row);
   const isAssistStrategy = strategyType.type === 'assist';
+  const isFishStrategy = strategyType.type === 'fish';
+  const isAssistLikeStrategy = isAssistStrategy || isFishStrategy;
   const title = escapeHtml(formatStrategyCardTitle(nameRaw));
   const titleLabel = escapeHtml(
-    isAssistStrategy
-      ? `${formatAssistStrategyTitle(nameRaw)}${String(row?.outcomeRemark ?? '').trim() ? `，备注：${String(row.outcomeRemark).trim()}` : ''}`
-      : formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark),
+    isFishStrategy
+      ? `${formatFishStrategyTitle(nameRaw)}${String(row?.outcomeRemark ?? '').trim() ? `，备注：${String(row.outcomeRemark).trim()}` : ''}`
+      : isAssistStrategy
+        ? `${formatAssistStrategyTitle(nameRaw)}${String(row?.outcomeRemark ?? '').trim() ? `，备注：${String(row.outcomeRemark).trim()}` : ''}`
+        : formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark),
   );
   const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
   const priceDecimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
@@ -3666,12 +3964,13 @@ function buildAdminListItemHtml(row) {
     // 趋势力预测：止盈=原开仓价，止损=10R（计算逻辑不变，仅改展示位置）
     takeProfitLabel = counter.refTakeProfit || '—';
     stopLabel = counter.stopLoss || '—';
-  } else if (isAssistStrategy) {
+  } else if (isAssistLikeStrategy) {
     concessions = buildAdminAssistConcessionsForDisplay(row);
-    // 顺势而为：止盈=from→to 的 2 倍空间，止损=from
+    // 顺势而为：2 倍；吃鱼助手：1 倍；止损=from
     const assistFrom = toNumber(row?.inputPrice ?? row?.stopLossPrice);
     const assistTo = toNumber(row?.inputStopLoss);
-    const assistTp = calcAssistTakeProfitPrice(assistFrom, assistTo);
+    const tpMultiple = isFishStrategy ? FISH_TAKE_PROFIT_MULTIPLE : ASSIST_TAKE_PROFIT_MULTIPLE;
+    const assistTp = calcAssistTakeProfitPrice(assistFrom, assistTo, tpMultiple);
     takeProfitLabel = assistTp != null
       ? formatTrimmedFixedDecimals(assistTp, priceDecimalPlaces)
       : (formatAdminPriceFromValue(row?.takeProfitPrice, priceDecimalPlaces) || '—');
@@ -3689,7 +3988,7 @@ function buildAdminListItemHtml(row) {
     : '';
   const concessionsHtml = renderAdminConcessionsHtml(concessions, stopLabel, {
     priceDecimalPlaces,
-    assistLabels: isAssistStrategy,
+    assistLabels: isAssistLikeStrategy,
     hideStopColumn: true,
     ...(showCounterTrend
       ? {
@@ -3705,7 +4004,9 @@ function buildAdminListItemHtml(row) {
   const counterTimeRange = showCounterTrend ? getCounterTrendTimeRange(row) : null;
   const startAt = showCounterTrend ? counterTimeRange?.startAt : baseStartAt;
   const endAt = showCounterTrend ? counterTimeRange?.endAt : baseEndAt;
-  const timeRange = escapeHtml(formatAdminTimeRange(startAt, endAt));
+  const timeRange = isFishStrategy
+    ? ''
+    : escapeHtml(formatAdminTimeRange(startAt, endAt));
   const expiresAt = endAt ? escapeHtml(endAt.toISOString()) : '';
   const checked = rawId && selectedStrategyIds.has(rawId) ? ' checked' : '';
   const disabled = isDeletingStrategies ? ' disabled' : '';
@@ -3718,7 +4019,7 @@ function buildAdminListItemHtml(row) {
       '</label>',
     ].join('')
     : '';
-  const timeBadge = getTimeBadgeInfo(endAt);
+  const timeBadge = isFishStrategy ? null : getTimeBadgeInfo(endAt);
   const timeBadgeUrgent = timeBadge?.type === 'active' && isCountdownWithinUrgentWindow(endAt)
     ? ' admin-time-status--urgent'
     : '';
@@ -3739,13 +4040,17 @@ function buildAdminListItemHtml(row) {
   const assistTagHtml = isAssistStrategy
     ? '<span class="admin-assist-tag" aria-label="顺势而为">顺势而为</span>'
     : '';
-  const timeframeTagHtml = getTimeframeTagHtml(row?.timeframe);
+  const fishTagHtml = isFishStrategy
+    ? '<span class="admin-fish-tag" aria-label="吃鱼助手">吃鱼助手</span>'
+    : '';
+  const timeframeTagHtml = isFishStrategy ? '' : getTimeframeTagHtml(row?.timeframe);
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
     sideTagHtml,
     counterTrendHtml,
     assistTagHtml,
+    fishTagHtml,
     timeframeTagHtml,
     '</div>',
   ].join('');
@@ -3753,7 +4058,7 @@ function buildAdminListItemHtml(row) {
     ? `<div class="admin-item__head-right">${timeBadgeHtml}</div>`
     : '';
   return [
-    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}">`,
+    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}${isFishStrategy ? ' admin-item--fish' : ''}">`,
     remarkStampHtml,
     '<header class="admin-item__head">',
     selectHtml,
@@ -3766,7 +4071,7 @@ function buildAdminListItemHtml(row) {
     concessionsHtml,
     tpSlHtml,
     '<div class="admin-item__sub">',
-    `<span class="admin-item__time-range${isAssistStrategy ? ' admin-item__time-range--assist' : ''}" aria-label="时间范围">${timeRange}</span>`,
+    `<span class="admin-item__time-range${isAssistStrategy ? ' admin-item__time-range--assist' : ''}"${timeRange ? ' aria-label="时间范围"' : ' aria-hidden="true"'}>${timeRange || ''}</span>`,
     rawId && !isAdminSelectionMode
       ? `<button type="button" class="admin-edit-btn" data-admin-edit data-id="${id}" aria-label="修改 ${titleLabel}">修改</button>`
       : '',
@@ -4597,32 +4902,46 @@ function setFrontMode(mode) {
   const prevMode = frontMode;
   const switched = prevMode !== nextMode;
 
+  if (switched && editingStrategyId) {
+    showToast('修改中不可切换模式');
+    syncFrontModeSwitchLock();
+    return;
+  }
+
   if (switched) {
     closeMobileTimePicker();
-    const draft = prevMode === FRONT_MODE_ASSIST
-      ? readFrontFormDraft('assist')
-      : readFrontFormDraft('trend');
-    applyFrontFormDraft(draft, nextMode === FRONT_MODE_ASSIST ? 'assist' : 'trend');
+    const draft = readFrontFormDraft(frontModeToFormScope(prevMode));
+    applyFrontFormDraft(draft, frontModeToFormScope(nextMode));
   }
 
   frontMode = nextMode;
 
   const trendPanel = document.getElementById('front-trend-panel');
   const assistPanel = document.getElementById('front-assist-panel');
+  const fishPanel = document.getElementById('front-fish-panel');
   const btnTrend = document.getElementById('btn-front-mode-trend');
   const btnAssist = document.getElementById('btn-front-mode-assist');
+  const btnFish = document.getElementById('btn-front-mode-fish');
   const toAssist = nextMode === FRONT_MODE_ASSIST;
+  const toFish = nextMode === FRONT_MODE_FISH;
+  const toTrend = nextMode === FRONT_MODE_TREND;
 
-  if (trendPanel) trendPanel.hidden = toAssist;
+  if (trendPanel) trendPanel.hidden = !toTrend;
   if (assistPanel) assistPanel.hidden = !toAssist;
+  if (fishPanel) fishPanel.hidden = !toFish;
   if (btnTrend) {
-    btnTrend.classList.toggle('is-active', !toAssist);
-    btnTrend.setAttribute('aria-selected', toAssist ? 'false' : 'true');
+    btnTrend.classList.toggle('is-active', toTrend);
+    btnTrend.setAttribute('aria-selected', toTrend ? 'true' : 'false');
   }
   if (btnAssist) {
     btnAssist.classList.toggle('is-active', toAssist);
     btnAssist.setAttribute('aria-selected', toAssist ? 'true' : 'false');
   }
+  if (btnFish) {
+    btnFish.classList.toggle('is-active', toFish);
+    btnFish.setAttribute('aria-selected', toFish ? 'true' : 'false');
+  }
+  syncFrontModeSwitchLock();
 
   if (!isFrontPage()) return;
 
@@ -4633,6 +4952,8 @@ function setFrontMode(mode) {
 
   if (toAssist) {
     autoGenerateAssistIfReady();
+  } else if (toFish) {
+    autoGenerateFishIfReady();
   } else {
     updateTradeModeAppearance();
     autoGenerateIfReady();
@@ -4659,7 +4980,7 @@ function setPage(mode, options = {}) {
   const btnObservations = document.getElementById('btn-tab-observations');
   if (!front || !admin || !stats || !methodology || !cases || !observations || !btnFront || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations) return;
 
-  // 兼容旧入口：trend / assist 都归入前台
+  // 兼容旧入口：trend / assist / fish 都归入前台
   let requestedMode = mode;
   let requestedFrontMode = options.frontMode ?? null;
   if (mode === 'trend') {
@@ -4668,6 +4989,9 @@ function setPage(mode, options = {}) {
   } else if (mode === 'assist') {
     requestedMode = 'front';
     requestedFrontMode = FRONT_MODE_ASSIST;
+  } else if (mode === 'fish') {
+    requestedMode = 'front';
+    requestedFrontMode = FRONT_MODE_FISH;
   }
 
   const allowedPages = ['admin', 'stats', 'methodology', 'cases', 'observations', 'front'];
@@ -4714,26 +5038,31 @@ function setPage(mode, options = {}) {
   if (toAdmin) {
     resetFrontPage();
     resetAssistPage();
+    resetFishPage();
     resetAdminPageState();
     renderAdminList().catch(() => {});
   } else if (toStats) {
     resetFrontPage();
     resetAssistPage();
+    resetFishPage();
     resetAdminPageState();
     renderStatsPage().catch(() => {});
   } else if (toMethodology) {
     resetFrontPage();
     resetAssistPage();
+    resetFishPage();
     resetAdminPageState();
     renderMethodologyPage();
   } else if (toCases) {
     resetFrontPage();
     resetAssistPage();
+    resetFishPage();
     resetAdminPageState();
     renderCasesPage().catch(() => {});
   } else if (toObservations) {
     resetFrontPage();
     resetAssistPage();
+    resetFishPage();
     resetAdminPageState();
     resetObsPageState();
     renderObservationsPage().catch(() => {});
@@ -4743,6 +5072,7 @@ function setPage(mode, options = {}) {
       if (!preserveFrontForm) {
         resetFrontPage();
         resetAssistPage();
+        resetFishPage();
         frontMode = FRONT_MODE_TREND;
       }
     }
@@ -4944,6 +5274,88 @@ if (btnSaveAssist) btnSaveAssist.addEventListener('click', () => {
   saveAssistOutput().catch(() => {});
 });
 
+let isSavingFish = false;
+
+async function saveFishOutput() {
+  const btn = document.getElementById('btn-save-fish');
+  const errEl = document.getElementById('fish-error');
+  const nameEl = document.getElementById('fish-name-input');
+  const name = String(nameEl?.value ?? '').trim();
+  if (!name) {
+    if (errEl) errEl.textContent = '保存前请填写名称。';
+    flashCopyStrategyBtn(btn, '请填名称');
+    return;
+  }
+  if (errEl) errEl.textContent = '';
+  if (!currentFishCopyText || !currentFishRecord) {
+    flashCopyStrategyBtn(btn, '无内容');
+    return;
+  }
+  if (isSavingFish) return;
+  isSavingFish = true;
+  if (btn) {
+    if (!btn.dataset.defaultLabel) btn.dataset.defaultLabel = btn.textContent;
+    if (btn._flashTimer) {
+      clearTimeout(btn._flashTimer);
+      btn._flashTimer = null;
+    }
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.textContent = '保存中';
+  }
+
+  let saved = false;
+  const isEditing = Boolean(editingStrategyId);
+  try {
+    const record = enrichStrategyRecordForSubmit({
+      ...currentFishRecord,
+      strategyName: name,
+    });
+    if (isEditing) {
+      await updateStrategy(editingStrategyId, record);
+    } else {
+      await createStrategy(record);
+    }
+    saved = true;
+    showToast(isEditing ? '修改成功' : '保存成功');
+    clearEditingStrategy();
+    setPage('admin');
+    flashCopyStrategyBtn(btn, isEditing ? '已修改' : '已保存');
+  } catch (err) {
+    logSave('error', '吃鱼助手保存失败', {
+      message: err?.message || String(err),
+    });
+    const detail = String(err?.message || '').trim();
+    if (errEl) {
+      errEl.textContent = detail && detail.length < 180
+        ? `保存失败：${detail}`
+        : '保存失败。请检查 Supabase 表和权限。';
+    }
+    flashCopyStrategyBtn(btn, '保存失败');
+  } finally {
+    isSavingFish = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      if (!saved && !btn._flashTimer) {
+        btn.textContent = btn.dataset.defaultLabel || '保存';
+      }
+    }
+  }
+}
+
+const btnSaveFish = document.getElementById('btn-save-fish');
+if (btnSaveFish) btnSaveFish.addEventListener('click', () => {
+  saveFishOutput().catch(() => {});
+});
+
+const fishNameInput = document.getElementById('fish-name-input');
+const fishFromInput = document.getElementById('fish-from-input');
+const fishToInput = document.getElementById('fish-to-input');
+if (fishNameInput) fishNameInput.addEventListener('input', autoGenerateFishIfReady);
+if (fishFromInput) fishFromInput.addEventListener('input', autoGenerateFishIfReady);
+if (fishToInput) fishToInput.addEventListener('input', autoGenerateFishIfReady);
+
 const assistNameInput = document.getElementById('assist-name-input');
 const assistFromInput = document.getElementById('assist-from-input');
 const assistToInput = document.getElementById('assist-to-input');
@@ -5019,6 +5431,8 @@ const btnFrontModeTrend = document.getElementById('btn-front-mode-trend');
 if (btnFrontModeTrend) btnFrontModeTrend.addEventListener('click', () => setFrontMode(FRONT_MODE_TREND));
 const btnFrontModeAssist = document.getElementById('btn-front-mode-assist');
 if (btnFrontModeAssist) btnFrontModeAssist.addEventListener('click', () => setFrontMode(FRONT_MODE_ASSIST));
+const btnFrontModeFish = document.getElementById('btn-front-mode-fish');
+if (btnFrontModeFish) btnFrontModeFish.addEventListener('click', () => setFrontMode(FRONT_MODE_FISH));
 
 function isAdminMoreMenuOpen() {
   const menu = document.getElementById('admin-more-menu');

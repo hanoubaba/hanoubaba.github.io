@@ -53,6 +53,7 @@
     <div class="front-mode-switch" role="tablist" aria-label="前台模式">
       <button id="btn-front-mode-trend" type="button" class="front-mode-switch__btn is-active" role="tab" aria-selected="true">趋势建仓</button>
       <button id="btn-front-mode-assist" type="button" class="front-mode-switch__btn" role="tab" aria-selected="false">顺势而为</button>
+      <button id="btn-front-mode-fish" type="button" class="front-mode-switch__btn" role="tab" aria-selected="false">吃鱼助手</button>
     </div>
 
     <div id="front-trend-panel">
@@ -141,6 +142,33 @@
       <p id="assist-error" class="error" role="alert" aria-live="polite"></p>
     </section>
     <button id="btn-save-assist" type="button" class="btn-save-strategy" aria-label="保存顺势而为">保存</button>
+    </div>
+
+    <div id="front-fish-panel" hidden>
+    <section class="panel" aria-label="吃鱼助手参数">
+      <label class="field">
+        <span class="field-label">名称</span>
+        <input id="fish-name-input" class="field-input" autocomplete="off" />
+      </label>
+
+      <label class="field field--spaced">
+        <span class="field-label">from</span>
+        <input id="fish-from-input" class="field-input" inputmode="decimal" autocomplete="off" />
+      </label>
+
+      <label class="field field--spaced">
+        <span class="field-label">to</span>
+        <input id="fish-to-input" class="field-input" inputmode="decimal" autocomplete="off" />
+      </label>
+
+      <label class="field field--spaced">
+        <span class="field-label">描述</span>
+        <textarea id="fish-desc-input" class="field-input field-input--textarea" rows="3" autocomplete="off"></textarea>
+      </label>
+
+      <p id="fish-error" class="error" role="alert" aria-live="polite"></p>
+    </section>
+    <button id="btn-save-fish" type="button" class="btn-save-strategy" aria-label="保存吃鱼助手">保存</button>
     </div>
     </section>
 
