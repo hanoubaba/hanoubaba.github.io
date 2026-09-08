@@ -222,8 +222,9 @@ const BEST_TAKE_PROFIT_R = 5;
 const STRATEGY_DURATION_PERIODS = 10;
 const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
-/** 反趋势：挂单档位 = 原策略 3/4/5 倍止盈价，止损 = 10 倍止盈价 */
-const COUNTER_TREND_ENTRY_MULTIPLES = [3, 4, 5];
+/** 反趋势：挂单档位 = 原策略 3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R/20R/30R 价格（无数量） */
+const COUNTER_TREND_ENTRY_MULTIPLES = [3, 5];
+const COUNTER_TREND_PRICE_ONLY_MULTIPLES = [10, 20, 30];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
 /** 辅助开单：10%/20% 复用最小让利档仓位；后台每档固定本金；80% 仅展示 */
 const ASSIST_TIER_RATIOS = [
@@ -243,7 +244,7 @@ const ASSIST_TIER_RATES_LEGACY_10_20_30_48_80 = [0.1, 0.2, 0.3, 0.48, 0.8];
 const ASSIST_TIER_RATES_LEGACY_10_20_30_50_80 = [0.1, 0.2, 0.3, 0.5, 0.8];
 const ASSIST_TIER_RATES_LEGACY_10_TO_100 = Array.from({ length: 10 }, (_, index) => (index + 1) / 10);
 const ASSIST_TIER_RATES_LEGACY_20_TO_100 = Array.from({ length: 9 }, (_, index) => (index + 2) / 10);
-const ASSIST_TITLE_SUFFIX = ' (吃鱼助手)';
+const ASSIST_TITLE_SUFFIX = ' (顺势而为)';
 
 function clampOpenCostMultiplier(value) {
   const n = Math.round(Number(value));
@@ -576,13 +577,13 @@ function formatAssistStrategyTitle(name) {
 function getAdminStrategyTypeInfo(row) {
   const rawConcessions = hasConcessions(row?.concessions) ? row.concessions : [];
   if (isAssistConcessionSet(rawConcessions)) {
-    return { label: '吃鱼助手', type: 'assist' };
+    return { label: '顺势而为', type: 'assist' };
   }
   const savedConcessions = buildAdminConcessionsForRow(row);
   if (isAssistConcessionSet(savedConcessions)) {
-    return { label: '吃鱼助手', type: 'assist' };
+    return { label: '顺势而为', type: 'assist' };
   }
-  return { label: '趋势跟随', type: 'trend' };
+  return { label: '趋势建仓', type: 'trend' };
 }
 
 function buildAdminDisplayConcessions(row) {
@@ -638,8 +639,8 @@ function normalizeStrategyViewMode(value) {
 
 /**
  * 反趋势策略：以原策略 R 倍数推算挂单价与止损。
- * 例：开 10 / 止 9 → 挂 13、14、15，止损 20；每档固定本金后 qty = 档本金 / |价-止损|
- * 参考止盈取原开仓价；时间范围接在原策略结束后再排 10 个周期。
+ * 例：开 10 / 止 9 → 挂 13、15，止损 20；每档固定本金后 qty = 档本金 / |价-止损|
+ * 另展示 10R / 20R / 30R 价格（无数量）；参考止盈取原开仓价；时间范围接在原策略结束后再排 10 个周期。
  */
 function buildCounterTrendConcessions(row) {
   const entryPrice = toNumber(row?.entryPrice);
@@ -671,6 +672,17 @@ function buildCounterTrendConcessions(row) {
       display: true,
       price: formatTrimmedFixedDecimals(price, decimalPlaces),
       quantity: formatQuantity(qty),
+    });
+  }
+  for (const multiple of COUNTER_TREND_PRICE_ONLY_MULTIPLES) {
+    const price = calcTakeProfit(entryPrice, stopLoss, multiple);
+    if (price == null) continue;
+    items.push({
+      rate: multiple,
+      display: true,
+      hideQuantity: true,
+      price: formatTrimmedFixedDecimals(price, decimalPlaces),
+      quantity: '',
     });
   }
   return {
@@ -821,7 +833,7 @@ const METHODOLOGY_SECTIONS = [
   {
     title: '1、核心理念',
     items: [
-      '右侧交易，趋势跟随，见好就收。',
+      '右侧交易，趋势建仓，见好就收。',
       '风控第一，收益第二，策略唯一。',
       '简化操作，行情很简单，复杂的是人心。',
       '挂单交易，能成交就做，不能成交就算了，机会不止一个。',
@@ -905,7 +917,7 @@ const METHODOLOGY_SECTIONS = [
   {
     title: '14、提醒自己',
     items: [
-      '右侧交易，趋势跟随，4h维度，交易量过亿（差一点都不行）',
+      '右侧交易，趋势建仓，4h维度，交易量过亿（差一点都不行）',
       '不做彩票单（1%的概率，10倍的收益，这是愚者行为）',
       '严格选品，耐心等待，保守前进。',
     ],
@@ -959,24 +971,24 @@ const METHODOLOGY_SECTIONS = [
     title: '20、最新感悟',
     items: [
       '格局大点，没到100万都是欢乐豆。',
-      '优先级：趋势跟随＞趋势力预测＞吃鱼助手',
-      '反趋势限定方向空，时间空间都满足，否则不做。优先级还是新的趋势跟随单。',
+      '优先级：趋势建仓＞趋势力预测＞顺势而为',
+      '反趋势限定方向空，时间空间都满足，否则不做。优先级还是新的趋势建仓单。',
       '严格选品，分批挂单。保持最佳位置挂单的好习惯，经常会有惊喜。',
       '分仓不如集中子弹到最优势的单子，多维度去解读操作。基于方向的确定性，实现收益最大化。',
       '不符合模型就跑，亏不了多少。无需纠结，集中力量到下一单。',
       '放弃多空临界值的单子，做好趋势交易的本分。',
       '钝感力，松弛感。',
-      '趋势跟随确认正确以后加仓。趋势力预测确认正确以后转吃鱼助手。',
+      '趋势建仓确认正确以后加仓。趋势力预测确认正确以后转顺势而为。',
       '严格选品，耐心等待，保守前进。',
       '多做多错，少做不错。 非必要不操作是最好的操作。',
       '错过一些机会证明我的风控做的很好，要继续保持，不要觊觎其他的力量。',
       '已经认证过可行性，只需坚定循环执行。不要调整，稳定盈利才是王道。',
       '所有操作必须有体系结论，无结论坚决不操作。杜绝一切临时起意的奇怪想法。',
-      '行情有四种形态：趋势跟随、反趋势、追涨杀跌、极限逼空。每个形态都可以用体系辅助解析。',
+      '行情有四种形态：趋势建仓、反趋势、追涨杀跌、极限逼空。每个形态都可以用体系辅助解析。',
       '顶级判断力，缺乏执行力。实际操作中，保留底仓长线+部分短线操作可以有效缓解执行焦虑。',
       '每天早中晚发掘新机会，只做最好的，排行前三开单。不纠结利用率问题。',
       '在行情剧烈时候操作，在行情缓慢时候思考。',
-      '趋势跟随坚持到底，反趋势见好就收。',
+      '趋势建仓坚持到底，反趋势见好就收。',
       '排行榜前10是最大的机会，种类不超过三。',
       '打好基础，指数增长。技术爆炸。螺旋上升。',
       '4h为主，1d为辅。优先级不能变，',
@@ -997,7 +1009,7 @@ const METHODOLOGY_SECTIONS = [
       '双向思维，多时间维度分析。',
       '谨慎会导致盈利的缩水，但也是活着的必要代价。',
       '知行合一，星辰大海只是时间问题。',
-      '趋势跟随的机会，往往不在热度排行榜，而是在水下。',
+      '趋势建仓的机会，往往不在热度排行榜，而是在水下。',
       '1天＝3个8小时。做1看2，止盈止损两个时间单位。（顺势而为数据化解析）',
       '想赚钱还是要做头部热度排行榜。',
       '认真挂好每一单，永远相信美好的事情即将发生。',
@@ -1015,7 +1027,7 @@ const METHODOLOGY_SECTIONS = [
       '主动出击，立即成交。时间点调整补仓减仓调整。确保成交率，保留调整机会。',
       '仓位控制，不要心态影响操作。时间才是最好的杠杆。',
       '龙头机会最大，这是不争的事实。',
-      '一个模型，三个阶段形态。趋势跟随前期挂单，后期看二追一。注意拐点10的避险和验证。验证以后做回调的看二追一。',
+      '一个模型，三个阶段形态。趋势建仓前期挂单，后期看二追一。注意拐点10的避险和验证。验证以后做回调的看二追一。',
       '参考数据是为了更好的盈利，不是为了困住自己。有利润随时出，当前的利润才是真实的，合约本身就是限定时间空间的走一步看一步。',
       '本金分配需要平衡成交率、最佳位置、后手补仓。所以最佳分配方案是2个仓位(28正太分布），立即成交一半，最佳位置加仓一半。',
       '转折点 ==> 时间10单位+空间10倍 ==> 解除封印，单边行情',
@@ -1750,7 +1762,7 @@ function renderMethodologyBalanceBannerHtml() {
     '<aside class="methodology-balance" aria-label="生命周期理论">',
     '<div class="methodology-balance__row">',
     '<div class="methodology-balance__side">',
-    '<span class="methodology-balance__stage">趋势跟随</span>',
+    '<span class="methodology-balance__stage">趋势建仓</span>',
     '<span class="methodology-balance__desc">时间10，空间3-5倍</span>',
     '</div>',
     '<span class="methodology-balance__arrow" aria-hidden="true">==&gt;</span>',
@@ -2048,7 +2060,7 @@ function calcTakeProfit(open, stop, multiplier = 1) {
   return open - move;
 }
 
-/** 吃鱼助手止盈：以 from→to 为 1 倍空间，默认 2 倍 */
+/** 顺势而为止盈：以 from→to 为 1 倍空间，默认 2 倍 */
 function calcAssistTakeProfitPrice(from, to, multiple = ASSIST_TAKE_PROFIT_MULTIPLE) {
   const start = Number(from);
   const end = Number(to);
@@ -2108,7 +2120,7 @@ function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces 
   return formatTrimmedFixedDecimals(normalized, decimals);
 }
 
-/** 趋势跟随最佳止盈点位：5R，方向随多空（开>止为多，开<止为空） */
+/** 趋势建仓最佳止盈点位：5R，方向随多空（开>止为多，开<止为空） */
 function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
@@ -2149,7 +2161,7 @@ function calcAdjustedOpenPrice(open, stop, decimalPlaces) {
   return Number(formatFixedDecimals(open, decimalPlaces));
 }
 
-/** 趋势跟随让利价；reverse 仅用于兼容旧数据重算 */
+/** 趋势建仓让利价；reverse 仅用于兼容旧数据重算 */
 function calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces, reverse = false) {
   const stopDiff = Math.abs(entryPrice - stopLoss);
   if (!(stopDiff > 0) || !Number.isFinite(rate)) return null;
@@ -2392,7 +2404,8 @@ function renderConcessionsHtml({
       item,
       rateLabel,
       stop,
-      hideQuantity: assistLabels && prefix !== 'admin' && shouldHideAssistQuantity(item.rate),
+      hideQuantity: item.hideQuantity === true
+        || (assistLabels && prefix !== 'admin' && shouldHideAssistQuantity(item.rate)),
       hideStop: hideStopColumn,
       strikeRate: assistLabels && shouldHideAssistQuantity(item.rate),
       copyableNumbers: prefix === 'admin',
@@ -2436,7 +2449,7 @@ function renderConcessionsHtml({
     : '数量';
 
   return [
-    `<div class="${wrapper}" aria-label="${assistLabels ? '吃鱼助手位置' : '让利档位'}">`,
+    `<div class="${wrapper}" aria-label="${assistLabels ? '顺势而为位置' : '让利档位'}">`,
     `<div class="${rowClass} ${rowClass}--head">`,
     `<span class="${rowClass}__rate">${rateHeaderInner}</span>`,
     `<span class="${rowClass}__price">价格</span>`,
@@ -2829,7 +2842,7 @@ function generateAssist() {
   const priceDecimals = Math.max(3, getPriceDecimalPlacesFromValues(fromEl?.value, toEl?.value));
   const strategy = buildAssistStrategy(from, to, openCostTotal, priceDecimals);
   if (!strategy) {
-    if (errEl) errEl.textContent = '无法生成吃鱼助手档位，请检查 from / to。';
+    if (errEl) errEl.textContent = '无法生成顺势而为档位，请检查 from / to。';
     clearAssistState();
     return;
   }
@@ -3655,7 +3668,7 @@ function buildAdminListItemHtml(row) {
     stopLabel = counter.stopLoss || '—';
   } else if (isAssistStrategy) {
     concessions = buildAdminAssistConcessionsForDisplay(row);
-    // 吃鱼助手：止盈=from→to 的 2 倍空间，止损=from
+    // 顺势而为：止盈=from→to 的 2 倍空间，止损=from
     const assistFrom = toNumber(row?.inputPrice ?? row?.stopLossPrice);
     const assistTo = toNumber(row?.inputStopLoss);
     const assistTp = calcAssistTakeProfitPrice(assistFrom, assistTo);
@@ -3665,7 +3678,7 @@ function buildAdminListItemHtml(row) {
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
   } else {
     concessions = buildAdminDisplayConcessions(row);
-    // 趋势跟随：止盈=5R 最佳点位（区分多空），止损=原止损
+    // 趋势建仓：止盈=5R 最佳点位（区分多空），止损=原止损
     takeProfitLabel = buildAdminBestTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
   }
@@ -3682,7 +3695,7 @@ function buildAdminListItemHtml(row) {
       ? {
         formatRate: formatCounterTrendRate,
         rateHeaderLabel: '倍数',
-        // 5R 量最大，升序后反转，保证数量从大到小
+        // 升序后反转：30R → 20R → 10R → 5R → 3R
         reverseOrder: true,
       }
       : {}),
@@ -3718,13 +3731,13 @@ function buildAdminListItemHtml(row) {
     : '';
   const counterTrendHtml = rawId && canShowCounterTrend(row)
     ? [
-      `<button type="button" class="admin-counter-trend${showCounterTrend ? ' is-active' : ''}${updatingAdminViewModeIds.has(rawId) ? ' is-syncing' : ''}" data-counter-trend-toggle data-id="${id}" aria-pressed="${showCounterTrend ? 'true' : 'false'}" aria-busy="${updatingAdminViewModeIds.has(rawId) ? 'true' : 'false'}"${updatingAdminViewModeIds.has(rawId) ? ' disabled' : ''} aria-label="${showCounterTrend ? '切换回趋势跟随' : '查看趋势力预测'}">`,
-      `<span class="admin-counter-trend__tag">${showCounterTrend ? '趋势力预测' : '趋势跟随'}</span>`,
+      `<button type="button" class="admin-counter-trend${showCounterTrend ? ' is-active' : ''}${updatingAdminViewModeIds.has(rawId) ? ' is-syncing' : ''}" data-counter-trend-toggle data-id="${id}" aria-pressed="${showCounterTrend ? 'true' : 'false'}" aria-busy="${updatingAdminViewModeIds.has(rawId) ? 'true' : 'false'}"${updatingAdminViewModeIds.has(rawId) ? ' disabled' : ''} aria-label="${showCounterTrend ? '切换回趋势建仓' : '查看趋势力预测'}">`,
+      `<span class="admin-counter-trend__tag">${showCounterTrend ? '趋势力预测' : '趋势建仓'}</span>`,
       '</button>',
     ].join('')
     : '';
   const assistTagHtml = isAssistStrategy
-    ? '<span class="admin-assist-tag" aria-label="吃鱼助手">吃鱼助手</span>'
+    ? '<span class="admin-assist-tag" aria-label="顺势而为">顺势而为</span>'
     : '';
   const timeframeTagHtml = getTimeframeTagHtml(row?.timeframe);
   const titleGroupHtml = [
@@ -4909,7 +4922,7 @@ async function saveAssistOutput() {
     setPage('admin');
     flashCopyStrategyBtn(btn, isEditing ? '已修改' : '已保存');
   } catch (err) {
-    logSave('error', '吃鱼助手保存失败', {
+    logSave('error', '顺势而为保存失败', {
       message: err?.message || String(err),
     });
     if (errEl) errEl.textContent = '保存失败。请检查 Supabase 表和权限。';
