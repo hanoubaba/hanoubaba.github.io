@@ -198,14 +198,11 @@ let assistStartTimeUserPicked = false;
 let mobileTimePickerScope = 'trend';
 
 const PRICE_ADJUSTMENT_RATE = 0;
-const CONCESSION_RATES = [
-  { rate: 0, display: true, reuseMinTierCost: true },
-  { rate: 0.1, display: true, reuseMinTierCost: true },
-  { rate: 0.2, costShare: 1 / 3 },
-  { rate: 0.5, costShare: 1 / 3 },
-  { rate: 0.8, costShare: 1 / 3 },
-];
-const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
+const CONCESSION_RATES = Array.from({ length: 9 }, (_, index) => {
+  const rate = index / 10;
+  return rate === 0 ? { rate, display: true } : { rate };
+});
+const LEGACY_TIER_COUNTS = new Set([5, 6, 7, 9, 10]);
 const DEFAULT_TIER_COUNT = 3;
 const TRADE_MODE_NORMAL = 'normal';
 const OPEN_COST_BASE = 100;
@@ -225,14 +222,10 @@ const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
 /** 反趋势：挂单档位 = 原策略 3/4/5 倍止盈价，止损 = 10 倍止盈价 */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 4, 5];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
-/** 辅助开单：10%/20% 复用最小让利档仓位；后台每档固定本金；80% 仅展示 */
-const ASSIST_TIER_RATIOS = [
-  { rate: 0.1, label: '10%（鱼头三选一）', reuseMinTierCost: true },
-  { rate: 0.2, label: '20%（鱼头三选一）', reuseMinTierCost: true },
-  { rate: 0.3, label: '30%（鱼头三选一）', costShare: 3 / 5 },
-  { rate: 0.5, label: '50%', costShare: 2 / 5 },
-  { rate: 0.8, label: '80%（鱼尾）', costShare: 0 },
-];
+/** 吃鱼助手：20% 到 100%，每档 10%；后台每档固定本金 */
+const ASSIST_TIER_RATIOS = Array.from({ length: 9 }, (_, index) => ({
+  rate: (index + 2) / 10,
+}));
 /** 兼容旧辅助开单比例识别 */
 const ASSIST_TIER_RATES_LEGACY = [1 / 3, 1 / 2, 2 / 3];
 const ASSIST_TIER_RATES_LEGACY_66 = [0.3, 0.5, 0.66];
@@ -240,6 +233,8 @@ const ASSIST_TIER_RATES_LEGACY_70 = [0.3, 0.5, 0.7];
 const ASSIST_TIER_RATES_LEGACY_75 = [0.33, 0.48, 0.75];
 const ASSIST_TIER_RATES_LEGACY_30_48_80 = [0.3, 0.48, 0.8];
 const ASSIST_TIER_RATES_LEGACY_10_20_30_48_80 = [0.1, 0.2, 0.3, 0.48, 0.8];
+const ASSIST_TIER_RATES_LEGACY_10_20_30_50_80 = [0.1, 0.2, 0.3, 0.5, 0.8];
+const ASSIST_TIER_RATES_LEGACY_10_TO_100 = Array.from({ length: 10 }, (_, index) => (index + 1) / 10);
 const ASSIST_TITLE_SUFFIX = ' (吃鱼助手)';
 
 function clampOpenCostMultiplier(value) {
@@ -524,22 +519,33 @@ function ratesMatch(actual, expected) {
   return expected.every((rate, index) => Math.abs(actual[index] - rate) < 1e-9);
 }
 
+function getConfiguredDisplayRates(rateConfigs) {
+  return (Array.isArray(rateConfigs) ? rateConfigs : [])
+    .filter(isDisplayRateConfig)
+    .map((item) => Number(normalizeConcessionRateConfig(item).rate))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+}
+
 function isCurrentTrendConcessionSet(concessions) {
-  const rates = getSortedDisplayRates(concessions);
-  return ratesMatch(rates, [0, 0.1, 0.2, 0.5, 0.8])
-    || ratesMatch(rates, [0.2, 0.5, 0.8])
-    || ratesMatch(rates, [0, 0.3, 0.8]);
+  return ratesMatch(getSortedDisplayRates(concessions), getConfiguredDisplayRates(CONCESSION_RATES));
+}
+
+function isCurrentAssistConcessionSet(concessions) {
+  return ratesMatch(getSortedDisplayRates(concessions), getConfiguredDisplayRates(ASSIST_TIER_RATIOS));
 }
 
 function isAssistConcessionSet(concessions) {
   const rates = getSortedDisplayRates(concessions);
-  return ratesMatch(rates, ASSIST_TIER_RATIOS.map((item) => item.rate))
+  return isCurrentAssistConcessionSet(concessions)
     || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY)
     || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_66)
     || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_70)
     || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_75)
     || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_30_48_80)
-    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_10_20_30_48_80);
+    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_10_20_30_48_80)
+    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_10_20_30_50_80)
+    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_10_TO_100);
 }
 
 function getAssistTierLabel(rate) {
@@ -547,8 +553,8 @@ function getAssistTierLabel(rate) {
   return matched?.label || formatConcessionPercent(rate);
 }
 
-function shouldHideAssistQuantity(rate) {
-  return Math.abs(Number(rate) - 0.8) < 1e-9;
+function shouldHideAssistQuantity(_rate) {
+  return false;
 }
 
 function formatAssistStrategyTitle(name) {
@@ -584,7 +590,7 @@ function buildAdminDisplayConcessions(row) {
 function buildAdminAssistConcessionsForDisplay(row) {
   const savedConcessions = buildAdminConcessionsForRow(row);
   const stopLoss = toNumber(row?.inputPrice ?? row?.stopLossPrice);
-  if (isAssistConcessionSet(savedConcessions)) {
+  if (isCurrentAssistConcessionSet(savedConcessions)) {
     return applyAdminFixedTierQuantities(savedConcessions, stopLoss, { isAssist: true });
   }
   return applyAdminFixedTierQuantities(buildAssistConcessionsFromRow(row), stopLoss, { isAssist: true });
@@ -704,6 +710,7 @@ function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces, fixe
     return [];
   }
   const stop = from;
+  const fundedCount = countFundedRateConfigs(ASSIST_TIER_RATIOS);
   const minFundedShare = getMinFundedTierCostShare(ASSIST_TIER_RATIOS);
   const items = [];
   for (const rateConfig of ASSIST_TIER_RATIOS) {
@@ -712,12 +719,12 @@ function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces, fixe
     if (price == null || !(price > 0) || price === stop) continue;
     const share = reuseMinTierCost
       ? minFundedShare
-      : (costShare != null ? costShare : null);
-    const tierOpenCost = share != null && share > 0
+      : (costShare != null ? costShare : (fundedCount > 0 ? 1 / fundedCount : null));
+    const tierOpenCost = (share != null && share > 0) || Number(fixedTierOpenCost) > 0
       ? resolveTierOpenCost(openCostTotal, share, fixedTierOpenCost)
       : null;
     const qty = tierOpenCost != null ? calcQuantityByRisk(tierOpenCost, price, stop) : null;
-    if (share != null && share > 0 && (qty == null || !(qty > 0))) continue;
+    if (tierOpenCost != null && (qty == null || !(qty > 0))) continue;
     const item = {
       rate,
       display: true,
@@ -986,6 +993,7 @@ const METHODOLOGY_SECTIONS = [
       '只做龙头日内8小时右侧趋势，8小时内不操作。',
       '仓位超过10%就会心态失衡，时间空间杠杆的价值就没了，得不偿失。',
       '咒语-验证-结局。',
+      '最大的风险来自于不敢承担风险。',
     ],
   },
   {
