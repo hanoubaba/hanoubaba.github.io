@@ -228,9 +228,9 @@ const FISH_TAKE_PROFIT_MULTIPLE = 1;
 const FISH_TIMEFRAME = '1d';
 const FISH_TIMEFRAME_MINUTES = 1440;
 const FISH_VALID_PERIODS = 3650; // ≈10 年，视为长期有效
-/** 反趋势：挂单档位 = 原策略 3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R/20R/30R 价格（无数量） */
+/** 反趋势：挂单档位 = 原策略 3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R/20R/30R/40R/50R 价格（无数量） */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 5];
-const COUNTER_TREND_PRICE_ONLY_MULTIPLES = [10, 20, 30];
+const COUNTER_TREND_PRICE_ONLY_MULTIPLES = [10, 20, 30, 40, 50];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
 /** 辅助开单：10%/20% 复用最小让利档仓位；后台每档固定本金；80% 仅展示 */
 const ASSIST_TIER_RATIOS = [
@@ -700,7 +700,7 @@ function normalizeStrategyViewMode(value) {
 /**
  * 反趋势策略：以原策略 R 倍数推算挂单价与止损。
  * 例：开 10 / 止 9 → 挂 13、15，止损 20；每档固定本金后 qty = 档本金 / |价-止损|
- * 另展示 10R / 20R / 30R 价格（无数量）；参考止盈取原开仓价；时间范围接在原策略结束后再排 10 个周期。
+ * 另展示 10R / 20R / 30R / 40R / 50R 价格（无数量）；参考止盈取原开仓价；时间范围接在原策略结束后再排 10 个周期。
  */
 function buildCounterTrendConcessions(row) {
   const entryPrice = toNumber(row?.entryPrice);
@@ -4000,7 +4000,7 @@ function buildAdminListItemHtml(row) {
       ? {
         formatRate: formatCounterTrendRate,
         rateHeaderLabel: '倍数',
-        // 升序后反转：30R → 20R → 10R → 5R → 3R
+        // 升序后反转：50R → 40R → 30R → 20R → 10R → 5R → 3R
         reverseOrder: true,
       }
       : {}),
