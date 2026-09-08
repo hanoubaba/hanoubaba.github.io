@@ -198,11 +198,14 @@ let assistStartTimeUserPicked = false;
 let mobileTimePickerScope = 'trend';
 
 const PRICE_ADJUSTMENT_RATE = 0;
-const CONCESSION_RATES = Array.from({ length: 9 }, (_, index) => {
-  const rate = index / 10;
-  return rate === 0 ? { rate, display: true } : { rate };
-});
-const LEGACY_TIER_COUNTS = new Set([5, 6, 7, 9, 10]);
+const CONCESSION_RATES = [
+  { rate: 0, display: true, reuseMinTierCost: true },
+  { rate: 0.1, display: true, reuseMinTierCost: true },
+  { rate: 0.2, costShare: 1 / 3 },
+  { rate: 0.5, costShare: 1 / 3 },
+  { rate: 0.8, costShare: 1 / 3 },
+];
+const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
 const TRADE_MODE_NORMAL = 'normal';
 const OPEN_COST_BASE = 100;
@@ -222,10 +225,14 @@ const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
 /** 反趋势：挂单档位 = 原策略 3/4/5 倍止盈价，止损 = 10 倍止盈价 */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 4, 5];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
-/** 吃鱼助手：20% 到 100%，每档 10%；后台每档固定本金 */
-const ASSIST_TIER_RATIOS = Array.from({ length: 9 }, (_, index) => ({
-  rate: (index + 2) / 10,
-}));
+/** 辅助开单：10%/20% 复用最小让利档仓位；后台每档固定本金；80% 仅展示 */
+const ASSIST_TIER_RATIOS = [
+  { rate: 0.1, label: '10%（鱼头三选一）', reuseMinTierCost: true },
+  { rate: 0.2, label: '20%（鱼头三选一）', reuseMinTierCost: true },
+  { rate: 0.3, label: '30%（鱼头三选一）', costShare: 3 / 5 },
+  { rate: 0.5, label: '50%', costShare: 2 / 5 },
+  { rate: 0.8, label: '80%（鱼尾）', costShare: 0 },
+];
 /** 兼容旧辅助开单比例识别 */
 const ASSIST_TIER_RATES_LEGACY = [1 / 3, 1 / 2, 2 / 3];
 const ASSIST_TIER_RATES_LEGACY_66 = [0.3, 0.5, 0.66];
@@ -235,6 +242,7 @@ const ASSIST_TIER_RATES_LEGACY_30_48_80 = [0.3, 0.48, 0.8];
 const ASSIST_TIER_RATES_LEGACY_10_20_30_48_80 = [0.1, 0.2, 0.3, 0.48, 0.8];
 const ASSIST_TIER_RATES_LEGACY_10_20_30_50_80 = [0.1, 0.2, 0.3, 0.5, 0.8];
 const ASSIST_TIER_RATES_LEGACY_10_TO_100 = Array.from({ length: 10 }, (_, index) => (index + 1) / 10);
+const ASSIST_TIER_RATES_LEGACY_20_TO_100 = Array.from({ length: 9 }, (_, index) => (index + 2) / 10);
 const ASSIST_TITLE_SUFFIX = ' (吃鱼助手)';
 
 function clampOpenCostMultiplier(value) {
@@ -528,7 +536,10 @@ function getConfiguredDisplayRates(rateConfigs) {
 }
 
 function isCurrentTrendConcessionSet(concessions) {
-  return ratesMatch(getSortedDisplayRates(concessions), getConfiguredDisplayRates(CONCESSION_RATES));
+  const rates = getSortedDisplayRates(concessions);
+  return ratesMatch(rates, [0, 0.1, 0.2, 0.5, 0.8])
+    || ratesMatch(rates, [0.2, 0.5, 0.8])
+    || ratesMatch(rates, [0, 0.3, 0.8]);
 }
 
 function isCurrentAssistConcessionSet(concessions) {
@@ -545,7 +556,8 @@ function isAssistConcessionSet(concessions) {
     || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_30_48_80)
     || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_10_20_30_48_80)
     || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_10_20_30_50_80)
-    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_10_TO_100);
+    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_10_TO_100)
+    || ratesMatch(rates, ASSIST_TIER_RATES_LEGACY_20_TO_100);
 }
 
 function getAssistTierLabel(rate) {
@@ -553,8 +565,8 @@ function getAssistTierLabel(rate) {
   return matched?.label || formatConcessionPercent(rate);
 }
 
-function shouldHideAssistQuantity(_rate) {
-  return false;
+function shouldHideAssistQuantity(rate) {
+  return Math.abs(Number(rate) - 0.8) < 1e-9;
 }
 
 function formatAssistStrategyTitle(name) {
@@ -710,7 +722,6 @@ function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces, fixe
     return [];
   }
   const stop = from;
-  const fundedCount = countFundedRateConfigs(ASSIST_TIER_RATIOS);
   const minFundedShare = getMinFundedTierCostShare(ASSIST_TIER_RATIOS);
   const items = [];
   for (const rateConfig of ASSIST_TIER_RATIOS) {
@@ -719,12 +730,12 @@ function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces, fixe
     if (price == null || !(price > 0) || price === stop) continue;
     const share = reuseMinTierCost
       ? minFundedShare
-      : (costShare != null ? costShare : (fundedCount > 0 ? 1 / fundedCount : null));
-    const tierOpenCost = (share != null && share > 0) || Number(fixedTierOpenCost) > 0
+      : (costShare != null ? costShare : null);
+    const tierOpenCost = share != null && share > 0
       ? resolveTierOpenCost(openCostTotal, share, fixedTierOpenCost)
       : null;
     const qty = tierOpenCost != null ? calcQuantityByRisk(tierOpenCost, price, stop) : null;
-    if (tierOpenCost != null && (qty == null || !(qty > 0))) continue;
+    if (share != null && share > 0 && (qty == null || !(qty > 0))) continue;
     const item = {
       rate,
       display: true,
@@ -1006,6 +1017,9 @@ const METHODOLOGY_SECTIONS = [
       '龙头机会最大，这是不争的事实。',
       '一个模型，三个阶段形态。趋势跟随前期挂单，后期看二追一。注意拐点10的避险和验证。验证以后做回调的看二追一。',
       '参考数据是为了更好的盈利，不是为了困住自己。有利润随时出，当前的利润才是真实的，合约本身就是限定时间空间的走一步看一步。',
+      '本金分配需要平衡成交率、最佳位置、后手补仓。所以最佳分配方案是2个仓位(28正太分布），立即成交一半，最佳位置加仓一半。',
+      '转折点 ==> 时间10单位+空间10倍 ==> 解除封印，单边行情',
+      '不要轻易删数据，历史数据很有研究价值。',
     ],
   },
 ];
