@@ -220,7 +220,7 @@ const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R = 3;
 const BEST_TAKE_PROFIT_R = 5;
 const STRATEGY_DURATION_PERIODS = 10;
-const ASSIST_DURATION_PERIODS = 4;
+const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
 /** 反趋势：挂单档位 = 原策略 3/4/5 倍止盈价，止损 = 10 倍止盈价 */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 4, 5];
@@ -996,6 +996,8 @@ const METHODOLOGY_SECTIONS = [
       '主动出击，立即成交。时间点调整补仓减仓调整。确保成交率，保留调整机会。',
       '仓位控制，不要心态影响操作。时间才是最好的杠杆。',
       '龙头机会最大，这是不争的事实。',
+      '一个模型，三个阶段形态。趋势跟随前期挂单，后期看二追一。注意拐点10的避险和验证。验证以后做回调的看二追一。',
+      '参考数据是为了更好的盈利，不是为了困住自己。有利润随时出，当前的利润才是真实的，合约本身就是限定时间空间的走一步看一步。',
     ],
   },
 ];
@@ -1374,6 +1376,7 @@ function fromDbRecord(row) {
     dbCreatedAt: row.created_at,
     dbUpdatedAt: row.updated_at,
     strategyName: row.strategy_name,
+    description: dbValueToString(row.description),
     positionSide: row.position_side,
     inputPrice: dbValueToString(row.input_price),
     inputStopLoss: dbValueToString(row.input_stop_loss),
@@ -1409,6 +1412,7 @@ function toDbRecord(record) {
   const openCostMultiplier = clampOpenCostMultiplier(record.openCostMultiplier ?? openCostTotal / OPEN_COST_BASE);
   return {
     strategy_name: record.strategyName,
+    description: String(record.description ?? '').trim(),
     position_side: record.positionSide,
     input_price: toNumber(record.inputPrice),
     input_stop_loss: toNumber(record.inputStopLoss),
@@ -1729,7 +1733,7 @@ function renderMethodologyBalanceBannerHtml() {
     '</div>',
     '<span class="methodology-balance__arrow" aria-hidden="true">==&gt;</span>',
     '<div class="methodology-balance__side">',
-    '<span class="methodology-balance__stage">趋势力预测</span>',
+    '<span class="methodology-balance__stage">趋势力回调</span>',
     '<span class="methodology-balance__desc">时间空间都满足，止损空间翻倍非常安全</span>',
     '</div>',
     '<span class="methodology-balance__arrow" aria-hidden="true">==&gt;</span>',
@@ -1799,11 +1803,21 @@ function getStartSlotValueFromRow(row) {
   return formatStartSlotValue(floorDateToStep(startAt, stepMinutes));
 }
 
+function getDescriptionInputId(scope = getFrontFormScope()) {
+  return scope === 'assist' ? 'assist-desc-input' : 'desc-input';
+}
+
+function getStrategyDescription(scope = getFrontFormScope()) {
+  return String(document.getElementById(getDescriptionInputId(scope))?.value ?? '').trim();
+}
+
 function populateTrendFormFromRow(row) {
   const nameEl = document.getElementById('name-input');
+  const descEl = document.getElementById('desc-input');
   const openEl = document.getElementById('open-price-input');
   const stopEl = document.getElementById('stop-price-input');
   if (nameEl) nameEl.value = String(row?.strategyName ?? '').trim();
+  if (descEl) descEl.value = String(row?.description ?? '').trim();
   if (openEl) openEl.value = String(row?.inputPrice ?? '').trim();
   if (stopEl) stopEl.value = String(row?.inputStopLoss ?? '').trim();
   setFrontTimeframeMode(row?.timeframe || DEFAULT_TIMEFRAME, { refresh: false, scope: 'trend' });
@@ -1814,9 +1828,11 @@ function populateTrendFormFromRow(row) {
 
 function populateAssistFormFromRow(row) {
   const nameEl = document.getElementById('assist-name-input');
+  const descEl = document.getElementById('assist-desc-input');
   const fromEl = document.getElementById('assist-from-input');
   const toEl = document.getElementById('assist-to-input');
   if (nameEl) nameEl.value = String(row?.strategyName ?? '').trim();
+  if (descEl) descEl.value = String(row?.description ?? '').trim();
   if (fromEl) fromEl.value = String(row?.inputPrice ?? '').trim();
   if (toEl) toEl.value = String(row?.inputStopLoss ?? '').trim();
   setFrontTimeframeMode(row?.timeframe || DEFAULT_ASSIST_TIMEFRAME, { refresh: false, scope: 'assist' });
@@ -1830,6 +1846,7 @@ function readFrontFormDraft(scope) {
   const { sel } = getStartTimeFieldEls(isAssist ? 'assist' : 'trend');
   return {
     name: String(document.getElementById(isAssist ? 'assist-name-input' : 'name-input')?.value ?? ''),
+    description: String(document.getElementById(isAssist ? 'assist-desc-input' : 'desc-input')?.value ?? ''),
     timeframe: getTimeframeMode(isAssist ? 'assist' : 'trend'),
     startTime: String(sel?.value ?? '').trim(),
     startTimePicked: isStartTimeUserPicked(isAssist ? 'assist' : 'trend'),
@@ -1841,9 +1858,11 @@ function readFrontFormDraft(scope) {
 function applyFrontFormDraft(draft, scope) {
   const isAssist = scope === 'assist';
   const nameEl = document.getElementById(isAssist ? 'assist-name-input' : 'name-input');
+  const descEl = document.getElementById(isAssist ? 'assist-desc-input' : 'desc-input');
   const priceAEl = document.getElementById(isAssist ? 'assist-from-input' : 'open-price-input');
   const priceBEl = document.getElementById(isAssist ? 'assist-to-input' : 'stop-price-input');
   if (nameEl) nameEl.value = draft.name ?? '';
+  if (descEl) descEl.value = draft.description ?? '';
   if (priceAEl) priceAEl.value = draft.priceA ?? '';
   if (priceBEl) priceBEl.value = draft.priceB ?? '';
   setFrontTimeframeMode(
@@ -1936,20 +1955,34 @@ function formatAdminCardTitlePlain(name, remark) {
   return note ? `${title}，备注：${note}` : title;
 }
 
+function renderAdminDescriptionHtml(description) {
+  const text = String(description ?? '').trim();
+  if (!text) return '';
+  return [
+    '<div class="admin-item__desc">',
+    '<span class="admin-item__desc-label">描述：</span>',
+    `<p class="admin-item__desc-text">${escapeHtml(text)}</p>`,
+    '</div>',
+  ].join('');
+}
+
 function renderAdminRemarkStampHtml(remark) {
   const note = String(remark ?? '').trim();
   if (!note) return '';
   return `<div class="admin-item__remark-stamp" aria-label="备注：${escapeHtml(note)}">${escapeHtml(note)}</div>`;
 }
 
-function buildStrategyCopyText({ name, price, quantity, takeProfit, stopLoss }) {
-  return [
+function buildStrategyCopyText({ name, price, quantity, takeProfit, stopLoss, description }) {
+  const lines = [
     formatStrategyCardTitle(name),
     `开始价格：${String(price ?? '').trim()}`,
     `数量：${String(quantity ?? '').trim()}`,
     `止盈：${String(takeProfit ?? '').trim()}`,
     `止损价格：${String(stopLoss ?? '').trim()}`,
-  ].join('\n');
+  ];
+  const note = String(description ?? '').trim();
+  if (note) lines.push(`描述：${note}`);
+  return lines.join('\n');
 }
 
 function enrichStrategyRecordForSubmit(record) {
@@ -1965,6 +1998,7 @@ function enrichStrategyRecordForSubmit(record) {
     timeframeLabel: getTimeframeLabel(timeframe),
     validPeriods,
     durationMinutes,
+    description: getStrategyDescription(),
   };
   const timeEl = getStartTimeFieldEls().sel;
   const startValue = timeEl && 'value' in timeEl ? String(timeEl.value).trim() : '';
@@ -2478,9 +2512,11 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
     quantity: qty,
     takeProfit: tpLabel,
     stopLoss: stopLabel,
+    description: getStrategyDescription('trend'),
   });
   const record = {
     strategyName: alarmName,
+    description: getStrategyDescription('trend'),
     positionSide: side,
     inputPrice: formatPrice(open),
     inputStopLoss: formatPrice(stop),
@@ -2635,6 +2671,8 @@ function resetFrontPage() {
   if (openInput) openInput.value = '';
   if (stopInput) stopInput.value = '';
   if (nameInput) nameInput.value = '';
+  const descEl = document.getElementById('desc-input');
+  if (descEl) descEl.value = '';
   const errEl = document.getElementById('error');
   if (errEl) errEl.textContent = '';
   clearStrategyState();
@@ -2647,10 +2685,12 @@ function clearAssistState() {
 
 function resetAssistPage() {
   const nameEl = document.getElementById('assist-name-input');
+  const descEl = document.getElementById('assist-desc-input');
   const fromEl = document.getElementById('assist-from-input');
   const toEl = document.getElementById('assist-to-input');
   const errEl = document.getElementById('assist-error');
   if (nameEl) nameEl.value = '';
+  if (descEl) descEl.value = '';
   if (fromEl) fromEl.value = '';
   if (toEl) toEl.value = '';
   if (errEl) errEl.textContent = '';
@@ -2682,6 +2722,7 @@ function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
   const openCostMultiplier = OPEN_COST_MULTIPLIER_DEFAULT;
   const openCost = openCostTotal / DEFAULT_TIER_COUNT;
 
+  const description = getStrategyDescription('assist');
   const fromLabel = formatTrimmedFixedDecimals(from, priceDecimalPlaces);
   const copyText = [
     formatAssistStrategyTitle(name),
@@ -2693,10 +2734,12 @@ function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
     }),
     `止盈价格：${tpLabel}`,
     `止损价格：${fromLabel}`,
+    ...(description ? [`描述：${description}`] : []),
   ].join('\n');
 
   const record = {
     strategyName: name,
+    description,
     positionSide: side,
     inputPrice: formatTrimmedFixedDecimals(from, priceDecimalPlaces),
     inputStopLoss: formatTrimmedFixedDecimals(to, priceDecimalPlaces),
@@ -3694,6 +3737,7 @@ function buildAdminListItemHtml(row) {
       : '',
     '</div>',
     '</div>',
+    renderAdminDescriptionHtml(row?.description),
     '</article>',
   ].join('');
 }

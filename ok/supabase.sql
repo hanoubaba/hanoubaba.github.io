@@ -17,6 +17,7 @@ create table if not exists public.strategies (
   updated_at timestamptz not null default now(),
 
   strategy_name text not null,
+  description text not null default '',
   position_side text not null,
 
   input_price numeric not null,
@@ -554,6 +555,9 @@ drop constraint if exists strategies_view_mode_check;
 alter table public.strategies
 add constraint strategies_view_mode_check
 check (view_mode in ('trend', 'counter_trend'));
+
+alter table public.strategies
+add column if not exists description text not null default '';
 
 -- ------------------------------------------------------------
 -- 6. 应用设置（unit_cost：每档单位本金，数据统计页可改）

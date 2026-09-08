@@ -57,12 +57,7 @@
 
     <div id="front-trend-panel">
     <section class="panel" aria-label="参数输入">
-      <label class="field">
-        <span class="field-label">名称</span>
-        <input id="name-input" class="field-input" autocomplete="off" />
-      </label>
-
-      <div class="field field--spaced">
+      <div class="field">
         <span class="field-label" id="timeframe-label">时间维度</span>
         <div class="timeframe-switch" role="tablist" aria-labelledby="timeframe-label">
           <button id="btn-timeframe-4h" type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-timeframe="4h">4h</button>
@@ -70,6 +65,11 @@
           <button id="btn-timeframe-1d" type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-timeframe="1d">1d</button>
         </div>
       </div>
+
+      <label class="field field--spaced">
+        <span class="field-label">名称</span>
+        <input id="name-input" class="field-input" autocomplete="off" />
+      </label>
 
       <div class="field field--spaced">
         <span class="field-label" id="start-time-label">开始时间</span>
@@ -89,6 +89,11 @@
         <input id="stop-price-input" class="field-input" inputmode="decimal" autocomplete="off" />
       </label>
 
+      <label class="field field--spaced">
+        <span class="field-label">描述</span>
+        <textarea id="desc-input" class="field-input field-input--textarea" rows="3" autocomplete="off"></textarea>
+      </label>
+
       <p id="error" class="error" role="alert" aria-live="polite"></p>
     </section>
     <button id="btn-copy-strategy" type="button" class="btn-save-strategy" aria-label="保存策略">保存</button>
@@ -96,12 +101,7 @@
 
     <div id="front-assist-panel" hidden>
     <section class="panel" aria-label="吃鱼助手参数">
-      <label class="field">
-        <span class="field-label">名称</span>
-        <input id="assist-name-input" class="field-input" autocomplete="off" />
-      </label>
-
-      <div class="field field--spaced">
+      <div class="field">
         <span class="field-label" id="assist-timeframe-label">时间维度</span>
         <div class="timeframe-switch" role="tablist" aria-labelledby="assist-timeframe-label">
           <button type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-timeframe="4h">4h</button>
@@ -109,6 +109,11 @@
           <button type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-timeframe="1d">1d</button>
         </div>
       </div>
+
+      <label class="field field--spaced">
+        <span class="field-label">名称</span>
+        <input id="assist-name-input" class="field-input" autocomplete="off" />
+      </label>
 
       <div class="field field--spaced">
         <span class="field-label" id="assist-start-time-label">开始时间</span>
@@ -126,6 +131,11 @@
       <label class="field field--spaced">
         <span class="field-label">to</span>
         <input id="assist-to-input" class="field-input" inputmode="decimal" autocomplete="off" />
+      </label>
+
+      <label class="field field--spaced">
+        <span class="field-label">描述</span>
+        <textarea id="assist-desc-input" class="field-input field-input--textarea" rows="3" autocomplete="off"></textarea>
       </label>
 
       <p id="assist-error" class="error" role="alert" aria-live="polite"></p>

@@ -903,6 +903,35 @@ body.login-mode {
   gap: 4px;
 }
 
+.admin-item__desc {
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.admin-item__desc-label {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.admin-item__desc-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
 .admin-item__sub {
   display: flex;
   align-items: center;
@@ -1990,6 +2019,13 @@ body.login-mode {
   padding-right: 36px;
 }
 
+.field-input--textarea {
+  min-height: 72px;
+  resize: vertical;
+  line-height: 1.4;
+  font-family: inherit;
+}
+
 .field--spaced {
   margin-top: 8px;
 }
@@ -2848,9 +2884,11 @@ body.login-mode {
 
   .panel[aria-label="参数输入"] > label.field:first-of-type,
   .panel[aria-label="参数输入"] > label.field.field--spaced,
+  .panel[aria-label="参数输入"] > div.field,
   .panel[aria-label="参数输入"] > div.field.field--spaced,
   .panel[aria-label="吃鱼助手参数"] > label.field:first-of-type,
   .panel[aria-label="吃鱼助手参数"] > label.field.field--spaced,
+  .panel[aria-label="吃鱼助手参数"] > div.field,
   .panel[aria-label="吃鱼助手参数"] > div.field.field--spaced {
     grid-column: 1;
     margin-top: 0;
@@ -3048,6 +3086,11 @@ body.login-mode {
     font-size: 17px;
   }
 
+  .admin-item__desc-label,
+  .admin-item__desc-text {
+    font-size: 12px;
+  }
+
   .admin-time-status {
     flex: none;
     margin-left: 0;
@@ -3153,6 +3196,10 @@ body.login-mode {
     padding: 7px 8px;
     border-radius: 8px;
     font-size: 16px;
+  }
+
+  .field-input--textarea {
+    min-height: 64px;
   }
 
   .field-input:focus {
