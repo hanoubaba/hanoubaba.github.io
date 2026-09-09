@@ -52,8 +52,8 @@
     <section id="front-page" hidden>
     <div class="front-mode-switch" role="tablist" aria-label="前台模式">
       <button id="btn-front-mode-trend" type="button" class="front-mode-switch__btn is-active" role="tab" aria-selected="true">趋势建仓</button>
-      <button id="btn-front-mode-assist" type="button" class="front-mode-switch__btn" role="tab" aria-selected="false">顺势而为</button>
-      <button id="btn-front-mode-fish" type="button" class="front-mode-switch__btn" role="tab" aria-selected="false">吃鱼助手</button>
+      <button id="btn-front-mode-assist" type="button" class="front-mode-switch__btn" role="tab" aria-selected="false" disabled title="顺势而为暂不可用" aria-disabled="true">顺势而为</button>
+      <button id="btn-front-mode-fish" type="button" class="front-mode-switch__btn" role="tab" aria-selected="false">确认吃鱼</button>
     </div>
 
     <div id="front-trend-panel">
@@ -145,7 +145,7 @@
     </div>
 
     <div id="front-fish-panel" hidden>
-    <section class="panel" aria-label="吃鱼助手参数">
+    <section class="panel" aria-label="确认吃鱼参数">
       <label class="field">
         <span class="field-label">名称</span>
         <input id="fish-name-input" class="field-input" autocomplete="off" />
@@ -168,7 +168,7 @@
 
       <p id="fish-error" class="error" role="alert" aria-live="polite"></p>
     </section>
-    <button id="btn-save-fish" type="button" class="btn-save-strategy" aria-label="保存吃鱼助手">保存</button>
+    <button id="btn-save-fish" type="button" class="btn-save-strategy" aria-label="保存确认吃鱼">保存</button>
     </div>
     </section>
 
