@@ -825,6 +825,41 @@ function findRelatedTrendRow(row) {
   }) || null;
 }
 
+function findRelatedTierAssistRow(row) {
+  const key = getStrategyNameKey(row?.strategyName);
+  if (!key || key === '未命名') return null;
+  const selfId = String(row?.id ?? '').trim();
+  const rows = Array.isArray(latestAdminRows) ? latestAdminRows : [];
+  return rows.find((item) => {
+    if (!item || String(item?.id ?? '').trim() === selfId) return false;
+    if (getStrategyNameKey(item?.strategyName) !== key) return false;
+    return getAdminStrategyTypeInfo(item).type === 'tier_assist';
+  }) || null;
+}
+
+function getTierAssistSourceRate(row) {
+  const desc = String(row?.description ?? '');
+  const matched = desc.match(/来源\s*(\d+(?:\.\d+)?)R/i);
+  if (!matched) return null;
+  const rate = Number(matched[1]);
+  return Number.isFinite(rate) ? rate : null;
+}
+
+function isCounterTrendItemCurrentTierAssist(item, tierAssistRow) {
+  if (!tierAssistRow || !item) return false;
+  const entry = toNumber(tierAssistRow?.inputPrice ?? tierAssistRow?.entryPrice);
+  const price = toNumber(item?.price);
+  if (entry != null && price != null) {
+    const eps = Math.max(Math.abs(entry) * 1e-6, 1e-6);
+    if (Math.abs(entry - price) <= eps) return true;
+  }
+  const sourceRate = getTierAssistSourceRate(tierAssistRow);
+  const itemRate = Number(item?.rate);
+  return sourceRate != null
+    && Number.isFinite(itemRate)
+    && Math.abs(sourceRate - itemRate) < 1e-9;
+}
+
 function getTenRPriceFromTrend(trendRow) {
   const entry = toNumber(trendRow?.entryPrice);
   const stop = toNumber(trendRow?.stopLossPrice);
@@ -844,11 +879,13 @@ function isStopAtOrBeyondTenR(stopPrice, trendRow) {
 
 function isAdminTenRBoundaryRow(row) {
   const type = getAdminStrategyTypeInfo(row).type;
-  if (type !== 'assist' && type !== 'fish') return false;
+  if (type !== 'assist' && type !== 'fish' && type !== 'tier_assist') return false;
   const relatedTrend = findRelatedTrendRow(row);
   if (!relatedTrend) return false;
-  const assistFrom = toNumber(row?.inputPrice ?? row?.stopLossPrice);
-  return isStopAtOrBeyondTenR(assistFrom, relatedTrend);
+  const refPrice = type === 'tier_assist'
+    ? toNumber(row?.inputPrice ?? row?.entryPrice ?? row?.stopLossPrice)
+    : toNumber(row?.inputPrice ?? row?.stopLossPrice);
+  return isStopAtOrBeyondTenR(refPrice, relatedTrend);
 }
 
 function calcAssistTierPrice(from, to, ratio, decimalPlaces) {
@@ -2918,6 +2955,7 @@ function renderConcessionsHtml({
   boundary = null,
   sideActionsMode = false,
   sideActionsStrategyId = '',
+  isCurrentItem = null,
 }) {
   let displayItems = getDisplayConcessionItems(items);
   if (reverseOrder) displayItems = displayItems.slice().reverse();
@@ -2946,6 +2984,9 @@ function renderConcessionsHtml({
       ? stripRateAnnotation(formatted)
       : withBestConcessionLabel(formatted, item.rate);
     const useSideActions = sideActionsMode || item.showSideActions === true;
+    const isCurrent = typeof isCurrentItem === 'function'
+      ? Boolean(isCurrentItem(item))
+      : false;
     return renderConcessionRowHtml({
       rowClass,
       item,
@@ -2957,6 +2998,7 @@ function renderConcessionsHtml({
       hideStop: hideStopColumn,
       strikeRate: assistLabels && shouldHideAssistQuantity(item.rate),
       copyableNumbers: prefix === 'admin',
+      extraClass: isCurrent ? `${rowClass}--current is-current` : '',
       sideActionsHtml: useSideActions && prefix === 'admin'
         ? renderCounterTrendSideActionsHtml(sideActionsStrategyId, {
           ...item,
@@ -3050,6 +3092,7 @@ function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
     boundary: options.boundary || null,
     sideActionsMode: options.sideActionsMode === true,
     sideActionsStrategyId: options.sideActionsStrategyId || '',
+    isCurrentItem: typeof options.isCurrentItem === 'function' ? options.isCurrentItem : null,
   });
 }
 
@@ -4441,6 +4484,9 @@ function buildAdminListItemHtml(row) {
     ));
     takeProfitLabel = formatAdminPriceFromValue(row?.takeProfitPrice, priceDecimalPlaces) || '—';
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
+    if (isAdminTenRBoundaryRow(row)) {
+      showTenREffect = true;
+    }
   } else if (isAssistLikeStrategy) {
     concessions = buildAdminAssistConcessionsForDisplay(row);
     // 顺势而为：2 倍；确认吃鱼：1 倍；止损=from
@@ -4466,6 +4512,7 @@ function buildAdminListItemHtml(row) {
   const sideTagHtml = sideLabel
     ? `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
     : '';
+  const relatedTierAssist = showCounterTrend ? findRelatedTierAssistRow(row) : null;
   const concessionsHtml = renderAdminConcessionsHtml(concessions, stopLabel, {
     priceDecimalPlaces,
     assistLabels: isAssistLikeStrategy,
@@ -4479,6 +4526,7 @@ function buildAdminListItemHtml(row) {
         sideActionsStrategyId: rawId,
         // 升序后反转：50R → … → 3R → R
         reverseOrder: true,
+        isCurrentItem: (item) => isCounterTrendItemCurrentTierAssist(item, relatedTierAssist),
       }
       : {}),
     ...(tenRBoundary ? { boundary: tenRBoundary } : {}),
