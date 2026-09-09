@@ -625,6 +625,10 @@ body.login-mode {
   margin-bottom: 8px;
 }
 
+.admin-filter-tabs--status {
+  margin-top: -2px;
+}
+
 .admin-filter-tab {
   flex: 1;
   border: none;

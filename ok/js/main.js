@@ -810,6 +810,15 @@ function isStopAtOrBeyondTenR(stopPrice, trendRow) {
   return price <= tenR + eps;
 }
 
+function isAdminTenRBoundaryRow(row) {
+  const type = getAdminStrategyTypeInfo(row).type;
+  if (type !== 'assist' && type !== 'fish') return false;
+  const relatedTrend = findRelatedTrendRow(row);
+  if (!relatedTrend) return false;
+  const assistFrom = toNumber(row?.inputPrice ?? row?.stopLossPrice);
+  return isStopAtOrBeyondTenR(assistFrom, relatedTrend);
+}
+
 function calcAssistTierPrice(from, to, ratio, decimalPlaces) {
   if (!Number.isFinite(from) || !Number.isFinite(to) || !Number.isFinite(ratio)) return null;
   const price = from + (to - from) * ratio;
@@ -1131,6 +1140,8 @@ const METHODOLOGY_SECTIONS = [
     title: '23、一个模型，三种形态',
     items: [
       '只挂前50%优势单，劣势单最多用1个。',
+      '趋势方向明确，在关键时间关键位置上搏一把。',
+      '关键点确定之前靠猜测，出现以后靠精准计算。',
     ],
   },
 ];
@@ -3580,7 +3591,16 @@ const ADMIN_TIME_FILTER_LABELS = {
 
 const DEFAULT_ADMIN_TIME_FILTER = 'active';
 
+const ADMIN_STATUS_FILTER_LABELS = {
+  all: '全部',
+  trend: '趋势建仓',
+  ten_r: '10R分界',
+};
+
+const DEFAULT_ADMIN_STATUS_FILTER = 'all';
+
 let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
+let adminStatusFilter = DEFAULT_ADMIN_STATUS_FILTER;
 let adminNameSearch = '';
 let adminNameFilter = '';
 let adminSortByExpiresAsc = false;
@@ -3601,10 +3621,54 @@ function rowMatchesAdminNameFilter(row) {
   return getAdminRowNameFilterKey(row) === adminNameFilter;
 }
 
-function getFilteredAdminRows(rows = latestAdminRows) {
+function getTenRBoundaryNameKeys(rows = latestAdminRows) {
+  const keys = new Set();
+  if (!Array.isArray(rows)) return keys;
+  for (const row of rows) {
+    if (!isAdminTenRBoundaryRow(row)) continue;
+    const key = getAdminRowNameFilterKey(row);
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+function rowMatchesAdminTenRFilter(row, nameKeys) {
+  if (isAdminTenRBoundaryRow(row)) return true;
+  if (getAdminStrategyTypeInfo(row).type !== 'trend') return false;
+  const key = getAdminRowNameFilterKey(row);
+  return Boolean(key && nameKeys.has(key));
+}
+
+function compareAdminTenRFilterRows(a, b) {
+  const nameCmp = getAdminRowNameFilterKey(a).localeCompare(getAdminRowNameFilterKey(b), 'zh');
+  if (nameCmp !== 0) return nameCmp;
+  const rank = (row) => (getAdminStrategyTypeInfo(row).type === 'trend' ? 0 : 1);
+  return rank(a) - rank(b);
+}
+
+function rowMatchesAdminStatusFilter(row) {
+  const status = normalizeAdminStatusFilter(adminStatusFilter);
+  if (status === 'trend') return getAdminStrategyTypeInfo(row).type === 'trend';
+  if (status === 'ten_r') return isAdminTenRBoundaryRow(row);
+  return true;
+}
+
+function getAdminRowsAfterStatusFilter(rows = latestAdminRows) {
   if (!Array.isArray(rows)) return [];
-  if (!adminNameFilter) return rows;
-  return rows.filter(rowMatchesAdminNameFilter);
+  const status = normalizeAdminStatusFilter(adminStatusFilter);
+  if (status === 'all') return rows;
+  if (status === 'trend') return rows.filter((row) => getAdminStrategyTypeInfo(row).type === 'trend');
+  if (status === 'ten_r') {
+    const nameKeys = getTenRBoundaryNameKeys(rows);
+    return rows.filter((row) => rowMatchesAdminTenRFilter(row, nameKeys)).sort(compareAdminTenRFilterRows);
+  }
+  return rows.filter(rowMatchesAdminStatusFilter);
+}
+
+function getFilteredAdminRows(rows = latestAdminRows) {
+  const statusFiltered = getAdminRowsAfterStatusFilter(rows);
+  if (!adminNameFilter) return statusFiltered;
+  return statusFiltered.filter(rowMatchesAdminNameFilter);
 }
 
 function compareAdminRowsByExpiresAsc(a, b) {
@@ -3646,6 +3710,10 @@ function normalizeAdminTimeFilter(value) {
   return normalizeAdminFilter(value, ADMIN_TIME_FILTER_LABELS);
 }
 
+function normalizeAdminStatusFilter(value) {
+  return normalizeAdminFilter(value, ADMIN_STATUS_FILTER_LABELS, DEFAULT_ADMIN_STATUS_FILTER);
+}
+
 function normalizeAdminNameSearch(value) {
   return String(value ?? '').trim().replace(/\s+/g, ' ');
 }
@@ -3653,6 +3721,8 @@ function normalizeAdminNameSearch(value) {
 function renderAdminFilterTabs() {
   const tabsEl = document.getElementById('admin-filter-tabs');
   renderAdminTabGroup(tabsEl, ADMIN_TIME_FILTER_LABELS, normalizeAdminTimeFilter(adminTimeFilter), 'admin-time-filter');
+  const statusEl = document.getElementById('admin-status-filter-tabs');
+  renderAdminTabGroup(statusEl, ADMIN_STATUS_FILTER_LABELS, normalizeAdminStatusFilter(adminStatusFilter), 'admin-status-filter');
 }
 
 function renderAdminTabGroup(tabsEl, labels, activeValue, dataAttr) {
@@ -3688,7 +3758,7 @@ function collectAdminNameCounts(rows) {
 function renderAdminActiveNames(rows = latestAdminRows) {
   const el = document.getElementById('admin-active-names');
   if (!el) return;
-  const nameCounts = collectAdminNameCounts(rows);
+  const nameCounts = collectAdminNameCounts(getAdminRowsAfterStatusFilter(rows));
   const uniqueTotal = nameCounts.length;
   el.hidden = false;
   const sortHtml = [
@@ -3721,6 +3791,7 @@ function renderAdminControls() {
 function resetAdminPageState() {
   closeOutcomeStatusPicker();
   adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
+  adminStatusFilter = DEFAULT_ADMIN_STATUS_FILTER;
   adminNameSearch = '';
   adminNameFilter = '';
   adminSortByExpiresAsc = false;
@@ -4071,8 +4142,7 @@ function buildAdminListItemHtml(row) {
       ? formatTrimmedFixedDecimals(assistTp, priceDecimalPlaces)
       : (formatAdminPriceFromValue(row?.takeProfitPrice, priceDecimalPlaces) || '—');
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
-    const relatedTrend = findRelatedTrendRow(row);
-    if (relatedTrend && isStopAtOrBeyondTenR(assistFrom, relatedTrend)) {
+    if (isAdminTenRBoundaryRow(row)) {
       showTenREffect = true;
     }
   } else {
@@ -4193,7 +4263,7 @@ function renderAdminListItems() {
   const rows = getDisplayAdminRows(latestAdminRows);
   syncAdminSelectionWithRows(rows);
   if (!rows.length) {
-    listEl.innerHTML = latestAdminRows.length && adminNameFilter
+    listEl.innerHTML = latestAdminRows.length && (adminNameFilter || normalizeAdminStatusFilter(adminStatusFilter) !== 'all')
       ? '<div class="admin-list-empty">无匹配策略</div>'
       : '';
     updateAdminSelectionControls();
@@ -5682,6 +5752,20 @@ if (adminFilterTabsEl) {
     adminNameFilter = '';
     adminSortByExpiresAsc = false;
     renderAdminList().catch(() => {});
+  });
+}
+
+const adminStatusFilterTabsEl = document.getElementById('admin-status-filter-tabs');
+if (adminStatusFilterTabsEl) {
+  adminStatusFilterTabsEl.addEventListener('click', (e) => {
+    const target = e.target instanceof HTMLElement ? e.target.closest('[data-admin-status-filter]') : null;
+    if (!target) return;
+    const nextFilter = normalizeAdminStatusFilter(target.getAttribute('data-admin-status-filter'));
+    if (adminStatusFilter === nextFilter) return;
+    adminStatusFilter = nextFilter;
+    renderAdminFilterTabs();
+    renderAdminListItems();
+    renderAdminActiveNames();
   });
 }
 
