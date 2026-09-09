@@ -777,6 +777,39 @@ function canShowCounterTrend(row) {
   return counterStop != null;
 }
 
+function getStrategyNameKey(name) {
+  return formatStrategyCardTitle(name);
+}
+
+function findRelatedTrendRow(row) {
+  const key = getStrategyNameKey(row?.strategyName);
+  if (!key || key === '未命名') return null;
+  const selfId = String(row?.id ?? '').trim();
+  const rows = Array.isArray(latestAdminRows) ? latestAdminRows : [];
+  return rows.find((item) => {
+    if (!item || String(item?.id ?? '').trim() === selfId) return false;
+    if (getStrategyNameKey(item?.strategyName) !== key) return false;
+    return getAdminStrategyTypeInfo(item).type === 'trend';
+  }) || null;
+}
+
+function getTenRPriceFromTrend(trendRow) {
+  const entry = toNumber(trendRow?.entryPrice);
+  const stop = toNumber(trendRow?.stopLossPrice);
+  return calcTakeProfit(entry, stop, COUNTER_TREND_STOP_MULTIPLE);
+}
+
+function isStopAtOrBeyondTenR(stopPrice, trendRow) {
+  const entry = toNumber(trendRow?.entryPrice);
+  const stop = toNumber(trendRow?.stopLossPrice);
+  const tenR = getTenRPriceFromTrend(trendRow);
+  const price = toNumber(stopPrice);
+  if (entry == null || stop == null || tenR == null || price == null) return false;
+  const eps = Math.abs(entry - stop) * 0.05;
+  if (entry > stop) return price >= tenR - eps;
+  return price <= tenR + eps;
+}
+
 function calcAssistTierPrice(from, to, ratio, decimalPlaces) {
   if (!Number.isFinite(from) || !Number.isFinite(to) || !Number.isFinite(ratio)) return null;
   const price = from + (to - from) * ratio;
@@ -2503,6 +2536,7 @@ function renderConcessionRowHtml({
   hideStop = false,
   strikeRate = false,
   copyableNumbers = false,
+  extraClass = '',
 }) {
   const rateClass = strikeRate
     ? `${rowClass}__rate ${rowClass}__rate--strike`
@@ -2520,14 +2554,60 @@ function renderConcessionRowHtml({
     : (copyableNumbers
       ? renderCopyableNumberHtml(stop, `${rowClass}__stop`)
       : `<span class="${rowClass}__stop">${stop}</span>`);
+  const rowExtra = extraClass ? ` ${extraClass}` : '';
   return [
-    `<div class="${rowClass}">`,
+    `<div class="${rowClass}${rowExtra}">`,
     `<span class="${rateClass}">${escapeHtml(rateLabel)}</span>`,
     priceHtml,
     qtyHtml,
     stopHtml,
     '</div>',
   ].join('');
+}
+
+function getConcessionBoundaryZone(item, boundary) {
+  if (!boundary) return 'none';
+  if (typeof boundary.getZone === 'function') return boundary.getZone(item) || 'none';
+  if (boundary.rate != null && Number.isFinite(Number(item?.rate))) {
+    const r = Number(item.rate);
+    return r >= Number(boundary.rate) - 1e-9 ? 'beyond' : 'within';
+  }
+  return 'none';
+}
+
+function renderBoundaryGroupedRows(displayItems, buildRow, prefix, boundary) {
+  const chunks = [];
+  let zone = null;
+  let bucket = [];
+  const flush = () => {
+    if (!bucket.length || !zone || zone === 'none') {
+      if (bucket.length) chunks.push(bucket.map(buildRow).join(''));
+      bucket = [];
+      return;
+    }
+    if (zone === 'beyond') {
+      chunks.push([
+        `<div class="${prefix}-concession-beyond-group" aria-label="10R以上">`,
+        bucket.map(buildRow).join(''),
+        '</div>',
+      ].join(''));
+    } else {
+      chunks.push([
+        `<div class="${prefix}-concession-within-group" aria-label="10R以内">`,
+        bucket.map(buildRow).join(''),
+        '</div>',
+      ].join(''));
+    }
+    bucket = [];
+  };
+  for (const item of displayItems) {
+    const nextZone = getConcessionBoundaryZone(item, boundary);
+    if (zone != null && nextZone !== zone) flush();
+    zone = nextZone;
+    bucket.push(item);
+  }
+  flush();
+  return chunks.join('');
 }
 
 function renderConcessionsHtml({
@@ -2545,6 +2625,7 @@ function renderConcessionsHtml({
   formatRate = formatConcessionPercent,
   groupBestPeers = false,
   hideStopColumn = false,
+  boundary = null,
 }) {
   let displayItems = getDisplayConcessionItems(items);
   if (reverseOrder) displayItems = displayItems.slice().reverse();
@@ -2560,9 +2641,12 @@ function renderConcessionsHtml({
   const wrapper = hideStopColumn
     ? `${wrapperClass} ${wrapperClass}--no-stop`.trim()
     : wrapperClass;
+  const useBoundary = Boolean(boundary);
 
   const buildRow = (item) => {
-    const formatted = rateFormatter(item.rate);
+    const formatted = item?.rateLabel
+      ? String(item.rateLabel)
+      : rateFormatter(item.rate);
     const rateLabel = prefix === 'admin'
       ? stripRateAnnotation(formatted)
       : withBestConcessionLabel(formatted, item.rate);
@@ -2580,7 +2664,9 @@ function renderConcessionsHtml({
   };
 
   let bodyHtml = '';
-  if (groupBestPeers) {
+  if (useBoundary) {
+    bodyHtml = renderBoundaryGroupedRows(displayItems, buildRow, prefix, boundary);
+  } else if (groupBestPeers) {
     const chunks = [];
     let bestChunk = [];
     const flushBest = () => {
@@ -2653,8 +2739,9 @@ function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
     reverseOrder: options.reverseOrder === true,
     assistLabels: options.assistLabels === true,
     formatRate: options.formatRate,
-    groupBestPeers: options.groupBestPeers !== false,
+    groupBestPeers: options.groupBestPeers !== false && !options.boundary,
     hideStopColumn,
+    boundary: options.boundary || null,
   });
 }
 
@@ -3964,12 +4051,15 @@ function buildAdminListItemHtml(row) {
   let concessions;
   let stopLabel;
   let takeProfitLabel;
+  let tenRBoundary = null;
+  let showTenREffect = false;
   if (showCounterTrend) {
     const counter = buildCounterTrendConcessions(row);
     concessions = counter.items;
     // 趋势力预测：止盈=原开仓价，止损=10R（计算逻辑不变，仅改展示位置）
     takeProfitLabel = counter.refTakeProfit || '—';
     stopLabel = counter.stopLoss || '—';
+    tenRBoundary = { rate: COUNTER_TREND_STOP_MULTIPLE, label: '10R 分界' };
   } else if (isAssistLikeStrategy) {
     concessions = buildAdminAssistConcessionsForDisplay(row);
     // 顺势而为：2 倍；吃鱼助手：1 倍；止损=from
@@ -3981,6 +4071,10 @@ function buildAdminListItemHtml(row) {
       ? formatTrimmedFixedDecimals(assistTp, priceDecimalPlaces)
       : (formatAdminPriceFromValue(row?.takeProfitPrice, priceDecimalPlaces) || '—');
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
+    const relatedTrend = findRelatedTrendRow(row);
+    if (relatedTrend && isStopAtOrBeyondTenR(assistFrom, relatedTrend)) {
+      showTenREffect = true;
+    }
   } else {
     concessions = buildAdminDisplayConcessions(row);
     // 趋势建仓：止盈=5R 最佳点位（区分多空），止损=原止损
@@ -4004,6 +4098,7 @@ function buildAdminListItemHtml(row) {
         reverseOrder: true,
       }
       : {}),
+    ...(tenRBoundary ? { boundary: tenRBoundary } : {}),
   });
   const baseStartAt = getStrategyStartAt(row);
   const baseEndAt = getStrategyEndAt(row);
@@ -4049,6 +4144,9 @@ function buildAdminListItemHtml(row) {
   const fishTagHtml = isFishStrategy
     ? '<span class="admin-fish-tag" aria-label="吃鱼助手">吃鱼助手</span>'
     : '';
+  const tenRTagHtml = showTenREffect
+    ? '<span class="admin-ten-r-tag" aria-label="10R分界">10R分界</span>'
+    : '';
   const timeframeTagHtml = isFishStrategy ? '' : getTimeframeTagHtml(row?.timeframe);
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
@@ -4057,6 +4155,7 @@ function buildAdminListItemHtml(row) {
     counterTrendHtml,
     assistTagHtml,
     fishTagHtml,
+    tenRTagHtml,
     timeframeTagHtml,
     '</div>',
   ].join('');
@@ -4100,7 +4199,14 @@ function renderAdminListItems() {
     updateAdminSelectionControls();
     return;
   }
-  listEl.innerHTML = rows.map((row) => buildAdminListItemHtml(row)).join('');
+  listEl.innerHTML = rows.map((row) => {
+    try {
+      return buildAdminListItemHtml(row);
+    } catch (err) {
+      console.error('[admin-item-render]', err);
+      return '';
+    }
+  }).join('');
   updateAdminSelectionControls();
   updateAdminCountdowns();
 }

@@ -1446,6 +1446,27 @@ body.login-mode {
   box-shadow: inset 0 0 0 1px rgba(180, 83, 9, 0.08);
 }
 
+.admin-ten-r-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  white-space: nowrap;
+  box-sizing: border-box;
+  border-radius: 6px;
+  padding: 0 8px;
+  min-width: 52px;
+  min-height: 0;
+  height: calc(14px * 1.2 + 6px + 2px);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+  border: 1px solid #fdba74;
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  color: #9a3412;
+  box-shadow: inset 0 0 0 1px rgba(234, 88, 12, 0.1);
+}
+
 /* 顺势而为卡片：青绿斜纹，区别于趋势绿 / 反趋势橙 */
 .admin-item--assist {
   border-color: #5eead4;
@@ -1668,6 +1689,27 @@ body.login-mode {
 
 .strategy-concession-best-group .strategy-concession__rate {
   color: #a16207;
+}
+
+.admin-concession-beyond-group {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(148, 163, 184, 0.1) 0 5px,
+    rgba(248, 250, 252, 0.7) 5px 10px
+  );
+}
+
+.admin-concession-beyond-group .admin-concession__rate,
+.admin-concession-beyond-group .admin-concession__price,
+.admin-concession-beyond-group .admin-concession__qty,
+.admin-concession-beyond-group .admin-concession__price.admin-copy-value,
+.admin-concession-beyond-group .admin-concession__qty.admin-copy-value {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.admin-concession-within-group {
+  background: rgba(240, 253, 244, 0.72);
 }
 
 .admin-concession--head {
@@ -3222,7 +3264,8 @@ body.login-mode {
 
   .admin-item__title-wrap .admin-counter-trend__tag,
   .admin-item__title-wrap .admin-assist-tag,
-  .admin-item__title-wrap .admin-fish-tag {
+  .admin-item__title-wrap .admin-fish-tag,
+  .admin-item__title-wrap .admin-ten-r-tag {
     height: calc(13px * 1.2 + 4px + 2px);
     padding-left: 7px;
     padding-right: 7px;
