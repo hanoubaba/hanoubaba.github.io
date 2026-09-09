@@ -252,6 +252,14 @@ const ASSIST_TIER_RATES_LEGACY_10_TO_100 = Array.from({ length: 10 }, (_, index)
 const ASSIST_TIER_RATES_LEGACY_20_TO_100 = Array.from({ length: 9 }, (_, index) => (index + 2) / 10);
 const ASSIST_TITLE_SUFFIX = ' (顺势而为)';
 const FISH_TITLE_SUFFIX = ' (吃鱼助手)';
+const TIER_ASSIST_TITLE_SUFFIX = ' (挡位辅助)';
+/** 挡位辅助：00% / 10% / 20% 三档，每档固定本金 */
+const TIER_ASSIST_RATES = [
+  { rate: 0, display: true, costShare: 1 / 3 },
+  { rate: 0.1, display: true, costShare: 1 / 3 },
+  { rate: 0.2, display: true, costShare: 1 / 3 },
+];
+const TIER_ASSIST_TAKE_PROFIT_MULTIPLE = 1;
 
 function clampOpenCostMultiplier(value) {
   const n = Math.round(Number(value));
@@ -564,6 +572,10 @@ function isCurrentTrendConcessionSet(concessions) {
     || ratesMatch(rates, [0, 0.3, 0.8]);
 }
 
+function isTierAssistConcessionSet(concessions) {
+  return ratesMatch(getSortedDisplayRates(concessions), [0, 0.1, 0.2]);
+}
+
 function isCurrentAssistConcessionSet(concessions) {
   return ratesMatch(getSortedDisplayRates(concessions), getConfiguredDisplayRates(ASSIST_TIER_RATIOS));
 }
@@ -599,6 +611,10 @@ function formatFishStrategyTitle(name) {
   return `${formatStrategyCardTitle(name)}${FISH_TITLE_SUFFIX}`;
 }
 
+function formatTierAssistStrategyTitle(name) {
+  return `${formatStrategyCardTitle(name)}${TIER_ASSIST_TITLE_SUFFIX}`;
+}
+
 function buildFishTimeRange(now = new Date()) {
   const startAt = new Date(now instanceof Date && !Number.isNaN(now.getTime()) ? now.getTime() : Date.now());
   startAt.setMilliseconds(0);
@@ -630,6 +646,9 @@ function isFishStrategyRow(row) {
 
 function getAdminStrategyTypeInfo(row) {
   const rawConcessions = hasConcessions(row?.concessions) ? row.concessions : [];
+  if (isTierAssistConcessionSet(rawConcessions)) {
+    return { label: '挡位辅助', type: 'tier_assist' };
+  }
   if (isAssistConcessionSet(rawConcessions)) {
     if (isFishTakeProfitMultiple(row?.takeProfitRMultiple)) {
       return { label: '吃鱼助手', type: 'fish' };
@@ -637,6 +656,9 @@ function getAdminStrategyTypeInfo(row) {
     return { label: '顺势而为', type: 'assist' };
   }
   const savedConcessions = buildAdminConcessionsForRow(row);
+  if (isTierAssistConcessionSet(savedConcessions)) {
+    return { label: '挡位辅助', type: 'tier_assist' };
+  }
   if (isAssistConcessionSet(savedConcessions)) {
     if (isFishTakeProfitMultiple(row?.takeProfitRMultiple)) {
       return { label: '吃鱼助手', type: 'fish' };
@@ -698,19 +720,14 @@ function normalizeStrategyViewMode(value) {
 }
 
 /**
- * 反趋势策略：以原策略 R 倍数推算挂单价与止损。
- * 例：开 10 / 止 9 → 挂 13、15，止损 20；每档固定本金后 qty = 档本金 / |价-止损|
- * 另展示 10R / 20R / 30R / 40R / 50R 价格（无数量）；参考止盈取原开仓价；时间范围接在原策略结束后再排 10 个周期。
+ * 反趋势策略：以原策略 R 倍数推算挂单价。
+ * 档位 3/5R 与 10–50R 仅展示价格；末行 R = 原开仓价（原止盈展示位）。
+ * 时间范围接在原策略结束后再排 10 个周期。
  */
 function buildCounterTrendConcessions(row) {
   const entryPrice = toNumber(row?.entryPrice);
   const stopLoss = toNumber(row?.stopLossPrice);
-  if (
-    entryPrice == null
-    || stopLoss == null
-    || entryPrice === stopLoss
-    || !(getAdminTierFixedOpenCost() > 0)
-  ) {
+  if (entryPrice == null || stopLoss == null || entryPrice === stopLoss) {
     return { items: [], stopLoss: null, refTakeProfit: null };
   }
 
@@ -720,18 +737,18 @@ function buildCounterTrendConcessions(row) {
     return { items: [], stopLoss: null, refTakeProfit: null };
   }
 
-  const tierOpenCost = getAdminTierFixedOpenCost();
+  const refTakeProfit = formatTrimmedFixedDecimals(entryPrice, decimalPlaces);
   const items = [];
   for (const multiple of COUNTER_TREND_ENTRY_MULTIPLES) {
     const price = calcTakeProfit(entryPrice, stopLoss, multiple);
     if (price == null || price === counterStop) continue;
-    const qty = calcQuantityByRisk(tierOpenCost, price, counterStop);
-    if (qty == null || !(qty > 0)) continue;
     items.push({
       rate: multiple,
       display: true,
+      hideQuantity: true,
+      showSideActions: true,
       price: formatTrimmedFixedDecimals(price, decimalPlaces),
-      quantity: formatQuantity(qty),
+      quantity: '',
     });
   }
   for (const multiple of COUNTER_TREND_PRICE_ONLY_MULTIPLES) {
@@ -741,14 +758,25 @@ function buildCounterTrendConcessions(row) {
       rate: multiple,
       display: true,
       hideQuantity: true,
+      showSideActions: true,
       price: formatTrimmedFixedDecimals(price, decimalPlaces),
       quantity: '',
     });
   }
+  // 3R 下方：R = 原开仓价（原「止盈」展示值）
+  items.push({
+    rate: 1,
+    rateLabel: 'R',
+    display: true,
+    hideQuantity: true,
+    showSideActions: true,
+    price: refTakeProfit,
+    quantity: '',
+  });
   return {
     items,
     stopLoss: formatTrimmedFixedDecimals(counterStop, decimalPlaces),
-    refTakeProfit: formatTrimmedFixedDecimals(entryPrice, decimalPlaces),
+    refTakeProfit,
   };
 }
 
@@ -2104,6 +2132,10 @@ function startEditStrategy(row) {
   if (!id) return;
 
   const strategyType = getAdminStrategyTypeInfo(row);
+  if (strategyType.type === 'tier_assist') {
+    showToast('挡位辅助暂不支持修改');
+    return;
+  }
   const isAssist = strategyType.type === 'assist';
   const isFish = strategyType.type === 'fish';
 
@@ -2538,6 +2570,192 @@ function reverseConcessionPriceQty(displayItems) {
   }));
 }
 
+function renderCounterTrendSideActionsHtml(strategyId, item) {
+  const id = escapeHtml(String(strategyId ?? '').trim());
+  const rateNum = Number(item?.rate);
+  const rateLabel = String(item?.rateLabel ?? '').trim().toUpperCase();
+  const isRRow = rateLabel === 'R' || Math.abs(rateNum - 1) < 1e-9;
+  const is50R = Math.abs(rateNum - 50) < 1e-9;
+  if (isRRow || is50R) {
+    return '<span class="admin-concession__actions"></span>';
+  }
+  const rate = escapeHtml(String(Number.isFinite(rateNum) ? rateNum : '').trim());
+  const price = escapeHtml(String(item?.price ?? '').trim());
+  return [
+    '<span class="admin-concession__actions">',
+    `<button type="button" class="admin-concession__side-btn admin-concession__side-btn--long" data-counter-side-action="long" data-id="${id}" data-rate="${rate}" data-price="${price}">做多</button>`,
+    `<button type="button" class="admin-concession__side-btn admin-concession__side-btn--short" data-counter-side-action="short" data-id="${id}" data-rate="${rate}" data-price="${price}">做空</button>`,
+    '</span>',
+  ].join('');
+}
+
+function getCounterTrendDisplayItems(row) {
+  const { items } = buildCounterTrendConcessions(row);
+  return getDisplayConcessionItems(items).slice().reverse();
+}
+
+function findCounterTrendNeighborPrices(row, rate, price) {
+  const displayItems = getCounterTrendDisplayItems(row);
+  if (!displayItems.length) return null;
+  const rateNum = Number(rate);
+  const priceNum = toNumber(price);
+  let index = displayItems.findIndex((item) => (
+    Number.isFinite(rateNum) && Math.abs(Number(item.rate) - rateNum) < 1e-9
+  ));
+  if (index < 0 && priceNum != null) {
+    index = displayItems.findIndex((item) => toNumber(item.price) === priceNum);
+  }
+  if (index < 0) return null;
+  const current = displayItems[index];
+  const above = index > 0 ? displayItems[index - 1] : null;
+  const below = index < displayItems.length - 1 ? displayItems[index + 1] : null;
+  return {
+    currentPrice: toNumber(current?.price),
+    abovePrice: toNumber(above?.price),
+    belowPrice: toNumber(below?.price),
+    currentRate: Number(current?.rate),
+    decimalPlaces: getAdminPriceDecimalPlacesFromRow(row),
+  };
+}
+
+function buildTierAssistRecord({
+  parentRow,
+  side,
+  entryPrice,
+  stopLoss,
+  takeProfit,
+  rate,
+  decimalPlaces,
+}) {
+  const name = String(parentRow?.strategyName ?? '').trim() || 'test';
+  const openCostTotal = getOpenCostTotal();
+  const concessionItems = buildConcessionItems(
+    entryPrice,
+    stopLoss,
+    openCostTotal,
+    decimalPlaces,
+    TIER_ASSIST_RATES,
+    false,
+    { fixedTierOpenCost: getAdminTierFixedOpenCost() },
+  );
+  if (!concessionItems.length) return null;
+  const primaryItem = concessionItems[0];
+  const entryLabel = formatTrimmedFixedDecimals(entryPrice, decimalPlaces);
+  const stopLabel = formatTrimmedFixedDecimals(stopLoss, decimalPlaces);
+  const tpLabel = formatTrimmedFixedDecimals(takeProfit, decimalPlaces);
+  const sideLabel = side === 'short' ? '做空' : '做多';
+  const rateLabel = Number.isFinite(Number(rate)) ? `${Math.round(Number(rate))}R` : '';
+  const timeRange = getCounterTrendTimeRange(parentRow);
+  const timeframe = normalizeTimeframeMode(parentRow?.timeframe);
+  const timeframeMinutes = Number(parentRow?.timeframeMinutes) > 0
+    ? Number(parentRow.timeframeMinutes)
+    : getTimeframeMinutes(timeframe);
+  const validPeriods = STRATEGY_DURATION_PERIODS;
+  const durationMinutes = timeframeMinutes * validPeriods;
+  const description = [
+    `挡位辅助·${sideLabel}`,
+    rateLabel ? `来源 ${rateLabel}` : '',
+    String(parentRow?.description ?? '').trim(),
+  ].filter(Boolean).join('；');
+
+  return {
+    strategyName: name,
+    description,
+    positionSide: side,
+    inputPrice: entryLabel,
+    inputStopLoss: stopLabel,
+    entryPrice: primaryItem.price,
+    quantity: primaryItem.quantity,
+    takeProfitPrice: tpLabel,
+    stopLossPrice: stopLabel,
+    openCost: getAdminTierFixedOpenCost(),
+    openCostMultiplier: OPEN_COST_MULTIPLIER_DEFAULT,
+    openCostTotal,
+    tierCount: TIER_ASSIST_RATES.length,
+    tradeMode: TRADE_MODE_NORMAL,
+    grade: getStrategyGradeFromOpenCost(getAdminTierFixedOpenCost(), openCostTotal, TIER_ASSIST_RATES.length),
+    priceAdjustmentRate: 0,
+    priceAdjustment: '0',
+    concessions: concessionItems,
+    takeProfitRMultiple: TIER_ASSIST_TAKE_PROFIT_MULTIPLE,
+    timeframe,
+    timeframeMinutes,
+    timeframeLabel: getTimeframeLabel(timeframe),
+    validPeriods,
+    durationMinutes,
+    startAt: timeRange?.startAt ? timeRange.startAt.toISOString() : null,
+    expiresAt: timeRange?.endAt ? timeRange.endAt.toISOString() : null,
+    outcomeStatus: 'pending',
+    viewMode: STRATEGY_VIEW_MODE_TREND,
+  };
+}
+
+let isCreatingTierAssist = false;
+
+async function createTierAssistFromCounterAction(parentRow, side, rate, price) {
+  if (isCreatingTierAssist) return;
+  const neighbors = findCounterTrendNeighborPrices(parentRow, rate, price);
+  if (!neighbors || neighbors.currentPrice == null) {
+    showToast('无法定位当前挡位');
+    return;
+  }
+  const entryPrice = neighbors.currentPrice;
+  const neighborForStop = side === 'long' ? neighbors.belowPrice : neighbors.abovePrice;
+  const takeProfit = side === 'long' ? neighbors.abovePrice : neighbors.belowPrice;
+  if (neighborForStop == null || takeProfit == null) {
+    showToast('缺少相邻挡位价格，无法创建');
+    return;
+  }
+  // 做多：止损 = 本行与下方行 50%；做空：止损 = 本行与上方行 50%
+  const stopLoss = (entryPrice + neighborForStop) / 2;
+  if (side === 'long') {
+    if (!(entryPrice > stopLoss) || !(takeProfit > entryPrice)) {
+      showToast('做多需满足：止损 < 开仓 < 止盈');
+      return;
+    }
+  } else if (!(entryPrice < stopLoss) || !(takeProfit < entryPrice)) {
+    showToast('做空需满足：止盈 < 开仓 < 止损');
+    return;
+  }
+
+  const record = buildTierAssistRecord({
+    parentRow,
+    side,
+    entryPrice,
+    stopLoss,
+    takeProfit,
+    rate: neighbors.currentRate ?? rate,
+    decimalPlaces: Math.max(3, neighbors.decimalPlaces || 0),
+  });
+  if (!record) {
+    showToast('无法生成挡位辅助档位');
+    return;
+  }
+  if (!record.startAt || !record.expiresAt) {
+    const fishTime = buildFishTimeRange();
+    record.startAt = fishTime.startAt;
+    record.expiresAt = fishTime.expiresAt;
+    record.timeframe = fishTime.timeframe;
+    record.timeframeMinutes = fishTime.timeframeMinutes;
+    record.timeframeLabel = fishTime.timeframeLabel;
+    record.validPeriods = fishTime.validPeriods;
+    record.durationMinutes = fishTime.durationMinutes;
+  }
+
+  isCreatingTierAssist = true;
+  try {
+    await createStrategy(record);
+    showToast(side === 'long' ? '已创建挡位辅助（做多）' : '已创建挡位辅助（做空）');
+    await renderAdminList();
+  } catch (err) {
+    console.error('[tier-assist-create]', err);
+    const detail = String(err?.message || '').trim();
+    showToast(detail && detail.length < 80 ? `创建失败：${detail}` : '创建挡位辅助失败');
+  } finally {
+    isCreatingTierAssist = false;
+  }
+}
+
 function renderConcessionRowHtml({
   rowClass,
   item,
@@ -2548,6 +2766,7 @@ function renderConcessionRowHtml({
   strikeRate = false,
   copyableNumbers = false,
   extraClass = '',
+  sideActionsHtml = '',
 }) {
   const rateClass = strikeRate
     ? `${rowClass}__rate ${rowClass}__rate--strike`
@@ -2555,11 +2774,14 @@ function renderConcessionRowHtml({
   const priceHtml = copyableNumbers
     ? renderCopyableNumberHtml(item.price, `${rowClass}__price`)
     : `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`;
-  const qtyHtml = hideQuantity
-    ? `<span class="${rowClass}__qty"></span>`
-    : (copyableNumbers
-      ? renderCopyableNumberHtml(item.quantity, `${rowClass}__qty`)
-      : `<span class="${rowClass}__qty">${escapeHtml(item.quantity)}</span>`);
+  const hasSideActions = Boolean(String(sideActionsHtml ?? '').trim());
+  const qtyHtml = hasSideActions
+    ? sideActionsHtml
+    : (hideQuantity
+      ? `<span class="${rowClass}__qty"></span>`
+      : (copyableNumbers
+        ? renderCopyableNumberHtml(item.quantity, `${rowClass}__qty`)
+        : `<span class="${rowClass}__qty">${escapeHtml(item.quantity)}</span>`));
   const stopHtml = hideStop
     ? ''
     : (copyableNumbers
@@ -2629,6 +2851,7 @@ function renderConcessionsHtml({
   rateHeaderLabel = '让利',
   rateHeaderSuffixHtml = '',
   qtyHeaderPrefixHtml = '',
+  qtyHeaderLabel = null,
   wrapperClass,
   reverseOrder = false,
   reversePriceQty = false,
@@ -2637,6 +2860,8 @@ function renderConcessionsHtml({
   groupBestPeers = false,
   hideStopColumn = false,
   boundary = null,
+  sideActionsMode = false,
+  sideActionsStrategyId = '',
 }) {
   let displayItems = getDisplayConcessionItems(items);
   if (reverseOrder) displayItems = displayItems.slice().reverse();
@@ -2649,9 +2874,12 @@ function renderConcessionsHtml({
   const rateFormatter = assistLabels
     ? (rate) => getAssistTierLabel(rate)
     : formatRate;
-  const wrapper = hideStopColumn
+  let wrapper = hideStopColumn
     ? `${wrapperClass} ${wrapperClass}--no-stop`.trim()
     : wrapperClass;
+  if (sideActionsMode) {
+    wrapper = `${wrapper} ${wrapperClass}--side-actions`.trim();
+  }
   const useBoundary = Boolean(boundary);
 
   const buildRow = (item) => {
@@ -2661,16 +2889,24 @@ function renderConcessionsHtml({
     const rateLabel = prefix === 'admin'
       ? stripRateAnnotation(formatted)
       : withBestConcessionLabel(formatted, item.rate);
+    const useSideActions = sideActionsMode || item.showSideActions === true;
     return renderConcessionRowHtml({
       rowClass,
       item,
       rateLabel,
       stop,
       hideQuantity: item.hideQuantity === true
+        || useSideActions
         || (assistLabels && prefix !== 'admin' && shouldHideAssistQuantity(item.rate)),
       hideStop: hideStopColumn,
       strikeRate: assistLabels && shouldHideAssistQuantity(item.rate),
       copyableNumbers: prefix === 'admin',
+      sideActionsHtml: useSideActions && prefix === 'admin'
+        ? renderCounterTrendSideActionsHtml(sideActionsStrategyId, {
+          ...item,
+          rateLabel,
+        })
+        : '',
     });
   };
 
@@ -2708,16 +2944,18 @@ function renderConcessionsHtml({
     ? `${rateHeader}${suffixHtml}`
     : rateHeader;
   const qtyPrefixHtml = String(qtyHeaderPrefixHtml ?? '').trim();
-  const qtyHeaderInner = qtyPrefixHtml
-    ? `${qtyPrefixHtml}数量`
-    : '数量';
+  const qtyHeaderInner = qtyHeaderLabel != null
+    ? escapeHtml(String(qtyHeaderLabel))
+    : (qtyPrefixHtml ? `${qtyPrefixHtml}数量` : '数量');
 
   return [
     `<div class="${wrapper}" aria-label="${assistLabels ? '顺势而为位置' : '让利档位'}">`,
     `<div class="${rowClass} ${rowClass}--head">`,
     `<span class="${rowClass}__rate">${rateHeaderInner}</span>`,
     `<span class="${rowClass}__price">价格</span>`,
-    `<span class="${rowClass}__qty">${qtyHeaderInner}</span>`,
+    sideActionsMode
+      ? `<span class="${rowClass}__actions">${qtyHeaderInner || '操作'}</span>`
+      : `<span class="${rowClass}__qty">${qtyHeaderInner}</span>`,
     hideStopColumn ? '' : `<span class="${rowClass}__stop">${stopHeader}</span>`,
     '</div>',
     bodyHtml,
@@ -2745,6 +2983,7 @@ function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
     rateHeaderLabel: options.rateHeaderLabel,
     rateHeaderSuffixHtml: options.rateHeaderSuffixHtml,
     qtyHeaderPrefixHtml: options.qtyHeaderPrefixHtml,
+    qtyHeaderLabel: options.qtyHeaderLabel,
     wrapperClass: 'admin-item__concessions',
     reversePriceQty: options.reversePriceQty === true,
     reverseOrder: options.reverseOrder === true,
@@ -2753,6 +2992,8 @@ function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
     groupBestPeers: options.groupBestPeers !== false && !options.boundary,
     hideStopColumn,
     boundary: options.boundary || null,
+    sideActionsMode: options.sideActionsMode === true,
+    sideActionsStrategyId: options.sideActionsStrategyId || '',
   });
 }
 
@@ -3768,7 +4009,7 @@ function renderAdminActiveNames(rows = latestAdminRows) {
   ].join('');
   const activeKey = adminNameFilter;
   const namesHtml = nameCounts.map(({ name, count, type }) => {
-    const strategyType = type === 'assist' || type === 'fish' ? type : 'trend';
+    const strategyType = type === 'assist' || type === 'fish' || type === 'tier_assist' ? type : 'trend';
     const isActive = activeKey && getAdminNameFilterKey(name) === activeKey;
     const countHtml = count > 1
       ? `<span class="admin-active-names__count">${count}</span>`
@@ -4108,14 +4349,17 @@ function buildAdminListItemHtml(row) {
   const strategyType = getAdminStrategyTypeInfo(row);
   const isAssistStrategy = strategyType.type === 'assist';
   const isFishStrategy = strategyType.type === 'fish';
+  const isTierAssistStrategy = strategyType.type === 'tier_assist';
   const isAssistLikeStrategy = isAssistStrategy || isFishStrategy;
   const title = escapeHtml(formatStrategyCardTitle(nameRaw));
   const titleLabel = escapeHtml(
-    isFishStrategy
-      ? `${formatFishStrategyTitle(nameRaw)}${String(row?.outcomeRemark ?? '').trim() ? `，备注：${String(row.outcomeRemark).trim()}` : ''}`
-      : isAssistStrategy
-        ? `${formatAssistStrategyTitle(nameRaw)}${String(row?.outcomeRemark ?? '').trim() ? `，备注：${String(row.outcomeRemark).trim()}` : ''}`
-        : formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark),
+    isTierAssistStrategy
+      ? `${formatTierAssistStrategyTitle(nameRaw)}${String(row?.outcomeRemark ?? '').trim() ? `，备注：${String(row.outcomeRemark).trim()}` : ''}`
+      : isFishStrategy
+        ? `${formatFishStrategyTitle(nameRaw)}${String(row?.outcomeRemark ?? '').trim() ? `，备注：${String(row.outcomeRemark).trim()}` : ''}`
+        : isAssistStrategy
+          ? `${formatAssistStrategyTitle(nameRaw)}${String(row?.outcomeRemark ?? '').trim() ? `，备注：${String(row.outcomeRemark).trim()}` : ''}`
+          : formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark),
   );
   const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
   const priceDecimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
@@ -4131,6 +4375,12 @@ function buildAdminListItemHtml(row) {
     takeProfitLabel = counter.refTakeProfit || '—';
     stopLabel = counter.stopLoss || '—';
     tenRBoundary = { rate: COUNTER_TREND_STOP_MULTIPLE, label: '10R 分界' };
+  } else if (isTierAssistStrategy) {
+    const saved = hasConcessions(row?.concessions) ? row.concessions : [];
+    const stopLoss = toNumber(row?.stopLossPrice);
+    concessions = applyAdminFixedTierQuantities(saved, stopLoss);
+    takeProfitLabel = formatAdminPriceFromValue(row?.takeProfitPrice, priceDecimalPlaces) || '—';
+    stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
   } else if (isAssistLikeStrategy) {
     concessions = buildAdminAssistConcessionsForDisplay(row);
     // 顺势而为：2 倍；吃鱼助手：1 倍；止损=from
@@ -4151,7 +4401,7 @@ function buildAdminListItemHtml(row) {
     takeProfitLabel = buildAdminBestTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
   }
-  const tpSlHtml = renderAdminTakeProfitStopHtml(takeProfitLabel, stopLabel);
+  const tpSlHtml = showCounterTrend ? '' : renderAdminTakeProfitStopHtml(takeProfitLabel, stopLabel);
   const sideLabel = getPositionSideLabel(sideMod);
   const sideTagHtml = sideLabel
     ? `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
@@ -4164,7 +4414,10 @@ function buildAdminListItemHtml(row) {
       ? {
         formatRate: formatCounterTrendRate,
         rateHeaderLabel: '倍数',
-        // 升序后反转：50R → 40R → 30R → 20R → 10R → 5R → 3R
+        qtyHeaderLabel: '操作',
+        sideActionsMode: true,
+        sideActionsStrategyId: rawId,
+        // 升序后反转：50R → … → 3R → R
         reverseOrder: true,
       }
       : {}),
@@ -4214,6 +4467,9 @@ function buildAdminListItemHtml(row) {
   const fishTagHtml = isFishStrategy
     ? '<span class="admin-fish-tag" aria-label="吃鱼助手">吃鱼助手</span>'
     : '';
+  const tierAssistTagHtml = isTierAssistStrategy
+    ? '<span class="admin-tier-assist-tag" aria-label="挡位辅助">挡位辅助</span>'
+    : '';
   const tenRTagHtml = showTenREffect
     ? '<span class="admin-ten-r-tag" aria-label="10R分界">10R分界</span>'
     : '';
@@ -4225,6 +4481,7 @@ function buildAdminListItemHtml(row) {
     counterTrendHtml,
     assistTagHtml,
     fishTagHtml,
+    tierAssistTagHtml,
     tenRTagHtml,
     timeframeTagHtml,
     '</div>',
@@ -4233,7 +4490,7 @@ function buildAdminListItemHtml(row) {
     ? `<div class="admin-item__head-right">${timeBadgeHtml}</div>`
     : '';
   return [
-    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}${isFishStrategy ? ' admin-item--fish' : ''}">`,
+    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}${isFishStrategy ? ' admin-item--fish' : ''}${isTierAssistStrategy ? ' admin-item--tier-assist' : ''}">`,
     remarkStampHtml,
     '<header class="admin-item__head">',
     selectHtml,
@@ -4246,7 +4503,7 @@ function buildAdminListItemHtml(row) {
     concessionsHtml,
     tpSlHtml,
     '<div class="admin-item__sub">',
-    `<span class="admin-item__time-range${isAssistStrategy ? ' admin-item__time-range--assist' : ''}"${timeRange ? ' aria-label="时间范围"' : ' aria-hidden="true"'}>${timeRange || ''}</span>`,
+    `<span class="admin-item__time-range${isAssistStrategy || isTierAssistStrategy ? ' admin-item__time-range--assist' : ''}"${timeRange ? ' aria-label="时间范围"' : ' aria-hidden="true"'}>${timeRange || ''}</span>`,
     rawId && !isAdminSelectionMode
       ? `<button type="button" class="admin-edit-btn" data-admin-edit data-id="${id}" aria-label="修改 ${titleLabel}">修改</button>`
       : '',
@@ -5863,6 +6120,22 @@ if (adminListEl) {
       if (!id || counterTrendBtn.disabled) return;
       const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
       if (row) toggleAdminCounterTrend(id, row);
+      return;
+    }
+
+    const counterSideBtn = target.closest('[data-counter-side-action]');
+    if (counterSideBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isCreatingTierAssist || isAdminSelectionMode || isDeletingStrategies) return;
+      const id = String(counterSideBtn.getAttribute('data-id') ?? '').trim();
+      const side = String(counterSideBtn.getAttribute('data-counter-side-action') ?? '').trim();
+      const rate = Number(counterSideBtn.getAttribute('data-rate'));
+      const price = counterSideBtn.getAttribute('data-price');
+      if (!id || (side !== 'long' && side !== 'short')) return;
+      const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
+      if (!row) return;
+      createTierAssistFromCounterAction(row, side, rate, price).catch(() => {});
       return;
     }
 
