@@ -1914,6 +1914,44 @@ body.login-mode {
   outline-offset: 1px;
 }
 
+.admin-concession__fold-link {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #c2410c;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.admin-concession__fold-caret {
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.75;
+}
+
+.admin-concession__fold-link:hover {
+  text-decoration: underline;
+}
+
+.admin-concession__fold-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 .admin-concession--current,
 .admin-concession.is-current {
   background: rgba(37, 99, 235, 0.08);
@@ -3605,6 +3643,10 @@ body.login-mode {
     min-width: 40px;
     height: 24px;
     padding: 0 6px;
+    font-size: 11px;
+  }
+
+  .admin-concession__fold-link {
     font-size: 11px;
   }
 

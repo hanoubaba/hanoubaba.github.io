@@ -228,10 +228,12 @@ const FISH_TAKE_PROFIT_MULTIPLE = 1;
 const FISH_TIMEFRAME = '1d';
 const FISH_TIMEFRAME_MINUTES = 1440;
 const FISH_VALID_PERIODS = 3650; // ≈10 年，视为长期有效
-/** 反趋势：挂单档位 = 原策略 3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R/20R/30R/40R/50R 价格（无数量） */
+/** 反趋势：挂单档位 = 原策略 3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R–100R 价格（无数量） */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 5];
-const COUNTER_TREND_PRICE_ONLY_MULTIPLES = [10, 20, 30, 40, 50];
+const COUNTER_TREND_PRICE_ONLY_MULTIPLES = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
+/** 趋势力预测默认只显示到 50R，展开后显示到 100R */
+const COUNTER_TREND_COLLAPSED_MAX_RATE = 50;
 /** 辅助开单：10%/20% 复用最小让利档仓位；后台每档固定本金；80% 仅展示 */
 const ASSIST_TIER_RATIOS = [
   { rate: 0.1, label: '10%（鱼头三选一）', reuseMinTierCost: true },
@@ -798,7 +800,7 @@ function buildLinkedTierAssistDisplay(row) {
 
 /**
  * 反趋势策略：以原策略 R 倍数推算挂单价。
- * 档位 3/5R 与 10–50R 仅展示价格；末行 R = 原开仓价（原止盈展示位）。
+ * 档位 3/5R 与 10–100R 仅展示价格；末行 R = 原开仓价（原止盈展示位）。
  * 时间范围接在原策略结束后再排 10 个周期。
  */
 function buildCounterTrendConcessions(row) {
@@ -2518,14 +2520,21 @@ function enrichStrategyRecordForSubmit(record) {
   return next;
 }
 
+/** 价格下限为 0：算穿或极限值按 0 展示，不拦截创建 */
+function clampPriceAtZero(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return n < 0 ? 0 : n;
+}
+
 /** 止盈价：盈利 = multiplier×开仓成本 → 价差移动 = multiplier×|价格-止损| */
 function calcTakeProfit(open, stop, multiplier = 1) {
   const stopDiff = Math.abs(open - stop);
   const m = Number(multiplier);
   if (!(stopDiff > 0) || !Number.isFinite(m) || m <= 0) return null;
   const move = stopDiff * m;
-  if (open > stop) return open + move;
-  return open - move;
+  const raw = open > stop ? open + move : open - move;
+  return clampPriceAtZero(raw);
 }
 
 /** 顺势而为止盈：以 from→to 为 1 倍空间，默认 2 倍 */
@@ -2559,9 +2568,7 @@ function getAdminPriceDecimalPlacesFromRow(row) {
 }
 
 function normalizeReferenceTakeProfitPrice(price) {
-  const n = Number(price);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return n;
+  return clampPriceAtZero(price);
 }
 
 function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces) {
@@ -2635,7 +2642,8 @@ function calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces, r
   if (!(stopDiff > 0) || !Number.isFinite(rate)) return null;
   const awayFromStop = entryPrice > stopLoss ? 1 : -1;
   const direction = reverse ? -awayFromStop : awayFromStop;
-  const price = entryPrice + direction * rate * stopDiff;
+  const price = clampPriceAtZero(entryPrice + direction * rate * stopDiff);
+  if (price == null) return null;
   return Number(formatFixedDecimals(price, decimalPlaces));
 }
 
@@ -2795,13 +2803,38 @@ function reverseConcessionPriceQty(displayItems) {
   }));
 }
 
+function isCounterTrendHighRate(rate) {
+  const n = Number(rate);
+  return Number.isFinite(n) && n > COUNTER_TREND_COLLAPSED_MAX_RATE + 1e-9;
+}
+
+function isCounterTrendRatesExpanded(strategyId) {
+  return expandedCounterTrendIds.has(String(strategyId ?? '').trim());
+}
+
+function filterCounterTrendConcessionItems(items, expanded) {
+  if (!Array.isArray(items)) return [];
+  if (expanded) return items;
+  return items.filter((item) => !isCounterTrendHighRate(item?.rate));
+}
+
 function renderCounterTrendSideActionsHtml(strategyId, item) {
   const id = escapeHtml(String(strategyId ?? '').trim());
   const rateNum = Number(item?.rate);
   const rateLabel = String(item?.rateLabel ?? '').trim().toUpperCase();
   const isRRow = rateLabel === 'R' || Math.abs(rateNum - 1) < 1e-9;
-  const is50R = Math.abs(rateNum - 50) < 1e-9;
-  if (isRRow || is50R) {
+  const is100R = Math.abs(rateNum - 100) < 1e-9;
+  if (isRRow) {
+    const expanded = isCounterTrendRatesExpanded(strategyId);
+    const label = expanded ? '收起' : '展开';
+    const action = expanded ? 'collapse' : 'expand';
+    return [
+      '<span class="admin-concession__actions">',
+      `<button type="button" class="admin-concession__fold-link" data-counter-fold="${action}" data-id="${id}" aria-expanded="${expanded ? 'true' : 'false'}" aria-label="${expanded ? '收起至50R' : '展开至100R'}">${label}<span class="admin-concession__fold-caret" aria-hidden="true">${expanded ? '▴' : '▾'}</span></button>`,
+      '</span>',
+    ].join('');
+  }
+  if (is100R) {
     return '<span class="admin-concession__actions"></span>';
   }
   const rate = escapeHtml(String(Number.isFinite(rateNum) ? rateNum : '').trim());
@@ -3408,8 +3441,8 @@ function generate() {
   const priceDecimals = Math.max(getDecimalPlacesFromInput(openRaw), getDecimalPlacesFromInput(stopRaw)) + 1;
   const adjustedOpen = calcAdjustedOpenPrice(open, stop, priceDecimals);
   const takeProfit = calcTakeProfit(adjustedOpen, stop, TAKE_PROFIT_R_MULTIPLE);
-  if (!Number.isFinite(adjustedOpen) || adjustedOpen <= 0 || !Number.isFinite(takeProfit) || takeProfit <= 0) {
-    if (errEl) errEl.textContent = '开始价格或止盈价无效，请检查开始价格与止损价格。';
+  if (!Number.isFinite(adjustedOpen) || adjustedOpen <= 0 || takeProfit == null) {
+    if (errEl) errEl.textContent = '开始价格无效，请检查开始价格与止损价格。';
     clearStrategyState();
     return;
   }
@@ -4261,6 +4294,7 @@ let isAdminSelectionMode = false;
 let visibleAdminStrategyIds = [];
 let latestAdminRows = [];
 let updatingAdminViewModeIds = new Set();
+let expandedCounterTrendIds = new Set();
 
 function getVisibleAdminStrategyIds() {
   const domIds = Array.from(document.querySelectorAll('#admin-list .admin-item__select'))
@@ -4636,7 +4670,10 @@ function buildAdminListItemHtml(row) {
   let showTenREffect = false;
   if (showCounterTrend) {
     const counter = buildCounterTrendConcessions(row);
-    concessions = counter.items;
+    concessions = filterCounterTrendConcessionItems(
+      counter.items,
+      isCounterTrendRatesExpanded(rawId),
+    );
     // 趋势力预测：止盈=原开仓价，止损=10R（计算逻辑不变，仅改展示位置）
     takeProfitLabel = counter.refTakeProfit || '—';
     stopLabel = counter.stopLoss || '—';
@@ -6393,6 +6430,18 @@ if (adminListEl) {
         return;
       }
       setAdminStrategyViewMode(id, row, nextMode);
+      return;
+    }
+
+    const counterFoldBtn = target.closest('[data-counter-fold]');
+    if (counterFoldBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = String(counterFoldBtn.getAttribute('data-id') ?? '').trim();
+      if (!id) return;
+      if (expandedCounterTrendIds.has(id)) expandedCounterTrendIds.delete(id);
+      else expandedCounterTrendIds.add(id);
+      renderAdminListItems();
       return;
     }
 
