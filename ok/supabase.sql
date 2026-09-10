@@ -46,6 +46,7 @@ create table if not exists public.strategies (
   outcome_remark text not null default '',
   grade text not null default '普通',
   view_mode text not null default 'trend',
+  view_state jsonb not null default '{}'::jsonb,
 
   constraint strategies_position_side_check
     check (position_side in ('long', 'short')),
@@ -54,7 +55,7 @@ create table if not exists public.strategies (
   constraint strategies_outcome_status_check
     check (outcome_status in ('pending', 'profit', 'loss', 'not_filled')),
   constraint strategies_view_mode_check
-    check (view_mode in ('trend', 'counter_trend')),
+    check (view_mode in ('trend', 'counter_trend', 'tier_assist', 'fish')),
   constraint strategies_positive_values_check
     check (
       input_price > 0
@@ -541,7 +542,7 @@ add column if not exists view_mode text;
 update public.strategies
 set view_mode = 'trend'
 where view_mode is null
-  or view_mode not in ('trend', 'counter_trend');
+  or view_mode not in ('trend', 'counter_trend', 'tier_assist', 'fish');
 
 alter table public.strategies
 alter column view_mode set default 'trend';
@@ -554,7 +555,20 @@ drop constraint if exists strategies_view_mode_check;
 
 alter table public.strategies
 add constraint strategies_view_mode_check
-check (view_mode in ('trend', 'counter_trend'));
+check (view_mode in ('trend', 'counter_trend', 'tier_assist', 'fish'));
+
+alter table public.strategies
+add column if not exists view_state jsonb;
+
+update public.strategies
+set view_state = '{}'::jsonb
+where view_state is null;
+
+alter table public.strategies
+alter column view_state set default '{}'::jsonb;
+
+alter table public.strategies
+alter column view_state set not null;
 
 alter table public.strategies
 add column if not exists description text not null default '';

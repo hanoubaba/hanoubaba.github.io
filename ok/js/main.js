@@ -166,8 +166,6 @@ const FRONT_PAGES = ['front'];
 const FRONT_MODE_TREND = 'trend';
 const FRONT_MODE_ASSIST = 'assist';
 const FRONT_MODE_FISH = 'fish';
-/** 暂时关闭前台「顺势而为」入口（修改已有单据仍可进入） */
-const FRONT_ASSIST_MODE_DISABLED = true;
 let frontMode = FRONT_MODE_TREND;
 
 const TIMEFRAME_MINUTES = {
@@ -225,7 +223,7 @@ const BEST_TAKE_PROFIT_R = 5;
 const STRATEGY_DURATION_PERIODS = 10;
 const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
-/** 确认吃鱼：与顺势而为同档位，止盈空间 1 倍；无时间 UI，落库用长效占位以满足非空约束 */
+/** 吃鱼助手：与顺势而为同档位，止盈空间 1 倍；无时间 UI，落库用长效占位以满足非空约束 */
 const FISH_TAKE_PROFIT_MULTIPLE = 1;
 const FISH_TIMEFRAME = '1d';
 const FISH_TIMEFRAME_MINUTES = 1440;
@@ -253,7 +251,7 @@ const ASSIST_TIER_RATES_LEGACY_10_20_30_50_80 = [0.1, 0.2, 0.3, 0.5, 0.8];
 const ASSIST_TIER_RATES_LEGACY_10_TO_100 = Array.from({ length: 10 }, (_, index) => (index + 1) / 10);
 const ASSIST_TIER_RATES_LEGACY_20_TO_100 = Array.from({ length: 9 }, (_, index) => (index + 2) / 10);
 const ASSIST_TITLE_SUFFIX = ' (顺势而为)';
-const FISH_TITLE_SUFFIX = ' (确认吃鱼)';
+const FISH_TITLE_SUFFIX = ' (吃鱼助手)';
 const TIER_ASSIST_TITLE_SUFFIX = ' (挡位辅助)';
 /** 挡位辅助：00% / 10% 两档，每档固定本金 */
 const TIER_ASSIST_RATES = [
@@ -332,7 +330,6 @@ function setFrontTimeframeMode(mode, { refresh = true, scope = getFrontFormScope
 }
 
 function normalizeFrontMode(mode) {
-  if (mode === FRONT_MODE_ASSIST) return FRONT_MODE_ASSIST;
   if (mode === FRONT_MODE_FISH) return FRONT_MODE_FISH;
   return FRONT_MODE_TREND;
 }
@@ -655,7 +652,7 @@ function getAdminStrategyTypeInfo(row) {
   }
   if (isAssistConcessionSet(rawConcessions)) {
     if (isFishTakeProfitMultiple(row?.takeProfitRMultiple)) {
-      return { label: '确认吃鱼', type: 'fish' };
+      return { label: '吃鱼助手', type: 'fish' };
     }
     return { label: '顺势而为', type: 'assist' };
   }
@@ -665,11 +662,11 @@ function getAdminStrategyTypeInfo(row) {
   }
   if (isAssistConcessionSet(savedConcessions)) {
     if (isFishTakeProfitMultiple(row?.takeProfitRMultiple)) {
-      return { label: '确认吃鱼', type: 'fish' };
+      return { label: '吃鱼助手', type: 'fish' };
     }
     return { label: '顺势而为', type: 'assist' };
   }
-  return { label: '趋势建仓', type: 'trend' };
+  return { label: '趋势立项', type: 'trend' };
 }
 
 function buildAdminDisplayConcessions(row) {
@@ -716,11 +713,87 @@ function buildTrendAdminConcessions(row) {
 
 const STRATEGY_VIEW_MODE_TREND = 'trend';
 const STRATEGY_VIEW_MODE_COUNTER = 'counter_trend';
+const STRATEGY_VIEW_MODE_TIER_ASSIST = 'tier_assist';
+const STRATEGY_VIEW_MODE_FISH = 'fish';
 
 function normalizeStrategyViewMode(value) {
-  return value === STRATEGY_VIEW_MODE_COUNTER
-    ? STRATEGY_VIEW_MODE_COUNTER
-    : STRATEGY_VIEW_MODE_TREND;
+  if (value === STRATEGY_VIEW_MODE_COUNTER) return STRATEGY_VIEW_MODE_COUNTER;
+  if (value === STRATEGY_VIEW_MODE_TIER_ASSIST) return STRATEGY_VIEW_MODE_TIER_ASSIST;
+  if (value === STRATEGY_VIEW_MODE_FISH) return STRATEGY_VIEW_MODE_FISH;
+  return STRATEGY_VIEW_MODE_TREND;
+}
+
+function normalizeViewState(value) {
+  if (value == null) return {};
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  return {};
+}
+
+function getTierAssistViewState(row) {
+  const raw = normalizeViewState(row?.viewState).tierAssist;
+  if (!raw || typeof raw !== 'object') return null;
+  const side = raw.side === 'short' ? 'short' : (raw.side === 'long' ? 'long' : null);
+  const entryPrice = toNumber(raw.entryPrice);
+  const stopLoss = toNumber(raw.stopLoss);
+  const takeProfit = toNumber(raw.takeProfit);
+  if (!side || entryPrice == null || stopLoss == null || entryPrice === stopLoss) return null;
+  const rate = Number(raw.rate);
+  return {
+    side,
+    entryPrice,
+    stopLoss,
+    takeProfit,
+    rate: Number.isFinite(rate) ? rate : null,
+  };
+}
+
+function buildLinkedTierAssistDisplay(row) {
+  const state = getTierAssistViewState(row);
+  const decimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
+  const side = state?.side === 'short' ? 'short' : (state?.side === 'long' ? 'long' : (row?.positionSide === 'short' ? 'short' : 'long'));
+  const entryPrice = state?.entryPrice ?? toNumber(row?.entryPrice);
+  const stopLoss = state?.stopLoss ?? toNumber(row?.stopLossPrice);
+  let takeProfit = state?.takeProfit ?? null;
+  if (takeProfit == null) {
+    takeProfit = calcTakeProfit(entryPrice, stopLoss, TIER_ASSIST_TAKE_PROFIT_MULTIPLE);
+  }
+  if (entryPrice == null || stopLoss == null || entryPrice === stopLoss) {
+    return {
+      side,
+      concessions: [],
+      takeProfitLabel: '—',
+      stopLabel: '—',
+    };
+  }
+  const concessionItems = buildConcessionItems(
+    entryPrice,
+    stopLoss,
+    null,
+    decimalPlaces,
+    TIER_ASSIST_RATES,
+    false,
+    { fixedTierOpenCost: getAdminTierFixedOpenCost() },
+  );
+  const allowedRates = getConfiguredDisplayRates(TIER_ASSIST_RATES);
+  const concessions = applyAdminFixedTierQuantities(concessionItems, stopLoss).filter((item) => (
+    allowedRates.some((rate) => Math.abs(Number(item.rate) - rate) < 1e-9)
+  ));
+  return {
+    side,
+    concessions,
+    takeProfitLabel: takeProfit != null
+      ? formatTrimmedFixedDecimals(takeProfit, decimalPlaces)
+      : '—',
+    stopLabel: formatTrimmedFixedDecimals(stopLoss, decimalPlaces),
+  };
 }
 
 /**
@@ -825,6 +898,18 @@ function findRelatedTrendRow(row) {
   }) || null;
 }
 
+function findRelatedFishRow(row) {
+  const key = getStrategyNameKey(row?.strategyName);
+  if (!key || key === '未命名') return null;
+  const selfId = String(row?.id ?? '').trim();
+  const rows = Array.isArray(latestAdminRows) ? latestAdminRows : [];
+  return rows.find((item) => {
+    if (!item || String(item?.id ?? '').trim() === selfId) return false;
+    if (getStrategyNameKey(item?.strategyName) !== key) return false;
+    return getAdminStrategyTypeInfo(item).type === 'fish';
+  }) || null;
+}
+
 function findRelatedTierAssistRow(row) {
   const key = getStrategyNameKey(row?.strategyName);
   if (!key || key === '未命名') return null;
@@ -845,15 +930,16 @@ function getTierAssistSourceRate(row) {
   return Number.isFinite(rate) ? rate : null;
 }
 
-function isCounterTrendItemCurrentTierAssist(item, tierAssistRow) {
-  if (!tierAssistRow || !item) return false;
-  const entry = toNumber(tierAssistRow?.inputPrice ?? tierAssistRow?.entryPrice);
+function isCounterTrendItemCurrentTierAssist(item, row) {
+  const state = getTierAssistViewState(row);
+  if (!state || !item) return false;
+  const entry = state.entryPrice;
   const price = toNumber(item?.price);
   if (entry != null && price != null) {
     const eps = Math.max(Math.abs(entry) * 1e-6, 1e-6);
     if (Math.abs(entry - price) <= eps) return true;
   }
-  const sourceRate = getTierAssistSourceRate(tierAssistRow);
+  const sourceRate = state.rate;
   const itemRate = Number(item?.rate);
   return sourceRate != null
     && Number.isFinite(itemRate)
@@ -879,6 +965,13 @@ function isStopAtOrBeyondTenR(stopPrice, trendRow) {
 
 function isAdminTenRBoundaryRow(row) {
   const type = getAdminStrategyTypeInfo(row).type;
+  if (type === 'trend' && isAdminTierAssistView(row)) {
+    const state = getTierAssistViewState(row);
+    const refPrice = state
+      ? toNumber(state.entryPrice ?? state.stopLoss)
+      : toNumber(row?.entryPrice ?? row?.stopLossPrice);
+    return isStopAtOrBeyondTenR(refPrice, row);
+  }
   if (type !== 'assist' && type !== 'fish' && type !== 'tier_assist') return false;
   const relatedTrend = findRelatedTrendRow(row);
   if (!relatedTrend) return false;
@@ -943,30 +1036,113 @@ function isAdminCounterTrendView(row) {
     && normalizeStrategyViewMode(row?.viewMode) === STRATEGY_VIEW_MODE_COUNTER;
 }
 
-async function toggleAdminCounterTrend(strategyId, row) {
+function isAdminTierAssistView(row) {
+  return getAdminStrategyTypeInfo(row).type === 'trend'
+    && normalizeStrategyViewMode(row?.viewMode) === STRATEGY_VIEW_MODE_TIER_ASSIST
+    && Boolean(getTierAssistViewState(row));
+}
+
+function isAdminFishView(row) {
+  return getAdminStrategyTypeInfo(row).type === 'trend'
+    && normalizeStrategyViewMode(row?.viewMode) === STRATEGY_VIEW_MODE_FISH
+    && Boolean(findRelatedFishRow(row));
+}
+
+function getAdminDisplayViewMode(row) {
+  const type = getAdminStrategyTypeInfo(row).type;
+  if (type === 'fish') return STRATEGY_VIEW_MODE_FISH;
+  if (type === 'tier_assist') return STRATEGY_VIEW_MODE_TIER_ASSIST;
+  if (type === 'assist') return 'assist';
+  if (isAdminFishView(row)) return STRATEGY_VIEW_MODE_FISH;
+  if (isAdminTierAssistView(row)) return STRATEGY_VIEW_MODE_TIER_ASSIST;
+  if (isAdminCounterTrendView(row)) return STRATEGY_VIEW_MODE_COUNTER;
+  return STRATEGY_VIEW_MODE_TREND;
+}
+
+function getAdminModeChipClass(mode) {
+  if (mode === STRATEGY_VIEW_MODE_FISH) return 'fish';
+  if (mode === STRATEGY_VIEW_MODE_TIER_ASSIST) return 'tier_assist';
+  if (mode === STRATEGY_VIEW_MODE_COUNTER) return 'counter';
+  if (mode === 'assist') return 'assist';
+  return 'trend';
+}
+
+function isStandaloneTierAssistRow(row) {
+  return getAdminStrategyTypeInfo(row).type === 'tier_assist';
+}
+
+function isLinkedFishRow(row, rows = latestAdminRows) {
+  if (getAdminStrategyTypeInfo(row).type !== 'fish') return false;
+  const key = getStrategyNameKey(row?.strategyName);
+  if (!key || key === '未命名') return false;
+  const selfId = String(row?.id ?? '').trim();
+  return (Array.isArray(rows) ? rows : []).some((item) => {
+    if (!item || String(item?.id ?? '').trim() === selfId) return false;
+    if (getStrategyNameKey(item?.strategyName) !== key) return false;
+    return getAdminStrategyTypeInfo(item).type === 'trend';
+  });
+}
+
+function getAdminVisibleRows(rows = latestAdminRows) {
+  const list = Array.isArray(rows) ? rows : [];
+  return list.filter((row) => !isStandaloneTierAssistRow(row) && !isLinkedFishRow(row, list));
+}
+
+async function setAdminStrategyViewMode(strategyId, row, nextViewMode, extra = {}) {
   const id = String(strategyId ?? '').trim();
-  if (!id || !canShowCounterTrend(row) || updatingAdminViewModeIds.has(id)) return;
-  const nextViewMode = isAdminCounterTrendView(row)
-    ? STRATEGY_VIEW_MODE_TREND
-    : STRATEGY_VIEW_MODE_COUNTER;
+  const nextMode = normalizeStrategyViewMode(nextViewMode);
+  if (!id || updatingAdminViewModeIds.has(id)) return false;
+  if (nextMode === STRATEGY_VIEW_MODE_COUNTER && !canShowCounterTrend(row)) {
+    showToast('当前单据无法切换趋势力预测');
+    return false;
+  }
+  if (nextMode === STRATEGY_VIEW_MODE_TIER_ASSIST) {
+    const probe = extra.viewState !== undefined
+      ? { ...row, viewState: extra.viewState }
+      : row;
+    if (!getTierAssistViewState(probe)) return false;
+  }
+  if (nextMode === STRATEGY_VIEW_MODE_FISH && !findRelatedFishRow(row)) {
+    return false;
+  }
   const prevViewMode = normalizeStrategyViewMode(row?.viewMode);
+  const prevViewState = normalizeViewState(row?.viewState);
+  const nextViewState = extra.viewState !== undefined
+    ? normalizeViewState(extra.viewState)
+    : prevViewState;
+  const viewStateChanged = JSON.stringify(nextViewState) !== JSON.stringify(prevViewState);
+  if (prevViewMode === nextMode && !viewStateChanged) return true;
+
   updatingAdminViewModeIds.add(id);
   latestAdminRows = latestAdminRows.map((item) => (
-    String(item?.id ?? '').trim() === id ? { ...item, viewMode: nextViewMode } : item
+    String(item?.id ?? '').trim() === id
+      ? { ...item, viewMode: nextMode, viewState: nextViewState }
+      : item
   ));
   renderAdminListItems();
+  renderAdminActiveNames();
+  let ok = true;
   try {
-    await updateStrategyViewMode(id, nextViewMode);
+    const patch = { viewMode: nextMode };
+    if (viewStateChanged || extra.viewState !== undefined) {
+      patch.viewState = nextViewState;
+    }
+    await updateStrategyView(id, patch);
   } catch (err) {
+    ok = false;
     console.error('[admin-view-mode-sync]', err);
     latestAdminRows = latestAdminRows.map((item) => (
-      String(item?.id ?? '').trim() === id ? { ...item, viewMode: prevViewMode } : item
+      String(item?.id ?? '').trim() === id
+        ? { ...item, viewMode: prevViewMode, viewState: prevViewState }
+        : item
     ));
-    showToast('视图切换失败');
+    showToast('视图切换失败，请先执行 supabase.sql');
   } finally {
     updatingAdminViewModeIds.delete(id);
     renderAdminListItems();
+    renderAdminActiveNames();
   }
+  return ok;
 }
 
 const SUPABASE_URL = 'https://rxggjijrfafcrmtkqkuv.supabase.co';
@@ -1004,7 +1180,7 @@ const METHODOLOGY_SECTIONS = [
   {
     title: '1、核心理念',
     items: [
-      '右侧交易，趋势建仓，见好就收。',
+      '右侧交易，趋势立项，见好就收。',
       '风控第一，收益第二，策略唯一。',
       '简化操作，行情很简单，复杂的是人心。',
       '挂单交易，能成交就做，不能成交就算了，机会不止一个。',
@@ -1088,7 +1264,7 @@ const METHODOLOGY_SECTIONS = [
   {
     title: '14、提醒自己',
     items: [
-      '右侧交易，趋势建仓，4h维度，交易量过亿（差一点都不行）',
+      '右侧交易，趋势立项，4h维度，交易量过亿（差一点都不行）',
       '不做彩票单（1%的概率，10倍的收益，这是愚者行为）',
       '严格选品，耐心等待，保守前进。',
     ],
@@ -1142,24 +1318,24 @@ const METHODOLOGY_SECTIONS = [
     title: '20、最新感悟',
     items: [
       '格局大点，没到100万都是欢乐豆。',
-      '优先级：趋势建仓＞趋势力预测＞顺势而为',
-      '反趋势限定方向空，时间空间都满足，否则不做。优先级还是新的趋势建仓单。',
+      '优先级：趋势立项＞趋势力预测＞顺势而为',
+      '反趋势限定方向空，时间空间都满足，否则不做。优先级还是新的趋势立项单。',
       '严格选品，分批挂单。保持最佳位置挂单的好习惯，经常会有惊喜。',
       '分仓不如集中子弹到最优势的单子，多维度去解读操作。基于方向的确定性，实现收益最大化。',
       '不符合模型就跑，亏不了多少。无需纠结，集中力量到下一单。',
       '放弃多空临界值的单子，做好趋势交易的本分。',
       '钝感力，松弛感。',
-      '趋势建仓确认正确以后加仓。趋势力预测确认正确以后转顺势而为。',
+      '趋势立项确认正确以后加仓。趋势力预测确认正确以后转顺势而为。',
       '严格选品，耐心等待，保守前进。',
       '多做多错，少做不错。 非必要不操作是最好的操作。',
       '错过一些机会证明我的风控做的很好，要继续保持，不要觊觎其他的力量。',
       '已经认证过可行性，只需坚定循环执行。不要调整，稳定盈利才是王道。',
       '所有操作必须有体系结论，无结论坚决不操作。杜绝一切临时起意的奇怪想法。',
-      '行情有四种形态：趋势建仓、反趋势、追涨杀跌、极限逼空。每个形态都可以用体系辅助解析。',
+      '行情有四种形态：趋势立项、反趋势、追涨杀跌、极限逼空。每个形态都可以用体系辅助解析。',
       '顶级判断力，缺乏执行力。实际操作中，保留底仓长线+部分短线操作可以有效缓解执行焦虑。',
       '每天早中晚发掘新机会，只做最好的，排行前三开单。不纠结利用率问题。',
       '在行情剧烈时候操作，在行情缓慢时候思考。',
-      '趋势建仓坚持到底，反趋势见好就收。',
+      '趋势立项坚持到底，反趋势见好就收。',
       '排行榜前10是最大的机会，种类不超过三。',
       '打好基础，指数增长。技术爆炸。螺旋上升。',
       '4h为主，1d为辅。优先级不能变，',
@@ -1180,7 +1356,7 @@ const METHODOLOGY_SECTIONS = [
       '双向思维，多时间维度分析。',
       '谨慎会导致盈利的缩水，但也是活着的必要代价。',
       '知行合一，星辰大海只是时间问题。',
-      '趋势建仓的机会，往往不在热度排行榜，而是在水下。',
+      '趋势立项的机会，往往不在热度排行榜，而是在水下。',
       '1天＝3个8小时。做1看2，止盈止损两个时间单位。（顺势而为数据化解析）',
       '想赚钱还是要做头部热度排行榜。',
       '认真挂好每一单，永远相信美好的事情即将发生。',
@@ -1198,7 +1374,7 @@ const METHODOLOGY_SECTIONS = [
       '主动出击，立即成交。时间点调整补仓减仓调整。确保成交率，保留调整机会。',
       '仓位控制，不要心态影响操作。时间才是最好的杠杆。',
       '龙头机会最大，这是不争的事实。',
-      '一个模型，三个阶段形态。趋势建仓前期挂单，后期看二追一。注意拐点10的避险和验证。验证以后做回调的看二追一。',
+      '一个模型，三个阶段形态。趋势立项前期挂单。注意拐点10的避险和验证。验证以后做回调。',
       '参考数据是为了更好的盈利，不是为了困住自己。有利润随时出，当前的利润才是真实的，合约本身就是限定时间空间的走一步看一步。',
       '本金分配需要平衡成交率、最佳位置、后手补仓。所以最佳分配方案是2个仓位(28正太分布），立即成交一半，最佳位置加仓一半。',
       '转折点 ==> 时间10单位+空间10倍 ==> 解除封印，单边行情',
@@ -1615,6 +1791,7 @@ function fromDbRecord(row) {
     outcomeStatus: row.outcome_status ?? 'pending',
     outcomeRemark: dbValueToString(row.outcome_remark),
     viewMode: normalizeStrategyViewMode(row.view_mode),
+    viewState: normalizeViewState(row.view_state),
   };
 }
 
@@ -1951,7 +2128,7 @@ function renderMethodologyBalanceBannerHtml() {
     '<aside class="methodology-balance" aria-label="生命周期理论">',
     '<div class="methodology-balance__row">',
     '<div class="methodology-balance__side">',
-    '<span class="methodology-balance__stage">趋势建仓</span>',
+    '<span class="methodology-balance__stage">趋势立项</span>',
     '<span class="methodology-balance__desc">时间10，空间3-5倍</span>',
     '</div>',
     '<span class="methodology-balance__arrow" aria-hidden="true">==&gt;</span>',
@@ -2012,20 +2189,15 @@ function syncFrontModeSwitchLock() {
   }
   const buttons = [
     document.getElementById('btn-front-mode-trend'),
-    document.getElementById('btn-front-mode-assist'),
     document.getElementById('btn-front-mode-fish'),
   ];
   buttons.forEach((btn) => {
     if (!btn) return;
-    const isAssistBtn = btn.id === 'btn-front-mode-assist';
-    const assistClosed = isAssistBtn && FRONT_ASSIST_MODE_DISABLED;
     const isCurrent = btn.classList.contains('is-active');
-    const disabled = (locked && !isCurrent) || (assistClosed && !isCurrent);
+    const disabled = locked && !isCurrent;
     btn.disabled = disabled;
     btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
-    if (assistClosed && !isCurrent) {
-      btn.title = '顺势而为暂不可用';
-    } else if (locked) {
+    if (locked) {
       btn.title = isCurrent ? '修改中，模式不可切换' : '修改中不可切换模式';
     } else {
       btn.removeAttribute('title');
@@ -2064,23 +2236,18 @@ function getStartSlotValueFromRow(row) {
   return formatStartSlotValue(floorDateToStep(startAt, stepMinutes));
 }
 
-function getDescriptionInputId(scope = getFrontFormScope()) {
-  if (scope === 'assist') return 'assist-desc-input';
-  if (scope === 'fish') return 'fish-desc-input';
-  return 'desc-input';
-}
-
-function getStrategyDescription(scope = getFrontFormScope()) {
-  return String(document.getElementById(getDescriptionInputId(scope))?.value ?? '').trim();
+function getStrategyDescription(_scope = getFrontFormScope()) {
+  if (editingStrategyId && editingStrategyPreserve) {
+    return String(editingStrategyPreserve.description ?? '').trim();
+  }
+  return '';
 }
 
 function populateTrendFormFromRow(row) {
   const nameEl = document.getElementById('name-input');
-  const descEl = document.getElementById('desc-input');
   const openEl = document.getElementById('open-price-input');
   const stopEl = document.getElementById('stop-price-input');
   if (nameEl) nameEl.value = String(row?.strategyName ?? '').trim();
-  if (descEl) descEl.value = String(row?.description ?? '').trim();
   if (openEl) openEl.value = String(row?.inputPrice ?? '').trim();
   if (stopEl) stopEl.value = String(row?.inputStopLoss ?? '').trim();
   setFrontTimeframeMode(row?.timeframe || DEFAULT_TIMEFRAME, { refresh: false, scope: 'trend' });
@@ -2106,11 +2273,9 @@ function populateAssistFormFromRow(row) {
 
 function populateFishFormFromRow(row) {
   const nameEl = document.getElementById('fish-name-input');
-  const descEl = document.getElementById('fish-desc-input');
   const fromEl = document.getElementById('fish-from-input');
   const toEl = document.getElementById('fish-to-input');
   if (nameEl) nameEl.value = String(row?.strategyName ?? '').trim();
-  if (descEl) descEl.value = String(row?.description ?? '').trim();
   if (fromEl) fromEl.value = String(row?.inputPrice ?? '').trim();
   if (toEl) toEl.value = String(row?.inputStopLoss ?? '').trim();
 }
@@ -2119,7 +2284,6 @@ function readFrontFormDraft(scope) {
   if (scope === 'fish') {
     return {
       name: String(document.getElementById('fish-name-input')?.value ?? ''),
-      description: String(document.getElementById('fish-desc-input')?.value ?? ''),
       timeframe: '',
       startTime: '',
       startTimePicked: false,
@@ -2131,7 +2295,6 @@ function readFrontFormDraft(scope) {
   const { sel } = getStartTimeFieldEls(isAssist ? 'assist' : 'trend');
   return {
     name: String(document.getElementById(isAssist ? 'assist-name-input' : 'name-input')?.value ?? ''),
-    description: String(document.getElementById(isAssist ? 'assist-desc-input' : 'desc-input')?.value ?? ''),
     timeframe: getTimeframeMode(isAssist ? 'assist' : 'trend'),
     startTime: String(sel?.value ?? '').trim(),
     startTimePicked: isStartTimeUserPicked(isAssist ? 'assist' : 'trend'),
@@ -2143,22 +2306,18 @@ function readFrontFormDraft(scope) {
 function applyFrontFormDraft(draft, scope) {
   if (scope === 'fish') {
     const nameEl = document.getElementById('fish-name-input');
-    const descEl = document.getElementById('fish-desc-input');
     const priceAEl = document.getElementById('fish-from-input');
     const priceBEl = document.getElementById('fish-to-input');
     if (nameEl) nameEl.value = draft.name ?? '';
-    if (descEl) descEl.value = draft.description ?? '';
     if (priceAEl) priceAEl.value = draft.priceA ?? '';
     if (priceBEl) priceBEl.value = draft.priceB ?? '';
     return;
   }
   const isAssist = scope === 'assist';
   const nameEl = document.getElementById(isAssist ? 'assist-name-input' : 'name-input');
-  const descEl = document.getElementById(isAssist ? 'assist-desc-input' : 'desc-input');
   const priceAEl = document.getElementById(isAssist ? 'assist-from-input' : 'open-price-input');
   const priceBEl = document.getElementById(isAssist ? 'assist-to-input' : 'stop-price-input');
   if (nameEl) nameEl.value = draft.name ?? '';
-  if (descEl) descEl.value = draft.description ?? '';
   if (priceAEl) priceAEl.value = draft.priceA ?? '';
   if (priceBEl) priceBEl.value = draft.priceB ?? '';
   setFrontTimeframeMode(
@@ -2182,17 +2341,16 @@ function startEditStrategy(row) {
     showToast('挡位辅助暂不支持修改');
     return;
   }
-  const isAssist = strategyType.type === 'assist';
+  if (strategyType.type === 'assist') {
+    showToast('顺势而为暂不支持修改');
+    return;
+  }
   const isFish = strategyType.type === 'fish';
 
   if (isFish) {
     resetFrontPage();
     resetAssistPage();
     populateFishFormFromRow(row);
-  } else if (isAssist) {
-    resetFrontPage();
-    resetFishPage();
-    populateAssistFormFromRow(row);
   } else {
     resetAssistPage();
     resetFishPage();
@@ -2201,8 +2359,7 @@ function startEditStrategy(row) {
 
   setPage('front', {
     preserveFrontForm: true,
-    frontMode: isFish ? FRONT_MODE_FISH : (isAssist ? FRONT_MODE_ASSIST : FRONT_MODE_TREND),
-    forceFrontMode: isAssist,
+    frontMode: isFish ? FRONT_MODE_FISH : FRONT_MODE_TREND,
   });
 
   editingStrategyId = id;
@@ -2210,16 +2367,35 @@ function startEditStrategy(row) {
     outcomeStatus: row?.outcomeStatus,
     outcomeRemark: row?.outcomeRemark,
     viewMode: row?.viewMode,
+    viewState: row?.viewState,
+    description: row?.description,
   };
 
   if (isFish) generateFish();
-  else if (isAssist) generateAssist();
   else generate();
 
   updateSaveButtonLabels();
   updateHeaderClearButton();
   showToast('已进入修改模式');
   window.scrollTo(0, 0);
+}
+
+function startCreateFishFromTrend(row) {
+  const name = formatStrategyCardTitle(row?.strategyName);
+  resetFrontPage();
+  resetAssistPage();
+  resetFishPage();
+  setPage('front', {
+    preserveFrontForm: true,
+    frontMode: FRONT_MODE_FISH,
+  });
+  const nameEl = document.getElementById('fish-name-input');
+  if (nameEl) nameEl.value = name && name !== '未命名' ? name : '';
+  updateSaveButtonLabels();
+  updateHeaderClearButton();
+  showToast('请完善吃鱼助手后保存');
+  window.scrollTo(0, 0);
+  nameEl?.focus();
 }
 
 function clearStrategyState() {
@@ -2308,6 +2484,7 @@ function enrichStrategyRecordForSubmit(record) {
       next.outcomeStatus = editingStrategyPreserve.outcomeStatus ?? next.outcomeStatus;
       next.outcomeRemark = editingStrategyPreserve.outcomeRemark ?? '';
       next.viewMode = editingStrategyPreserve.viewMode ?? next.viewMode;
+      next.viewState = editingStrategyPreserve.viewState ?? next.viewState;
     }
     return next;
   }
@@ -2336,6 +2513,7 @@ function enrichStrategyRecordForSubmit(record) {
     next.outcomeStatus = editingStrategyPreserve.outcomeStatus ?? next.outcomeStatus;
     next.outcomeRemark = editingStrategyPreserve.outcomeRemark ?? '';
     next.viewMode = editingStrategyPreserve.viewMode ?? next.viewMode;
+    next.viewState = editingStrategyPreserve.viewState ?? next.viewState;
   }
   return next;
 }
@@ -2410,7 +2588,7 @@ function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces 
   return formatTrimmedFixedDecimals(normalized, decimals);
 }
 
-/** 趋势建仓最佳止盈点位：5R，方向随多空（开>止为多，开<止为空） */
+/** 趋势立项最佳止盈点位：5R，方向随多空（开>止为多，开<止为空） */
 function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
@@ -2451,7 +2629,7 @@ function calcAdjustedOpenPrice(open, stop, decimalPlaces) {
   return Number(formatFixedDecimals(open, decimalPlaces));
 }
 
-/** 趋势建仓让利价；reverse 仅用于兼容旧数据重算 */
+/** 趋势立项让利价；reverse 仅用于兼容旧数据重算 */
 function calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces, reverse = false) {
   const stopDiff = Math.abs(entryPrice - stopLoss);
   if (!(stopDiff > 0) || !Number.isFinite(rate)) return null;
@@ -2785,6 +2963,8 @@ async function deleteExistingTierAssistsForName(strategyName) {
 
 async function createTierAssistFromCounterAction(parentRow, side, rate, price) {
   if (isCreatingTierAssist) return;
+  const parentId = String(parentRow?.id ?? '').trim();
+  if (!parentId) return;
   const neighbors = findCounterTrendNeighborPrices(parentRow, rate, price);
   if (!neighbors || neighbors.currentPrice == null) {
     showToast('无法定位当前挡位');
@@ -2794,7 +2974,7 @@ async function createTierAssistFromCounterAction(parentRow, side, rate, price) {
   const neighborForStop = side === 'long' ? neighbors.belowPrice : neighbors.abovePrice;
   const takeProfit = side === 'long' ? neighbors.abovePrice : neighbors.belowPrice;
   if (neighborForStop == null || takeProfit == null) {
-    showToast('缺少相邻挡位价格，无法创建');
+    showToast('缺少相邻挡位价格，无法切换');
     return;
   }
   // 做多：止损 = 本行与下方行 50%；做空：止损 = 本行与上方行 50%
@@ -2809,41 +2989,27 @@ async function createTierAssistFromCounterAction(parentRow, side, rate, price) {
     return;
   }
 
-  const record = buildTierAssistRecord({
-    parentRow,
-    side,
-    entryPrice,
-    stopLoss,
-    takeProfit,
-    rate: neighbors.currentRate ?? rate,
-    decimalPlaces: Math.max(3, neighbors.decimalPlaces || 0),
-  });
-  if (!record) {
-    showToast('无法生成挡位辅助档位');
-    return;
-  }
-  if (!record.startAt || !record.expiresAt) {
-    const fishTime = buildFishTimeRange();
-    record.startAt = fishTime.startAt;
-    record.expiresAt = fishTime.expiresAt;
-    record.timeframe = fishTime.timeframe;
-    record.timeframeMinutes = fishTime.timeframeMinutes;
-    record.timeframeLabel = fishTime.timeframeLabel;
-    record.validPeriods = fishTime.validPeriods;
-    record.durationMinutes = fishTime.durationMinutes;
-  }
+  const decimalPlaces = Math.max(3, neighbors.decimalPlaces || 0);
+  const nextViewState = {
+    ...normalizeViewState(parentRow?.viewState),
+    tierAssist: {
+      side,
+      rate: neighbors.currentRate ?? rate,
+      entryPrice: formatTrimmedFixedDecimals(entryPrice, decimalPlaces),
+      stopLoss: formatTrimmedFixedDecimals(stopLoss, decimalPlaces),
+      takeProfit: formatTrimmedFixedDecimals(takeProfit, decimalPlaces),
+    },
+  };
 
   isCreatingTierAssist = true;
   try {
-    const replaced = await deleteExistingTierAssistsForName(record.strategyName);
-    await createStrategy(record);
-    const sideLabel = side === 'long' ? '做多' : '做空';
-    showToast(replaced > 0 ? `已替换挡位辅助（${sideLabel}）` : `已创建挡位辅助（${sideLabel}）`);
-    await renderAdminList();
-  } catch (err) {
-    console.error('[tier-assist-create]', err);
-    const detail = String(err?.message || '').trim();
-    showToast(detail && detail.length < 80 ? `创建失败：${detail}` : '创建挡位辅助失败');
+    const ok = await setAdminStrategyViewMode(parentId, parentRow, STRATEGY_VIEW_MODE_TIER_ASSIST, {
+      viewState: nextViewState,
+    });
+    if (ok) {
+      const sideLabel = side === 'long' ? '做多' : '做空';
+      showToast(`已切换挡位辅助（${sideLabel}）`);
+    }
   } finally {
     isCreatingTierAssist = false;
   }
@@ -3311,8 +3477,6 @@ function resetFrontPage() {
   if (openInput) openInput.value = '';
   if (stopInput) stopInput.value = '';
   if (nameInput) nameInput.value = '';
-  const descEl = document.getElementById('desc-input');
-  if (descEl) descEl.value = '';
   const errEl = document.getElementById('error');
   if (errEl) errEl.textContent = '';
   clearStrategyState();
@@ -3350,12 +3514,10 @@ function clearFishState() {
 
 function resetFishPage() {
   const nameEl = document.getElementById('fish-name-input');
-  const descEl = document.getElementById('fish-desc-input');
   const fromEl = document.getElementById('fish-from-input');
   const toEl = document.getElementById('fish-to-input');
   const errEl = document.getElementById('fish-error');
   if (nameEl) nameEl.value = '';
-  if (descEl) descEl.value = '';
   if (fromEl) fromEl.value = '';
   if (toEl) toEl.value = '';
   if (errEl) errEl.textContent = '';
@@ -3580,7 +3742,7 @@ function generateFish() {
   const priceDecimals = Math.max(3, getPriceDecimalPlacesFromValues(fromEl?.value, toEl?.value));
   const strategy = buildFishStrategy(from, to, openCostTotal, priceDecimals);
   if (!strategy) {
-    if (errEl) errEl.textContent = '无法生成确认吃鱼档位，请检查 from / to。';
+    if (errEl) errEl.textContent = '无法生成吃鱼助手档位，请检查 from / to。';
     clearFishState();
     return;
   }
@@ -3838,14 +4000,18 @@ async function updateStrategyOutcomeStatus(id, outcomeStatus, remark) {
   if (!res.ok) throw new Error(await res.text());
 }
 
-async function updateStrategyViewMode(id, viewMode) {
+async function updateStrategyView(id, { viewMode, viewState } = {}) {
   const encodedId = encodeURIComponent(id);
+  const payload = {
+    view_mode: normalizeStrategyViewMode(viewMode),
+  };
+  if (viewState !== undefined) {
+    payload.view_state = normalizeViewState(viewState);
+  }
   const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
     method: 'PATCH',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
-    body: JSON.stringify({
-      view_mode: normalizeStrategyViewMode(viewMode),
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(await res.text());
 }
@@ -3931,16 +4097,7 @@ const ADMIN_TIME_FILTER_LABELS = {
 
 const DEFAULT_ADMIN_TIME_FILTER = 'active';
 
-const ADMIN_STATUS_FILTER_LABELS = {
-  all: '全部',
-  trend: '趋势建仓',
-  ten_r: '10R分界',
-};
-
-const DEFAULT_ADMIN_STATUS_FILTER = 'all';
-
 let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
-let adminStatusFilter = DEFAULT_ADMIN_STATUS_FILTER;
 let adminNameSearch = '';
 let adminNameFilter = '';
 let adminSortByExpiresAsc = false;
@@ -3961,54 +4118,10 @@ function rowMatchesAdminNameFilter(row) {
   return getAdminRowNameFilterKey(row) === adminNameFilter;
 }
 
-function getTenRBoundaryNameKeys(rows = latestAdminRows) {
-  const keys = new Set();
-  if (!Array.isArray(rows)) return keys;
-  for (const row of rows) {
-    if (!isAdminTenRBoundaryRow(row)) continue;
-    const key = getAdminRowNameFilterKey(row);
-    if (key) keys.add(key);
-  }
-  return keys;
-}
-
-function rowMatchesAdminTenRFilter(row, nameKeys) {
-  if (isAdminTenRBoundaryRow(row)) return true;
-  if (getAdminStrategyTypeInfo(row).type !== 'trend') return false;
-  const key = getAdminRowNameFilterKey(row);
-  return Boolean(key && nameKeys.has(key));
-}
-
-function compareAdminTenRFilterRows(a, b) {
-  const nameCmp = getAdminRowNameFilterKey(a).localeCompare(getAdminRowNameFilterKey(b), 'zh');
-  if (nameCmp !== 0) return nameCmp;
-  const rank = (row) => (getAdminStrategyTypeInfo(row).type === 'trend' ? 0 : 1);
-  return rank(a) - rank(b);
-}
-
-function rowMatchesAdminStatusFilter(row) {
-  const status = normalizeAdminStatusFilter(adminStatusFilter);
-  if (status === 'trend') return getAdminStrategyTypeInfo(row).type === 'trend';
-  if (status === 'ten_r') return isAdminTenRBoundaryRow(row);
-  return true;
-}
-
-function getAdminRowsAfterStatusFilter(rows = latestAdminRows) {
-  if (!Array.isArray(rows)) return [];
-  const status = normalizeAdminStatusFilter(adminStatusFilter);
-  if (status === 'all') return rows;
-  if (status === 'trend') return rows.filter((row) => getAdminStrategyTypeInfo(row).type === 'trend');
-  if (status === 'ten_r') {
-    const nameKeys = getTenRBoundaryNameKeys(rows);
-    return rows.filter((row) => rowMatchesAdminTenRFilter(row, nameKeys)).sort(compareAdminTenRFilterRows);
-  }
-  return rows.filter(rowMatchesAdminStatusFilter);
-}
-
 function getFilteredAdminRows(rows = latestAdminRows) {
-  const statusFiltered = getAdminRowsAfterStatusFilter(rows);
-  if (!adminNameFilter) return statusFiltered;
-  return statusFiltered.filter(rowMatchesAdminNameFilter);
+  const visible = getAdminVisibleRows(rows);
+  if (!adminNameFilter) return visible;
+  return visible.filter(rowMatchesAdminNameFilter);
 }
 
 function compareAdminRowsByExpiresAsc(a, b) {
@@ -4050,10 +4163,6 @@ function normalizeAdminTimeFilter(value) {
   return normalizeAdminFilter(value, ADMIN_TIME_FILTER_LABELS);
 }
 
-function normalizeAdminStatusFilter(value) {
-  return normalizeAdminFilter(value, ADMIN_STATUS_FILTER_LABELS, DEFAULT_ADMIN_STATUS_FILTER);
-}
-
 function normalizeAdminNameSearch(value) {
   return String(value ?? '').trim().replace(/\s+/g, ' ');
 }
@@ -4061,8 +4170,6 @@ function normalizeAdminNameSearch(value) {
 function renderAdminFilterTabs() {
   const tabsEl = document.getElementById('admin-filter-tabs');
   renderAdminTabGroup(tabsEl, ADMIN_TIME_FILTER_LABELS, normalizeAdminTimeFilter(adminTimeFilter), 'admin-time-filter');
-  const statusEl = document.getElementById('admin-status-filter-tabs');
-  renderAdminTabGroup(statusEl, ADMIN_STATUS_FILTER_LABELS, normalizeAdminStatusFilter(adminStatusFilter), 'admin-status-filter');
 }
 
 function renderAdminTabGroup(tabsEl, labels, activeValue, dataAttr) {
@@ -4073,32 +4180,37 @@ function renderAdminTabGroup(tabsEl, labels, activeValue, dataAttr) {
   }).join('');
 }
 
+function compareAdminNamesByFirstLetter(a, b) {
+  return String(a ?? '').localeCompare(String(b ?? ''), 'zh-CN', {
+    numeric: true,
+    sensitivity: 'base',
+  });
+}
+
 function collectAdminNameCounts(rows) {
-  const order = [];
   const counts = new Map();
-  for (const row of rows) {
+  for (const row of getAdminVisibleRows(rows)) {
     const raw = String(row?.strategyName ?? '').trim();
     if (!raw) continue;
-    const type = getAdminStrategyTypeInfo(row).type;
     const display = formatStrategyCardTitle(raw);
     const key = display.toLowerCase();
     if (!counts.has(key)) {
-      order.push(key);
       counts.set(key, {
         name: display,
         count: 0,
-        type,
+        mode: getAdminDisplayViewMode(row),
       });
     }
     counts.get(key).count += 1;
+    counts.get(key).mode = getAdminDisplayViewMode(row);
   }
-  return order.map((key) => counts.get(key));
+  return Array.from(counts.values()).sort((a, b) => compareAdminNamesByFirstLetter(a.name, b.name));
 }
 
 function renderAdminActiveNames(rows = latestAdminRows) {
   const el = document.getElementById('admin-active-names');
   if (!el) return;
-  const nameCounts = collectAdminNameCounts(getAdminRowsAfterStatusFilter(rows));
+  const nameCounts = collectAdminNameCounts(rows);
   const uniqueTotal = nameCounts.length;
   el.hidden = false;
   const sortHtml = [
@@ -4107,14 +4219,14 @@ function renderAdminActiveNames(rows = latestAdminRows) {
     '</button>',
   ].join('');
   const activeKey = adminNameFilter;
-  const namesHtml = nameCounts.map(({ name, count, type }) => {
-    const strategyType = type === 'assist' || type === 'fish' || type === 'tier_assist' ? type : 'trend';
+  const namesHtml = nameCounts.map(({ name, count, mode }) => {
+    const chipClass = getAdminModeChipClass(mode);
     const isActive = activeKey && getAdminNameFilterKey(name) === activeKey;
     const countHtml = count > 1
       ? `<span class="admin-active-names__count">${count}</span>`
       : '';
     return [
-      `<button type="button" class="admin-active-names__item admin-active-names__item--${strategyType}${isActive ? ' is-active' : ''}" data-admin-name-filter="${escapeHtml(name)}" aria-pressed="${isActive ? 'true' : 'false'}">`,
+      `<button type="button" class="admin-active-names__item admin-active-names__item--${chipClass}${isActive ? ' is-active' : ''}" data-admin-name-filter="${escapeHtml(name)}" aria-pressed="${isActive ? 'true' : 'false'}">`,
       escapeHtml(name),
       countHtml,
       '</button>',
@@ -4131,7 +4243,6 @@ function renderAdminControls() {
 function resetAdminPageState() {
   closeOutcomeStatusPicker();
   adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
-  adminStatusFilter = DEFAULT_ADMIN_STATUS_FILTER;
   adminNameSearch = '';
   adminNameFilter = '';
   adminSortByExpiresAsc = false;
@@ -4435,22 +4546,77 @@ async function renderAdminList() {
   renderAdminListItems();
 }
 
+function getAdminCurrentModeTagHtml(row) {
+  const type = getAdminStrategyTypeInfo(row).type;
+  if (isAdminFishView(row) || type === 'fish') {
+    return '<span class="admin-fish-tag" aria-label="吃鱼助手">吃鱼助手</span>';
+  }
+  if (isAdminTierAssistView(row) || type === 'tier_assist') {
+    return '<span class="admin-tier-assist-tag" aria-label="挡位辅助">挡位辅助</span>';
+  }
+  if (isAdminCounterTrendView(row)) {
+    return '<span class="admin-counter-tag" aria-label="趋势力预测">趋势力预测</span>';
+  }
+  if (type === 'assist') {
+    return '<span class="admin-assist-tag" aria-label="顺势而为">顺势而为</span>';
+  }
+  if (type === 'trend') {
+    return '<span class="admin-trend-tag" aria-label="趋势立项">趋势立项</span>';
+  }
+  return '';
+}
+
+function renderAdminOptionalModesHtml(row) {
+  const rawId = String(row?.id ?? '').trim();
+  if (!rawId || getAdminStrategyTypeInfo(row).type !== 'trend') return '';
+  const current = getAdminDisplayViewMode(row);
+  const syncing = updatingAdminViewModeIds.has(rawId);
+  const canCounter = canShowCounterTrend(row);
+  const hasTier = Boolean(getTierAssistViewState(row));
+  const modes = [
+    { value: STRATEGY_VIEW_MODE_TREND, label: '趋势立项', mod: 'trend' },
+    canCounter ? { value: STRATEGY_VIEW_MODE_COUNTER, label: '趋势力预测', mod: 'counter' } : null,
+    hasTier ? { value: STRATEGY_VIEW_MODE_TIER_ASSIST, label: '挡位辅助', mod: 'tier' } : null,
+    { value: STRATEGY_VIEW_MODE_FISH, label: '吃鱼助手', mod: 'fish' },
+  ].filter((mode) => mode && mode.value !== current);
+  if (!modes.length) return '';
+  const buttons = modes.map((mode) => [
+    `<button type="button" class="admin-view-switch__btn admin-view-switch__btn--${mode.mod}${syncing ? ' is-syncing' : ''}"`,
+    ` data-admin-view-mode="${mode.value}" data-id="${escapeHtml(rawId)}"`,
+    syncing ? ' disabled' : '',
+    ` aria-label="切换到${mode.label}">`,
+    escapeHtml(mode.label),
+    '</button>',
+  ].join('')).join('');
+  return [
+    '<div class="admin-item__modes">',
+    `<div class="admin-view-switch" role="group" aria-label="可选模式">${buttons}</div>`,
+    '</div>',
+  ].join('');
+}
+
 function buildAdminListItemHtml(row) {
   const rawId = String(row?.id ?? '').trim();
   const id = escapeHtml(rawId);
   const sideRaw = String(row?.positionSide ?? '').trim();
   const nameRaw = String(row?.strategyName ?? '').trim();
   const showCounterTrend = Boolean(rawId && isAdminCounterTrendView(row));
+  const showTierAssistView = Boolean(rawId && isAdminTierAssistView(row));
+  const showFishView = Boolean(rawId && isAdminFishView(row));
+  const relatedFish = showFishView ? findRelatedFishRow(row) : null;
+  const linkedTier = showTierAssistView ? buildLinkedTierAssistDisplay(row) : null;
   const baseSideMod = getPositionSideMod(sideRaw);
-  const sideMod = showCounterTrend
-    ? (baseSideMod === 'long' ? 'short' : 'long')
-    : baseSideMod;
+  const sideMod = showFishView && relatedFish
+    ? getPositionSideMod(relatedFish.positionSide)
+    : (showCounterTrend
+      ? (baseSideMod === 'long' ? 'short' : 'long')
+      : (linkedTier ? getPositionSideMod(linkedTier.side) : baseSideMod));
   const strategyType = getAdminStrategyTypeInfo(row);
   const isAssistStrategy = strategyType.type === 'assist';
   const isFishStrategy = strategyType.type === 'fish';
   const isTierAssistStrategy = strategyType.type === 'tier_assist';
-  const isAssistLikeStrategy = isAssistStrategy || isFishStrategy;
-  const showTimeMeta = strategyType.type === 'trend';
+  const isAssistLikeStrategy = isAssistStrategy || isFishStrategy || showFishView;
+  const showTimeMeta = strategyType.type === 'trend' && !showFishView;
   const title = escapeHtml(formatStrategyCardTitle(nameRaw));
   const titleLabel = escapeHtml(
     isTierAssistStrategy
@@ -4475,6 +4641,25 @@ function buildAdminListItemHtml(row) {
     takeProfitLabel = counter.refTakeProfit || '—';
     stopLabel = counter.stopLoss || '—';
     tenRBoundary = { rate: COUNTER_TREND_STOP_MULTIPLE, label: '10R 分界' };
+  } else if (showTierAssistView) {
+    concessions = linkedTier?.concessions || [];
+    takeProfitLabel = linkedTier?.takeProfitLabel || '—';
+    stopLabel = linkedTier?.stopLabel || '—';
+    if (isAdminTenRBoundaryRow(row)) {
+      showTenREffect = true;
+    }
+  } else if (showFishView && relatedFish) {
+    concessions = buildAdminAssistConcessionsForDisplay(relatedFish);
+    const assistFrom = toNumber(relatedFish?.inputPrice ?? relatedFish?.stopLossPrice);
+    const assistTo = toNumber(relatedFish?.inputStopLoss);
+    const assistTp = calcAssistTakeProfitPrice(assistFrom, assistTo, FISH_TAKE_PROFIT_MULTIPLE);
+    takeProfitLabel = assistTp != null
+      ? formatTrimmedFixedDecimals(assistTp, priceDecimalPlaces)
+      : (formatAdminPriceFromValue(relatedFish?.takeProfitPrice, priceDecimalPlaces) || '—');
+    stopLabel = formatAdminPriceFromValue(relatedFish?.inputPrice ?? relatedFish?.stopLossPrice, priceDecimalPlaces) || '—';
+    if (isAdminTenRBoundaryRow(relatedFish)) {
+      showTenREffect = true;
+    }
   } else if (isTierAssistStrategy) {
     const saved = hasConcessions(row?.concessions) ? row.concessions : [];
     const stopLoss = toNumber(row?.stopLossPrice);
@@ -4489,7 +4674,7 @@ function buildAdminListItemHtml(row) {
     }
   } else if (isAssistLikeStrategy) {
     concessions = buildAdminAssistConcessionsForDisplay(row);
-    // 顺势而为：2 倍；确认吃鱼：1 倍；止损=from
+    // 顺势而为：2 倍；吃鱼助手：1 倍；止损=from
     const assistFrom = toNumber(row?.inputPrice ?? row?.stopLossPrice);
     const assistTo = toNumber(row?.inputStopLoss);
     const tpMultiple = isFishStrategy ? FISH_TAKE_PROFIT_MULTIPLE : ASSIST_TAKE_PROFIT_MULTIPLE;
@@ -4503,16 +4688,15 @@ function buildAdminListItemHtml(row) {
     }
   } else {
     concessions = buildAdminDisplayConcessions(row);
-    // 趋势建仓：止盈=5R 最佳点位（区分多空），止损=原止损
+    // 趋势立项：止盈=5R 最佳点位（区分多空），止损=原止损
     takeProfitLabel = buildAdminBestTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
   }
   const tpSlHtml = showCounterTrend ? '' : renderAdminTakeProfitStopHtml(takeProfitLabel, stopLabel);
   const sideLabel = getPositionSideLabel(sideMod);
-  const sideTagHtml = sideLabel
+  const sideTagHtml = (!showCounterTrend && sideLabel)
     ? `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
     : '';
-  const relatedTierAssist = showCounterTrend ? findRelatedTierAssistRow(row) : null;
   const concessionsHtml = renderAdminConcessionsHtml(concessions, stopLabel, {
     priceDecimalPlaces,
     assistLabels: isAssistLikeStrategy,
@@ -4524,9 +4708,8 @@ function buildAdminListItemHtml(row) {
         qtyHeaderLabel: '操作',
         sideActionsMode: true,
         sideActionsStrategyId: rawId,
-        // 升序后反转：50R → … → 3R → R
         reverseOrder: true,
-        isCurrentItem: (item) => isCounterTrendItemCurrentTierAssist(item, relatedTierAssist),
+        isCurrentItem: (item) => isCounterTrendItemCurrentTierAssist(item, row),
       }
       : {}),
     ...(tenRBoundary ? { boundary: tenRBoundary } : {}),
@@ -4551,6 +4734,19 @@ function buildAdminListItemHtml(row) {
       '</label>',
     ].join('')
     : '';
+  const editTargetId = showFishView && relatedFish
+    ? String(relatedFish.id ?? '').trim()
+    : rawId;
+  const canShowEdit = Boolean(
+    editTargetId
+    && !isAdminSelectionMode
+    && (showFishView || isFishStrategy || (
+      strategyType.type === 'trend'
+      && !showCounterTrend
+      && !showTierAssistView
+      && !showFishView
+    )),
+  );
   const timeBadge = showTimeMeta ? getTimeBadgeInfo(endAt) : null;
   const timeBadgeUrgent = timeBadge?.type === 'active' && isCountdownWithinUrgentWindow(endAt)
     ? ' admin-time-status--urgent'
@@ -4562,22 +4758,7 @@ function buildAdminListItemHtml(row) {
       '</div>',
     ].join('')
     : '';
-  const counterTrendHtml = rawId && canShowCounterTrend(row)
-    ? [
-      `<button type="button" class="admin-counter-trend${showCounterTrend ? ' is-active' : ''}${updatingAdminViewModeIds.has(rawId) ? ' is-syncing' : ''}" data-counter-trend-toggle data-id="${id}" aria-pressed="${showCounterTrend ? 'true' : 'false'}" aria-busy="${updatingAdminViewModeIds.has(rawId) ? 'true' : 'false'}"${updatingAdminViewModeIds.has(rawId) ? ' disabled' : ''} aria-label="${showCounterTrend ? '切换回趋势建仓' : '查看趋势力预测'}">`,
-      `<span class="admin-counter-trend__tag">${showCounterTrend ? '趋势力预测' : '趋势建仓'}</span>`,
-      '</button>',
-    ].join('')
-    : '';
-  const assistTagHtml = isAssistStrategy
-    ? '<span class="admin-assist-tag" aria-label="顺势而为">顺势而为</span>'
-    : '';
-  const fishTagHtml = isFishStrategy
-    ? '<span class="admin-fish-tag" aria-label="确认吃鱼">确认吃鱼</span>'
-    : '';
-  const tierAssistTagHtml = isTierAssistStrategy
-    ? '<span class="admin-tier-assist-tag" aria-label="挡位辅助">挡位辅助</span>'
-    : '';
+  const currentModeTagHtml = getAdminCurrentModeTagHtml(row);
   const tenRTagHtml = showTenREffect
     ? '<span class="admin-ten-r-tag" aria-label="10R分界">10R分界</span>'
     : '';
@@ -4586,10 +4767,7 @@ function buildAdminListItemHtml(row) {
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
     sideTagHtml,
-    counterTrendHtml,
-    assistTagHtml,
-    fishTagHtml,
-    tierAssistTagHtml,
+    currentModeTagHtml,
     tenRTagHtml,
     timeframeTagHtml,
     '</div>',
@@ -4598,7 +4776,7 @@ function buildAdminListItemHtml(row) {
     ? `<div class="admin-item__head-right">${timeBadgeHtml}</div>`
     : '';
   return [
-    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}${isFishStrategy ? ' admin-item--fish' : ''}${isTierAssistStrategy ? ' admin-item--tier-assist' : ''}">`,
+    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}${isFishStrategy || showFishView ? ' admin-item--fish' : ''}${showTierAssistView || isTierAssistStrategy ? ' admin-item--tier-assist' : ''}">`,
     remarkStampHtml,
     '<header class="admin-item__head">',
     selectHtml,
@@ -4615,12 +4793,13 @@ function buildAdminListItemHtml(row) {
       : [
         '<div class="admin-item__sub">',
         `<span class="admin-item__time-range"${timeRange ? ' aria-label="时间范围"' : ' aria-hidden="true"'}>${timeRange || ''}</span>`,
-        rawId && !isAdminSelectionMode
-          ? `<button type="button" class="admin-edit-btn" data-admin-edit data-id="${id}" aria-label="修改 ${titleLabel}">修改</button>`
+        canShowEdit
+          ? `<button type="button" class="admin-edit-btn" data-admin-edit data-id="${escapeHtml(editTargetId)}" aria-label="修改 ${titleLabel}">修改</button>`
           : '',
         '</div>',
       ].join(''),
     '</div>',
+    renderAdminOptionalModesHtml(row),
     '</article>',
   ].join('');
 }
@@ -4631,7 +4810,7 @@ function renderAdminListItems() {
   const rows = getDisplayAdminRows(latestAdminRows);
   syncAdminSelectionWithRows(rows);
   if (!rows.length) {
-    listEl.innerHTML = latestAdminRows.length && (adminNameFilter || normalizeAdminStatusFilter(adminStatusFilter) !== 'all')
+    listEl.innerHTML = latestAdminRows.length && adminNameFilter
       ? '<div class="admin-list-empty">无匹配策略</div>'
       : '';
     updateAdminSelectionControls();
@@ -5478,17 +5657,6 @@ function setFrontMode(mode, options = {}) {
   const switched = prevMode !== nextMode;
   const force = options.force === true;
 
-  if (
-    switched
-    && nextMode === FRONT_MODE_ASSIST
-    && FRONT_ASSIST_MODE_DISABLED
-    && !force
-  ) {
-    showToast('顺势而为暂不可用');
-    syncFrontModeSwitchLock();
-    return;
-  }
-
   if (switched && editingStrategyId && !force) {
     showToast('修改中不可切换模式');
     syncFrontModeSwitchLock();
@@ -5504,25 +5672,17 @@ function setFrontMode(mode, options = {}) {
   frontMode = nextMode;
 
   const trendPanel = document.getElementById('front-trend-panel');
-  const assistPanel = document.getElementById('front-assist-panel');
   const fishPanel = document.getElementById('front-fish-panel');
   const btnTrend = document.getElementById('btn-front-mode-trend');
-  const btnAssist = document.getElementById('btn-front-mode-assist');
   const btnFish = document.getElementById('btn-front-mode-fish');
-  const toAssist = nextMode === FRONT_MODE_ASSIST;
   const toFish = nextMode === FRONT_MODE_FISH;
   const toTrend = nextMode === FRONT_MODE_TREND;
 
   if (trendPanel) trendPanel.hidden = !toTrend;
-  if (assistPanel) assistPanel.hidden = !toAssist;
   if (fishPanel) fishPanel.hidden = !toFish;
   if (btnTrend) {
     btnTrend.classList.toggle('is-active', toTrend);
     btnTrend.setAttribute('aria-selected', toTrend ? 'true' : 'false');
-  }
-  if (btnAssist) {
-    btnAssist.classList.toggle('is-active', toAssist);
-    btnAssist.setAttribute('aria-selected', toAssist ? 'true' : 'false');
   }
   if (btnFish) {
     btnFish.classList.toggle('is-active', toFish);
@@ -5537,9 +5697,7 @@ function setFrontMode(mode, options = {}) {
     updateHeaderClearButton();
   }
 
-  if (toAssist) {
-    autoGenerateAssistIfReady();
-  } else if (toFish) {
+  if (toFish) {
     autoGenerateFishIfReady();
   } else {
     updateTradeModeAppearance();
@@ -5575,9 +5733,7 @@ function setPage(mode, options = {}) {
     requestedFrontMode = FRONT_MODE_TREND;
   } else if (mode === 'assist') {
     requestedMode = 'front';
-    requestedFrontMode = FRONT_ASSIST_MODE_DISABLED && !options.forceFrontMode
-      ? FRONT_MODE_TREND
-      : FRONT_MODE_ASSIST;
+    requestedFrontMode = FRONT_MODE_TREND;
   } else if (mode === 'fish') {
     requestedMode = 'front';
     requestedFrontMode = FRONT_MODE_FISH;
@@ -5666,14 +5822,7 @@ function setPage(mode, options = {}) {
       }
     }
     if (requestedFrontMode) {
-      if (
-        requestedFrontMode === FRONT_MODE_ASSIST
-        && FRONT_ASSIST_MODE_DISABLED
-        && !options.forceFrontMode
-      ) {
-        requestedFrontMode = FRONT_MODE_TREND;
-      }
-      frontMode = requestedFrontMode;
+      frontMode = normalizeFrontMode(requestedFrontMode);
     }
     setFrontMode(frontMode, { force: options.forceFrontMode === true });
     if (preserveFrontForm) {
@@ -5920,7 +6069,7 @@ async function saveFishOutput() {
     setPage('admin');
     flashCopyStrategyBtn(btn, isEditing ? '已修改' : '已保存');
   } catch (err) {
-    logSave('error', '确认吃鱼保存失败', {
+    logSave('error', '吃鱼助手保存失败', {
       message: err?.message || String(err),
     });
     const detail = String(err?.message || '').trim();
@@ -6027,8 +6176,6 @@ document.querySelectorAll('[data-timeframe]').forEach((btn) => {
 
 const btnFrontModeTrend = document.getElementById('btn-front-mode-trend');
 if (btnFrontModeTrend) btnFrontModeTrend.addEventListener('click', () => setFrontMode(FRONT_MODE_TREND));
-const btnFrontModeAssist = document.getElementById('btn-front-mode-assist');
-if (btnFrontModeAssist) btnFrontModeAssist.addEventListener('click', () => setFrontMode(FRONT_MODE_ASSIST));
 const btnFrontModeFish = document.getElementById('btn-front-mode-fish');
 if (btnFrontModeFish) btnFrontModeFish.addEventListener('click', () => setFrontMode(FRONT_MODE_FISH));
 
@@ -6146,20 +6293,6 @@ if (adminFilterTabsEl) {
   });
 }
 
-const adminStatusFilterTabsEl = document.getElementById('admin-status-filter-tabs');
-if (adminStatusFilterTabsEl) {
-  adminStatusFilterTabsEl.addEventListener('click', (e) => {
-    const target = e.target instanceof HTMLElement ? e.target.closest('[data-admin-status-filter]') : null;
-    if (!target) return;
-    const nextFilter = normalizeAdminStatusFilter(target.getAttribute('data-admin-status-filter'));
-    if (adminStatusFilter === nextFilter) return;
-    adminStatusFilter = nextFilter;
-    renderAdminFilterTabs();
-    renderAdminListItems();
-    renderAdminActiveNames();
-  });
-}
-
 const obsFilterTabsEl = document.getElementById('obs-filter-tabs');
 if (obsFilterTabsEl) {
   obsFilterTabsEl.addEventListener('click', (e) => {
@@ -6246,14 +6379,20 @@ if (adminListEl) {
       return;
     }
 
-    const counterTrendBtn = target.closest('[data-counter-trend-toggle]');
+    const counterTrendBtn = target.closest('[data-admin-view-mode]');
     if (counterTrendBtn) {
       e.preventDefault();
       e.stopPropagation();
       const id = String(counterTrendBtn.getAttribute('data-id') ?? '').trim();
+      const nextMode = String(counterTrendBtn.getAttribute('data-admin-view-mode') ?? '').trim();
       if (!id || counterTrendBtn.disabled) return;
       const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
-      if (row) toggleAdminCounterTrend(id, row);
+      if (!row) return;
+      if (nextMode === STRATEGY_VIEW_MODE_FISH && !findRelatedFishRow(row)) {
+        startCreateFishFromTrend(row);
+        return;
+      }
+      setAdminStrategyViewMode(id, row, nextMode);
       return;
     }
 

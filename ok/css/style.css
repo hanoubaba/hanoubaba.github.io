@@ -399,14 +399,12 @@ body.login-mode {
 #methodology-page[hidden],
 #cases-page[hidden],
 #observations-page[hidden],
-#front-trend-panel[hidden],
-#front-assist-panel[hidden] {
+#front-trend-panel[hidden] {
   display: none !important;
 }
 
 #front-page,
-#front-trend-panel,
-#front-assist-panel {
+#front-trend-panel {
   display: contents;
 }
 
@@ -625,10 +623,6 @@ body.login-mode {
   margin-bottom: 8px;
 }
 
-.admin-filter-tabs--status {
-  margin-top: -2px;
-}
-
 .admin-filter-tab {
   flex: 1;
   border: none;
@@ -722,6 +716,10 @@ body.login-mode {
   box-shadow: 0 0 0 2px var(--primary-strong);
 }
 
+.admin-active-names__item--counter.is-active {
+  box-shadow: 0 0 0 2px #9a3412;
+}
+
 .admin-active-names__item--assist.is-active {
   box-shadow: 0 0 0 2px #0f766e;
 }
@@ -738,6 +736,12 @@ body.login-mode {
   color: var(--primary-strong);
   background: var(--long-soft);
   border-color: var(--border);
+}
+
+.admin-active-names__item--counter {
+  color: #9a3412;
+  background: #fff7ed;
+  border-color: #fdba74;
 }
 
 .admin-active-names__item--assist {
@@ -774,6 +778,10 @@ body.login-mode {
 
 .admin-active-names__item--trend .admin-active-names__count {
   background: var(--primary-strong);
+}
+
+.admin-active-names__item--counter .admin-active-names__count {
+  background: #9a3412;
 }
 
 .admin-active-names__item--assist .admin-active-names__count {
@@ -986,6 +994,16 @@ body.login-mode {
   border-top: 1px solid var(--border-soft);
 }
 
+.admin-item__modes {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px var(--admin-tier-pad-x, 8px) 9px;
+  border-top: 1px solid var(--border-soft);
+}
+
 .admin-item__selector {
   flex: none;
   position: relative;
@@ -1071,6 +1089,83 @@ body.login-mode {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.admin-view-switch {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.admin-view-switch__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  border-radius: 6px;
+  padding: 0 8px;
+  min-width: 52px;
+  min-height: 0;
+  height: calc(14px * 1.2 + 6px + 2px);
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.admin-view-switch__btn:active {
+  transform: translateY(1px);
+}
+
+.admin-view-switch__btn:focus-visible {
+  outline: 2px solid rgba(34, 197, 94, 0.45);
+  outline-offset: 2px;
+}
+
+.admin-view-switch__btn--trend {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.admin-view-switch__btn--counter {
+  border-color: #fdba74;
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  color: #9a3412;
+  box-shadow: inset 0 0 0 1px rgba(234, 88, 12, 0.12);
+}
+
+.admin-view-switch__btn--tier {
+  border-color: #c4b5fd;
+  background: linear-gradient(135deg, #f5f3ff 0%, #ddd6fe 100%);
+  color: #6d28d9;
+  box-shadow: inset 0 0 0 1px rgba(109, 40, 217, 0.1);
+}
+
+.admin-view-switch__btn--fish {
+  border-color: #fcd34d;
+  background: linear-gradient(135deg, #fffbeb 0%, #fde68a 100%);
+  color: #b45309;
+  box-shadow: inset 0 0 0 1px rgba(180, 83, 9, 0.08);
+}
+
+.admin-view-switch__btn:disabled,
+.admin-view-switch__btn.is-syncing {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.admin-view-switch__btn:disabled:active,
+.admin-view-switch__btn.is-syncing:active {
+  transform: none;
 }
 
 .admin-item__head-right {
@@ -1485,6 +1580,47 @@ body.login-mode {
   box-shadow: inset 0 0 0 1px rgba(109, 40, 217, 0.08);
 }
 
+.admin-trend-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  white-space: nowrap;
+  box-sizing: border-box;
+  border-radius: 6px;
+  padding: 0 8px;
+  min-width: 52px;
+  min-height: 0;
+  height: calc(14px * 1.2 + 6px + 2px);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  border: 1px solid #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.admin-counter-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  white-space: nowrap;
+  box-sizing: border-box;
+  border-radius: 6px;
+  padding: 0 8px;
+  min-width: 52px;
+  min-height: 0;
+  height: calc(14px * 1.2 + 6px + 2px);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  border: 1px solid #fdba74;
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  color: #9a3412;
+  box-shadow: inset 0 0 0 1px rgba(234, 88, 12, 0.12);
+}
+
 .admin-ten-r-tag {
   display: inline-flex;
   align-items: center;
@@ -1559,7 +1695,7 @@ body.login-mode {
   color: #0f766e;
 }
 
-/* 确认吃鱼卡片：暖黄斜纹，区别于顺势而为青绿 */
+/* 吃鱼助手卡片：暖黄斜纹，区别于顺势而为青绿 */
 .admin-item--fish {
   border-color: #fcd34d;
   background:
@@ -2484,8 +2620,7 @@ body.login-mode {
 }
 
 #front-page > .btn-save-strategy,
-#front-trend-panel > .btn-save-strategy,
-#front-assist-panel > .btn-save-strategy {
+#front-trend-panel > .btn-save-strategy {
   margin-top: 8px;
 }
 
@@ -3177,8 +3312,7 @@ body.login-mode {
   }
 
   .panel[aria-label="参数输入"],
-  .panel[aria-label="顺势而为参数"],
-  .panel[aria-label="确认吃鱼参数"] {
+  .panel[aria-label="吃鱼助手参数"] {
     display: grid;
     grid-template-columns: 1fr;
     row-gap: 5px;
@@ -3188,14 +3322,10 @@ body.login-mode {
   .panel[aria-label="参数输入"] > label.field.field--spaced,
   .panel[aria-label="参数输入"] > div.field,
   .panel[aria-label="参数输入"] > div.field.field--spaced,
-  .panel[aria-label="顺势而为参数"] > label.field:first-of-type,
-  .panel[aria-label="顺势而为参数"] > label.field.field--spaced,
-  .panel[aria-label="顺势而为参数"] > div.field,
-  .panel[aria-label="顺势而为参数"] > div.field.field--spaced,
-  .panel[aria-label="确认吃鱼参数"] > label.field:first-of-type,
-  .panel[aria-label="确认吃鱼参数"] > label.field.field--spaced,
-  .panel[aria-label="确认吃鱼参数"] > div.field,
-  .panel[aria-label="确认吃鱼参数"] > div.field.field--spaced {
+  .panel[aria-label="吃鱼助手参数"] > label.field:first-of-type,
+  .panel[aria-label="吃鱼助手参数"] > label.field.field--spaced,
+  .panel[aria-label="吃鱼助手参数"] > div.field,
+  .panel[aria-label="吃鱼助手参数"] > div.field.field--spaced {
     grid-column: 1;
     margin-top: 0;
   }
@@ -3206,8 +3336,7 @@ body.login-mode {
   }
 
   .panel[aria-label="参数输入"] > .error,
-  .panel[aria-label="顺势而为参数"] > .error,
-  .panel[aria-label="确认吃鱼参数"] > .error {
+  .panel[aria-label="吃鱼助手参数"] > .error {
     grid-column: 1 / -1;
     margin-top: 3px;
     min-height: 14px;
@@ -3216,7 +3345,6 @@ body.login-mode {
 
   #front-page > .btn-save-strategy,
   #front-trend-panel > .btn-save-strategy,
-  #front-assist-panel > .btn-save-strategy,
   #front-fish-panel > .btn-save-strategy {
     flex-shrink: 0;
     margin-top: 6px;
@@ -3233,8 +3361,7 @@ body.login-mode {
     flex-direction: column;
   }
 
-  #front-trend-panel,
-  #front-assist-panel {
+  #front-trend-panel {
     display: contents;
   }
 
@@ -3386,6 +3513,11 @@ body.login-mode {
     min-width: 210px;
   }
 
+  .admin-item__modes {
+    gap: 6px;
+    padding: 7px var(--admin-tier-pad-x) 8px;
+  }
+
   .admin-item__title-wrap {
     gap: 5px;
   }
@@ -3420,6 +3552,9 @@ body.login-mode {
     padding-bottom: 0;
   }
 
+  .admin-item__title-wrap .admin-view-switch__btn,
+  .admin-item__title-wrap .admin-trend-tag,
+  .admin-item__title-wrap .admin-counter-tag,
   .admin-item__title-wrap .admin-counter-trend__tag,
   .admin-item__title-wrap .admin-assist-tag,
   .admin-item__title-wrap .admin-fish-tag,
