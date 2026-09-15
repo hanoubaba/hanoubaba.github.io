@@ -739,6 +739,28 @@ function normalizeViewState(value) {
   return {};
 }
 
+function isStrategyPinned(row) {
+  return Boolean(normalizeViewState(row?.viewState).pinned);
+}
+
+function getStrategyPinnedAtTs(row) {
+  if (!isStrategyPinned(row)) return 0;
+  const at = parseDateValue(normalizeViewState(row?.viewState).pinnedAt);
+  return at?.getTime() || 0;
+}
+
+function setPinnedInViewState(viewState, pinned) {
+  const next = { ...normalizeViewState(viewState) };
+  if (pinned) {
+    next.pinned = true;
+    next.pinnedAt = new Date().toISOString();
+  } else {
+    delete next.pinned;
+    delete next.pinnedAt;
+  }
+  return next;
+}
+
 function getTierAssistViewState(row) {
   const raw = normalizeViewState(row?.viewState).tierAssist;
   if (!raw || typeof raw !== 'object') return null;
@@ -910,6 +932,15 @@ function findRelatedFishRow(row) {
     if (getStrategyNameKey(item?.strategyName) !== key) return false;
     return getAdminStrategyTypeInfo(item).type === 'fish';
   }) || null;
+}
+
+/** 修改入口：优先趋势立项，不存在则吃鱼助手 */
+function resolveEditableStrategyRow(row) {
+  if (!row) return null;
+  const type = getAdminStrategyTypeInfo(row).type;
+  if (type === 'trend') return row;
+  if (type === 'fish') return findRelatedTrendRow(row) || row;
+  return findRelatedTrendRow(row) || findRelatedFishRow(row) || null;
 }
 
 function findRelatedTierAssistRow(row) {
@@ -1841,6 +1872,7 @@ function toDbRecord(record) {
     outcome_status: normalizeOutcomeStatus(record.outcomeStatus),
     outcome_remark: String(record.outcomeRemark ?? '').trim(),
     view_mode: normalizeStrategyViewMode(record.viewMode),
+    view_state: normalizeViewState(record.viewState),
   };
 }
 
@@ -1913,9 +1945,9 @@ function setStartTimeUserPicked(value, scope = getFrontFormScope()) {
 function updateStartTimeTriggerLabel(scope = getFrontFormScope()) {
   const { trigger, sel } = getStartTimeFieldEls(scope);
   if (!trigger || !sel) return;
-  const label = String(sel.selectedOptions?.[0]?.textContent ?? '').trim();
   const v = String(sel.value ?? '').trim();
-  trigger.textContent = label || v || '请选择';
+  const label = String(sel.selectedOptions?.[0]?.textContent ?? '').trim();
+  trigger.textContent = label || v || '留空（旧单）';
 }
 
 function renderMobileTimePickerOptions(selectedValue, scope = mobileTimePickerScope) {
@@ -1923,9 +1955,22 @@ function renderMobileTimePickerOptions(selectedValue, scope = mobileTimePickerSc
   if (!list) return;
   const mode = getTimeframeMode(scope);
   const slots = getTimeSlotsByMode(mode);
+  const rawSelected = String(selectedValue ?? '').trim();
+  const allowEmpty = rawSelected === '';
   const fallbackValue = resolveStartTimeSelection(mode, selectedValue);
-  const activeValue = slots.some((slot) => slot.value === selectedValue) ? selectedValue : fallbackValue;
+  const activeValue = allowEmpty
+    ? ''
+    : (slots.some((slot) => slot.value === rawSelected) ? rawSelected : fallbackValue);
   const frag = document.createDocumentFragment();
+
+  const emptyBtn = document.createElement('button');
+  emptyBtn.type = 'button';
+  emptyBtn.className = `time-picker__option${activeValue === '' ? ' is-selected' : ''}`;
+  emptyBtn.dataset.value = '';
+  emptyBtn.textContent = '留空（旧单）';
+  emptyBtn.setAttribute('role', 'option');
+  emptyBtn.setAttribute('aria-selected', activeValue === '' ? 'true' : 'false');
+  frag.appendChild(emptyBtn);
 
   for (const slot of slots) {
     const btn = document.createElement('button');
@@ -1971,12 +2016,18 @@ function closeMobileTimePicker() {
 
 function applyMobileTimePickerValue(value) {
   const { sel } = getStartTimeFieldEls(mobileTimePickerScope);
-  const selected = String(value ?? '').trim();
-  if (!sel || !selected) {
+  if (!sel) {
     closeMobileTimePicker();
     return;
   }
+  const selected = String(value ?? '').trim();
   if (sel.value !== selected) {
+    if (selected && !Array.from(sel.options).some((opt) => opt.value === selected)) {
+      const opt = document.createElement('option');
+      opt.value = selected;
+      opt.textContent = selected;
+      sel.appendChild(opt);
+    }
     sel.value = selected;
     sel.dispatchEvent(new Event('change', { bubbles: true }));
   } else {
@@ -2006,8 +2057,9 @@ function bindMobileTimePickerEvents() {
       return;
     }
     if (target.classList.contains('time-picker__option')) {
-      const v = String(target.dataset.value ?? '').trim();
-      if (!v) return;
+      const v = Object.prototype.hasOwnProperty.call(target.dataset, 'value')
+        ? String(target.dataset.value ?? '').trim()
+        : '';
       applyMobileTimePickerValue(v);
     }
   });
@@ -2024,7 +2076,8 @@ function rebuildStartTimeOptions(preferredValue = null, { ensurePreferredSlot = 
   const mode = getTimeframeMode(scope);
   let slots = getTimeSlotsByMode(mode);
   const preferred = String(preferredValue ?? '').trim();
-  const selectedValue = ensurePreferredSlot && preferred
+  // ensurePreferredSlot 时保留明确传入的值（含空，表示旧单无开始时间）
+  const selectedValue = ensurePreferredSlot
     ? preferred
     : resolveStartTimeSelection(mode, preferredValue ?? sel.value);
 
@@ -2041,12 +2094,11 @@ function rebuildStartTimeOptions(preferredValue = null, { ensurePreferredSlot = 
   }
 
   const frag = document.createDocumentFragment();
-  if (!selectedValue || !slots.some((slot) => slot.value === selectedValue)) {
-    const optPlaceholder = document.createElement('option');
-    optPlaceholder.value = '';
-    optPlaceholder.textContent = '请选择';
-    frag.appendChild(optPlaceholder);
-  }
+  const optPlaceholder = document.createElement('option');
+  optPlaceholder.value = '';
+  optPlaceholder.textContent = '留空（旧单）';
+  if (!selectedValue) optPlaceholder.selected = true;
+  frag.appendChild(optPlaceholder);
 
   for (const slot of slots) {
     const o = document.createElement('option');
@@ -2180,6 +2232,7 @@ function clearEditingStrategy() {
   editingStrategyPreserve = null;
   updateSaveButtonLabels();
   syncFrontModeSwitchLock();
+  syncPinButtonUI();
 }
 
 function syncFrontModeSwitchLock() {
@@ -2207,6 +2260,17 @@ function syncFrontModeSwitchLock() {
   });
 }
 
+function syncPinButtonUI() {
+  const btn = document.getElementById('btn-toggle-pin');
+  if (!btn) return;
+  const isEditing = Boolean(editingStrategyId);
+  const pinned = isStrategyPinned({ viewState: editingStrategyPreserve?.viewState });
+  btn.hidden = !isEditing;
+  btn.textContent = pinned ? '取消关注' : '关注';
+  btn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
+  btn.classList.toggle('is-pinned', pinned);
+}
+
 function updateSaveButtonLabels() {
   const trendBtn = document.getElementById('btn-copy-strategy');
   const assistBtn = document.getElementById('btn-save-assist');
@@ -2228,6 +2292,7 @@ function updateSaveButtonLabels() {
     fishBtn.dataset.defaultLabel = label;
   }
   syncFrontModeSwitchLock();
+  syncPinButtonUI();
 }
 
 function getStartSlotValueFromRow(row) {
@@ -2238,7 +2303,12 @@ function getStartSlotValueFromRow(row) {
   return formatStartSlotValue(floorDateToStep(startAt, stepMinutes));
 }
 
-function getStrategyDescription(_scope = getFrontFormScope()) {
+function getStrategyDescription(scope = getFrontFormScope()) {
+  const normalized = scope === 'fish' || scope === 'assist' ? scope : 'trend';
+  if (normalized === 'trend') {
+    const remarkEl = document.getElementById('remark-input');
+    if (remarkEl) return String(remarkEl.value ?? '').trim();
+  }
   if (editingStrategyId && editingStrategyPreserve) {
     return String(editingStrategyPreserve.description ?? '').trim();
   }
@@ -2249,9 +2319,11 @@ function populateTrendFormFromRow(row) {
   const nameEl = document.getElementById('name-input');
   const openEl = document.getElementById('open-price-input');
   const stopEl = document.getElementById('stop-price-input');
+  const remarkEl = document.getElementById('remark-input');
   if (nameEl) nameEl.value = String(row?.strategyName ?? '').trim();
   if (openEl) openEl.value = String(row?.inputPrice ?? '').trim();
   if (stopEl) stopEl.value = String(row?.inputStopLoss ?? '').trim();
+  if (remarkEl) remarkEl.value = String(row?.description ?? '').trim();
   setFrontTimeframeMode(row?.timeframe || DEFAULT_TIMEFRAME, { refresh: false, scope: 'trend' });
   const startSlot = getStartSlotValueFromRow(row);
   setStartTimeUserPicked(true, 'trend');
@@ -2286,6 +2358,7 @@ function readFrontFormDraft(scope) {
   if (scope === 'fish') {
     return {
       name: String(document.getElementById('fish-name-input')?.value ?? ''),
+      remark: '',
       timeframe: '',
       startTime: '',
       startTimePicked: false,
@@ -2297,6 +2370,7 @@ function readFrontFormDraft(scope) {
   const { sel } = getStartTimeFieldEls(isAssist ? 'assist' : 'trend');
   return {
     name: String(document.getElementById(isAssist ? 'assist-name-input' : 'name-input')?.value ?? ''),
+    remark: isAssist ? '' : String(document.getElementById('remark-input')?.value ?? ''),
     timeframe: getTimeframeMode(isAssist ? 'assist' : 'trend'),
     startTime: String(sel?.value ?? '').trim(),
     startTimePicked: isStartTimeUserPicked(isAssist ? 'assist' : 'trend'),
@@ -2319,26 +2393,29 @@ function applyFrontFormDraft(draft, scope) {
   const nameEl = document.getElementById(isAssist ? 'assist-name-input' : 'name-input');
   const priceAEl = document.getElementById(isAssist ? 'assist-from-input' : 'open-price-input');
   const priceBEl = document.getElementById(isAssist ? 'assist-to-input' : 'stop-price-input');
+  const remarkEl = isAssist ? null : document.getElementById('remark-input');
   if (nameEl) nameEl.value = draft.name ?? '';
   if (priceAEl) priceAEl.value = draft.priceA ?? '';
   if (priceBEl) priceBEl.value = draft.priceB ?? '';
+  if (remarkEl) remarkEl.value = draft.remark ?? '';
   setFrontTimeframeMode(
     draft.timeframe || (isAssist ? DEFAULT_ASSIST_TIMEFRAME : DEFAULT_TIMEFRAME),
     { refresh: false, scope: isAssist ? 'assist' : 'trend' },
   );
   const startTime = String(draft.startTime ?? '').trim();
-  setStartTimeUserPicked(Boolean(draft.startTimePicked && startTime), isAssist ? 'assist' : 'trend');
-  rebuildStartTimeOptions(startTime || null, {
-    ensurePreferredSlot: Boolean(startTime),
+  setStartTimeUserPicked(Boolean(draft.startTimePicked), isAssist ? 'assist' : 'trend');
+  rebuildStartTimeOptions(startTime, {
+    ensurePreferredSlot: Boolean(draft.startTimePicked),
     scope: isAssist ? 'assist' : 'trend',
   });
 }
 
 function startEditStrategy(row) {
-  const id = String(row?.id ?? '').trim();
+  const target = resolveEditableStrategyRow(row) || row;
+  const id = String(target?.id ?? '').trim();
   if (!id) return;
 
-  const strategyType = getAdminStrategyTypeInfo(row);
+  const strategyType = getAdminStrategyTypeInfo(target);
   if (strategyType.type === 'tier_assist') {
     showToast('挡位辅助暂不支持修改');
     return;
@@ -2352,11 +2429,11 @@ function startEditStrategy(row) {
   if (isFish) {
     resetFrontPage();
     resetAssistPage();
-    populateFishFormFromRow(row);
+    populateFishFormFromRow(target);
   } else {
     resetAssistPage();
     resetFishPage();
-    populateTrendFormFromRow(row);
+    populateTrendFormFromRow(target);
   }
 
   setPage('front', {
@@ -2366,11 +2443,11 @@ function startEditStrategy(row) {
 
   editingStrategyId = id;
   editingStrategyPreserve = {
-    outcomeStatus: row?.outcomeStatus,
-    outcomeRemark: row?.outcomeRemark,
-    viewMode: row?.viewMode,
-    viewState: row?.viewState,
-    description: row?.description,
+    outcomeStatus: target?.outcomeStatus,
+    outcomeRemark: target?.outcomeRemark,
+    viewMode: target?.viewMode,
+    viewState: target?.viewState,
+    description: target?.description,
   };
 
   if (isFish) generateFish();
@@ -2378,7 +2455,8 @@ function startEditStrategy(row) {
 
   updateSaveButtonLabels();
   updateHeaderClearButton();
-  showToast('已进入修改模式');
+  syncPinButtonUI();
+  showToast(isFish ? '已进入修改模式（吃鱼助手）' : '已进入修改模式（趋势立项）');
   window.scrollTo(0, 0);
 }
 
@@ -2447,7 +2525,7 @@ function renderAdminDescriptionHtml(description) {
   if (!text) return '';
   return [
     '<div class="admin-item__desc">',
-    '<span class="admin-item__desc-label">描述：</span>',
+    '<span class="admin-item__desc-label">备注：</span>',
     `<p class="admin-item__desc-text">${escapeHtml(text)}</p>`,
     '</div>',
   ].join('');
@@ -2468,7 +2546,7 @@ function buildStrategyCopyText({ name, price, quantity, takeProfit, stopLoss, de
     `止损价格：${String(stopLoss ?? '').trim()}`,
   ];
   const note = String(description ?? '').trim();
-  if (note) lines.push(`描述：${note}`);
+  if (note) lines.push(`备注：${note}`);
   return lines.join('\n');
 }
 
@@ -2508,8 +2586,11 @@ function enrichStrategyRecordForSubmit(record) {
   if (startValue) {
     const startAt = getStartDateTime(startValue);
     const endAt = addPeriodToStart(startValue, durationMinutes);
-    next.startAt = startAt ? startAt.toISOString() : next.startAt;
-    next.expiresAt = endAt ? endAt.toISOString() : next.expiresAt;
+    next.startAt = startAt ? startAt.toISOString() : null;
+    next.expiresAt = endAt ? endAt.toISOString() : null;
+  } else {
+    next.startAt = null;
+    next.expiresAt = null;
   }
   if (editingStrategyId && editingStrategyPreserve) {
     next.outcomeStatus = editingStrategyPreserve.outcomeStatus ?? next.outcomeStatus;
@@ -3424,12 +3505,6 @@ function generate() {
     return;
   }
 
-  if (!startTime) {
-    if (errEl) errEl.textContent = '请选择开始时间。';
-    clearStrategyState();
-    return;
-  }
-
   if (open === stop) {
     if (errEl) errEl.textContent = '开始价格与止损价格不能相同，无法计算数量与方向。';
     clearStrategyState();
@@ -3510,6 +3585,8 @@ function resetFrontPage() {
   if (openInput) openInput.value = '';
   if (stopInput) stopInput.value = '';
   if (nameInput) nameInput.value = '';
+  const remarkEl = document.getElementById('remark-input');
+  if (remarkEl) remarkEl.value = '';
   const errEl = document.getElementById('error');
   if (errEl) errEl.textContent = '';
   clearStrategyState();
@@ -4123,12 +4200,13 @@ function getTimeRangeStatusByEndAt(endAt) {
 
 const ADMIN_TIME_FILTER_LABELS = {
   all: '全部',
+  pinned: '关注',
   active: '进行中',
   createdToday: '今日创建',
   dueToday: '今日到期',
 };
 
-const DEFAULT_ADMIN_TIME_FILTER = 'active';
+const DEFAULT_ADMIN_TIME_FILTER = 'all';
 
 let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
 let adminNameSearch = '';
@@ -4152,7 +4230,10 @@ function rowMatchesAdminNameFilter(row) {
 }
 
 function getFilteredAdminRows(rows = latestAdminRows) {
-  const visible = getAdminVisibleRows(rows);
+  let visible = getAdminVisibleRows(rows);
+  if (normalizeAdminTimeFilter(adminTimeFilter) === 'pinned') {
+    visible = visible.filter(isStrategyPinned);
+  }
   if (!adminNameFilter) return visible;
   return visible.filter(rowMatchesAdminNameFilter);
 }
@@ -4168,10 +4249,24 @@ function compareAdminRowsByExpiresAsc(a, b) {
   return aTs - bTs;
 }
 
+function compareAdminRowsByPinFirst(a, b) {
+  const aPinned = isStrategyPinned(a);
+  const bPinned = isStrategyPinned(b);
+  if (aPinned !== bPinned) return aPinned ? -1 : 1;
+  if (aPinned && bPinned) {
+    return getStrategyPinnedAtTs(b) - getStrategyPinnedAtTs(a);
+  }
+  return 0;
+}
+
 function getDisplayAdminRows(rows = latestAdminRows) {
   const filtered = getFilteredAdminRows(rows);
-  if (!adminSortByExpiresAsc) return filtered;
-  return filtered.slice().sort(compareAdminRowsByExpiresAsc);
+  return filtered.slice().sort((a, b) => {
+    const pinCmp = compareAdminRowsByPinFirst(a, b);
+    if (pinCmp !== 0) return pinCmp;
+    if (adminSortByExpiresAsc) return compareAdminRowsByExpiresAsc(a, b);
+    return 0;
+  });
 }
 
 function toggleAdminNameFilter(name) {
@@ -4221,8 +4316,12 @@ function compareAdminNamesByFirstLetter(a, b) {
 }
 
 function collectAdminNameCounts(rows) {
+  let list = getAdminVisibleRows(rows);
+  if (normalizeAdminTimeFilter(adminTimeFilter) === 'pinned') {
+    list = list.filter(isStrategyPinned);
+  }
   const counts = new Map();
-  for (const row of getAdminVisibleRows(rows)) {
+  for (const row of list) {
     const raw = String(row?.strategyName ?? '').trim();
     if (!raw) continue;
     const display = formatStrategyCardTitle(raw);
@@ -4564,7 +4663,9 @@ async function renderAdminList() {
   }
   let rows = [];
   try {
-    rows = await fetchStrategies(adminTimeFilter);
+    // 关注筛选取全量，便于关联单据查找；展示层再按关注过滤
+    const fetchFilter = adminTimeFilter === 'pinned' ? 'all' : adminTimeFilter;
+    rows = await fetchStrategies(fetchFilter);
   } catch (err) {
     selectedStrategyIds.clear();
     visibleAdminStrategyIds = [];
@@ -4650,7 +4751,8 @@ function buildAdminListItemHtml(row) {
   const isFishStrategy = strategyType.type === 'fish';
   const isTierAssistStrategy = strategyType.type === 'tier_assist';
   const isAssistLikeStrategy = isAssistStrategy || isFishStrategy || showFishView;
-  const showTimeMeta = strategyType.type === 'trend' && !showFishView;
+  const hasTimeRange = Boolean(getStrategyStartAt(row) && getStrategyEndAt(row));
+  const showTimeMeta = strategyType.type === 'trend' && !showFishView && hasTimeRange;
   const title = escapeHtml(formatStrategyCardTitle(nameRaw));
   const titleLabel = escapeHtml(
     isTierAssistStrategy
@@ -4771,19 +4873,9 @@ function buildAdminListItemHtml(row) {
       '</label>',
     ].join('')
     : '';
-  const editTargetId = showFishView && relatedFish
-    ? String(relatedFish.id ?? '').trim()
-    : rawId;
-  const canShowEdit = Boolean(
-    editTargetId
-    && !isAdminSelectionMode
-    && (showFishView || isFishStrategy || (
-      strategyType.type === 'trend'
-      && !showCounterTrend
-      && !showTierAssistView
-      && !showFishView
-    )),
-  );
+  const editTargetRow = resolveEditableStrategyRow(row);
+  const editTargetId = String(editTargetRow?.id ?? '').trim();
+  const canShowEdit = Boolean(editTargetId && !isAdminSelectionMode);
   const timeBadge = showTimeMeta ? getTimeBadgeInfo(endAt) : null;
   const timeBadgeUrgent = timeBadge?.type === 'active' && isCountdownWithinUrgentWindow(endAt)
     ? ' admin-time-status--urgent'
@@ -4796,10 +4888,15 @@ function buildAdminListItemHtml(row) {
     ].join('')
     : '';
   const currentModeTagHtml = getAdminCurrentModeTagHtml(row);
+  const pinTagHtml = isStrategyPinned(row)
+    ? '<span class="admin-pin-tag" aria-label="已关注" title="已关注">♥</span>'
+    : '';
   const tenRTagHtml = showTenREffect
     ? '<span class="admin-ten-r-tag" aria-label="10R分界">10R分界</span>'
     : '';
-  const timeframeTagHtml = showTimeMeta ? getTimeframeTagHtml(row?.timeframe) : '';
+  const timeframeTagHtml = (strategyType.type === 'trend' && !showFishView)
+    ? getTimeframeTagHtml(row?.timeframe)
+    : '';
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
@@ -4807,13 +4904,14 @@ function buildAdminListItemHtml(row) {
     currentModeTagHtml,
     tenRTagHtml,
     timeframeTagHtml,
+    pinTagHtml,
     '</div>',
   ].join('');
   const headRightHtml = timeBadgeHtml
     ? `<div class="admin-item__head-right">${timeBadgeHtml}</div>`
     : '';
   return [
-    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}${isFishStrategy || showFishView ? ' admin-item--fish' : ''}${showTierAssistView || isTierAssistStrategy ? ' admin-item--tier-assist' : ''}">`,
+    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}${isFishStrategy || showFishView ? ' admin-item--fish' : ''}${showTierAssistView || isTierAssistStrategy ? ' admin-item--tier-assist' : ''}${isStrategyPinned(row) ? ' admin-item--pinned' : ''}">`,
     remarkStampHtml,
     '<header class="admin-item__head">',
     selectHtml,
@@ -4836,6 +4934,7 @@ function buildAdminListItemHtml(row) {
         '</div>',
       ].join(''),
     '</div>',
+    renderAdminDescriptionHtml(row?.description),
     renderAdminOptionalModesHtml(row),
     '</article>',
   ].join('');
@@ -5987,6 +6086,23 @@ async function copyStrategyOutput() {
 
 const btnCopyStrategy = document.getElementById('btn-copy-strategy');
 if (btnCopyStrategy) btnCopyStrategy.addEventListener('click', copyStrategyOutput);
+
+function togglePinDraft() {
+  if (!editingStrategyId || !editingStrategyPreserve) {
+    showToast('请先进入修改模式');
+    return;
+  }
+  const nextPinned = !isStrategyPinned({ viewState: editingStrategyPreserve.viewState });
+  editingStrategyPreserve.viewState = setPinnedInViewState(
+    editingStrategyPreserve.viewState,
+    nextPinned,
+  );
+  syncPinButtonUI();
+  showToast(nextPinned ? '已标记关注，请点保存生效' : '已取消关注标记，请点保存生效');
+}
+
+const btnTogglePin = document.getElementById('btn-toggle-pin');
+if (btnTogglePin) btnTogglePin.addEventListener('click', togglePinDraft);
 
 let isSavingAssist = false;
 
