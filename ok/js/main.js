@@ -231,6 +231,10 @@ const FISH_VALID_PERIODS = 3650; // ≈10 年，视为长期有效
 /** 反趋势：挂单档位 = 原策略 3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R–100R 价格（无数量） */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 5];
 const COUNTER_TREND_PRICE_ONLY_MULTIPLES = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+const COUNTER_TREND_BASE_MULTIPLES = [
+  ...COUNTER_TREND_ENTRY_MULTIPLES,
+  ...COUNTER_TREND_PRICE_ONLY_MULTIPLES,
+];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
 /** 趋势力预测默认只显示到 50R，展开后显示到 100R */
 const COUNTER_TREND_COLLAPSED_MAX_RATE = 50;
@@ -820,9 +824,22 @@ function buildLinkedTierAssistDisplay(row) {
   };
 }
 
+function getCounterTrendRateRows() {
+  const rows = [];
+  for (let i = 0; i < COUNTER_TREND_BASE_MULTIPLES.length; i += 1) {
+    const rate = COUNTER_TREND_BASE_MULTIPLES[i];
+    if (i > 0) {
+      const prev = COUNTER_TREND_BASE_MULTIPLES[i - 1];
+      rows.push({ rate: (prev + rate) / 2, isMidpoint: true });
+    }
+    rows.push({ rate, isMidpoint: false });
+  }
+  return rows;
+}
+
 /**
  * 反趋势策略：以原策略 R 倍数推算挂单价。
- * 档位 3/5R 与 10–100R 仅展示价格；末行 R = 原开仓价（原止盈展示位）。
+ * 档位 3/5R 与 10–100R 仅展示价格；相邻档之间插入中间值；末行 S = 原开仓价。
  * 时间范围接在原策略结束后再排 10 个周期。
  */
 function buildCounterTrendConcessions(row) {
@@ -840,34 +857,24 @@ function buildCounterTrendConcessions(row) {
 
   const refTakeProfit = formatTrimmedFixedDecimals(entryPrice, decimalPlaces);
   const items = [];
-  for (const multiple of COUNTER_TREND_ENTRY_MULTIPLES) {
-    const price = calcTakeProfit(entryPrice, stopLoss, multiple);
-    if (price == null || price === counterStop) continue;
-    items.push({
-      rate: multiple,
-      display: true,
-      hideQuantity: true,
-      showSideActions: true,
-      price: formatTrimmedFixedDecimals(price, decimalPlaces),
-      quantity: '',
-    });
-  }
-  for (const multiple of COUNTER_TREND_PRICE_ONLY_MULTIPLES) {
+  for (const { rate: multiple, isMidpoint } of getCounterTrendRateRows()) {
     const price = calcTakeProfit(entryPrice, stopLoss, multiple);
     if (price == null) continue;
+    if (!isMidpoint && COUNTER_TREND_ENTRY_MULTIPLES.includes(multiple) && price === counterStop) continue;
     items.push({
       rate: multiple,
       display: true,
       hideQuantity: true,
       showSideActions: true,
+      isMidpoint,
       price: formatTrimmedFixedDecimals(price, decimalPlaces),
       quantity: '',
     });
   }
-  // 3R 下方：R = 原开仓价（原「止盈」展示值）
+  // 3R 下方：S = 原开仓价（原「止盈」展示值）
   items.push({
     rate: 1,
-    rateLabel: 'R',
+    rateLabel: 'S',
     display: true,
     hideQuantity: true,
     showSideActions: true,
@@ -2813,7 +2820,9 @@ function formatConcessionPercent(rate) {
 function formatCounterTrendRate(rate) {
   const n = Number(rate);
   if (!Number.isFinite(n)) return '—';
-  return `${Math.round(n)}R`;
+  const rounded = Math.round(n);
+  if (Math.abs(n - rounded) < 1e-9) return `${rounded}R`;
+  return `${String(Number(n.toFixed(2)))}R`;
 }
 
 /** 0% / 10% / 20% / 30% 统一标记为 best三选一 */
@@ -2927,8 +2936,9 @@ function renderCounterTrendSideActionsHtml(strategyId, item) {
   const id = escapeHtml(String(strategyId ?? '').trim());
   const rateNum = Number(item?.rate);
   const rateLabel = String(item?.rateLabel ?? '').trim().toUpperCase();
-  const isRRow = rateLabel === 'R' || Math.abs(rateNum - 1) < 1e-9;
+  const isRRow = rateLabel === 'S' || rateLabel === 'R' || Math.abs(rateNum - 1) < 1e-9;
   const is100R = Math.abs(rateNum - 100) < 1e-9;
+  const isMidpoint = item?.isMidpoint === true;
   if (isRRow) {
     const expanded = isCounterTrendRatesExpanded(strategyId);
     const label = expanded ? '收起' : '展开';
@@ -2939,7 +2949,7 @@ function renderCounterTrendSideActionsHtml(strategyId, item) {
       '</span>',
     ].join('');
   }
-  if (is100R) {
+  if (is100R || isMidpoint) {
     return '<span class="admin-concession__actions"></span>';
   }
   const rate = escapeHtml(String(Number.isFinite(rateNum) ? rateNum : '').trim());
@@ -2958,7 +2968,7 @@ function getCounterTrendDisplayItems(row) {
 }
 
 function findCounterTrendNeighborPrices(row, rate, price) {
-  const displayItems = getCounterTrendDisplayItems(row);
+  const displayItems = getCounterTrendDisplayItems(row).filter((item) => !item?.isMidpoint);
   if (!displayItems.length) return null;
   const rateNum = Number(rate);
   const priceNum = toNumber(price);
@@ -3281,9 +3291,9 @@ function renderConcessionsHtml({
   const useBoundary = Boolean(boundary);
 
   const buildRow = (item) => {
-    const formatted = item?.rateLabel
-      ? String(item.rateLabel)
-      : rateFormatter(item.rate);
+    const formatted = item?.isMidpoint
+      ? ''
+      : (item?.rateLabel ? String(item.rateLabel) : rateFormatter(item.rate));
     const rateLabel = prefix === 'admin'
       ? stripRateAnnotation(formatted)
       : withBestConcessionLabel(formatted, item.rate);
@@ -3291,6 +3301,10 @@ function renderConcessionsHtml({
     const isCurrent = typeof isCurrentItem === 'function'
       ? Boolean(isCurrentItem(item))
       : false;
+    const extraClass = [
+      isCurrent ? `${rowClass}--current is-current` : '',
+      item?.isMidpoint ? `${rowClass}--mid` : '',
+    ].filter(Boolean).join(' ');
     return renderConcessionRowHtml({
       rowClass,
       item,
@@ -3302,7 +3316,7 @@ function renderConcessionsHtml({
       hideStop: hideStopColumn,
       strikeRate: assistLabels && shouldHideAssistQuantity(item.rate),
       copyableNumbers: prefix === 'admin',
-      extraClass: isCurrent ? `${rowClass}--current is-current` : '',
+      extraClass,
       sideActionsHtml: useSideActions && prefix === 'admin'
         ? renderCounterTrendSideActionsHtml(sideActionsStrategyId, {
           ...item,
