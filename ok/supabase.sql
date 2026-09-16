@@ -39,8 +39,8 @@ create table if not exists public.strategies (
   timeframe_minutes integer not null,
   valid_periods integer not null default 9,
   duration_minutes integer not null,
-  start_at timestamptz not null,
-  expires_at timestamptz not null,
+  start_at timestamptz,
+  expires_at timestamptz,
 
   outcome_status text not null default 'pending',
   outcome_remark text not null default '',
@@ -88,8 +88,13 @@ create table if not exists public.strategies (
     check (duration_minutes = timeframe_minutes * valid_periods),
   constraint strategies_time_range_check
     check (
-      expires_at > start_at
-      and expires_at = start_at + duration_minutes * interval '1 minute'
+      (start_at is null and expires_at is null)
+      or (
+        start_at is not null
+        and expires_at is not null
+        and expires_at > start_at
+        and expires_at = start_at + duration_minutes * interval '1 minute'
+      )
     ),
   constraint strategies_grade_check
     check (grade in ('优质', '普通'))
@@ -159,7 +164,7 @@ as $$
         coalesce(p_time_filter, 'all') = 'all'
         or (
           p_time_filter = 'active'
-          and expires_at > coalesce(p_now, now())
+          and (expires_at is null or expires_at > coalesce(p_now, now()))
           and (p_outcome_status is not null and p_outcome_status <> 'all' or outcome_status = 'pending')
         )
         or (
@@ -572,6 +577,28 @@ alter column view_state set not null;
 
 alter table public.strategies
 add column if not exists description text not null default '';
+
+-- 旧单允许开始时间留空：start_at / expires_at 成对为空
+alter table public.strategies
+alter column start_at drop not null;
+
+alter table public.strategies
+alter column expires_at drop not null;
+
+alter table public.strategies
+drop constraint if exists strategies_time_range_check;
+
+alter table public.strategies
+add constraint strategies_time_range_check
+check (
+  (start_at is null and expires_at is null)
+  or (
+    start_at is not null
+    and expires_at is not null
+    and expires_at > start_at
+    and expires_at = start_at + duration_minutes * interval '1 minute'
+  )
+);
 
 -- ------------------------------------------------------------
 -- 6. 应用设置（unit_cost：每档单位本金，数据统计页可改）

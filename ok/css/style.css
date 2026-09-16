@@ -120,6 +120,11 @@ body {
   box-shadow: none;
 }
 
+.admin-item.is-focused {
+  border-color: var(--primary-strong);
+  box-shadow: inset 0 0 0 1px var(--primary-strong);
+}
+
 .header-action:active {
   transform: translateY(1px);
 }
@@ -937,23 +942,28 @@ body.login-mode {
   --admin-tier-pad-x: 8px;
 }
 
+.admin-item:has(.admin-item__remark-stamp) {
+  padding-bottom: 16px;
+}
+
 .admin-item__remark-stamp {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  z-index: 2;
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: fit-content;
   max-width: min(74%, 240px);
+  margin: 10px auto 10px;
   padding: 7px 14px;
   border: 2px solid #94a3b8;
   border-radius: 8px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.94);
   color: #64748b;
   font-size: 16px;
   font-weight: 800;
   line-height: 1.35;
   letter-spacing: 0.2px;
   text-align: center;
-  transform: translate(-50%, -50%) rotate(-12deg);
+  transform: rotate(-8deg);
   transform-origin: center center;
   pointer-events: none;
   word-break: break-word;
@@ -1002,10 +1012,6 @@ body.login-mode {
   align-items: flex-start;
   gap: 0;
   border-top: 1px solid var(--border-soft);
-}
-
-.admin-item__desc + .admin-item__modes {
-  border-top: none;
 }
 
 .admin-item__desc-label {
@@ -3656,9 +3662,10 @@ body.login-mode {
 
   .admin-item__remark-stamp {
     max-width: min(78%, 200px);
+    margin: 8px auto 8px;
     padding: 5px 10px;
     font-size: 14px;
-    transform: translate(-50%, -50%) rotate(-10deg);
+    transform: rotate(-6deg);
   }
 
   .admin-concession {

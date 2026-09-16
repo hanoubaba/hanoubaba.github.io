@@ -1876,6 +1876,29 @@ function toDbRecord(record) {
   };
 }
 
+function parseSupabaseErrorMessage(err) {
+  const raw = String(err?.message || err || '').trim();
+  if (!raw) return '';
+  try {
+    const json = JSON.parse(raw);
+    return String(json?.message || json?.details || json?.hint || raw).trim();
+  } catch {
+    return raw;
+  }
+}
+
+function formatStrategySaveError(err) {
+  const message = parseSupabaseErrorMessage(err);
+  if (
+    /null value in column "(?:start_at|expires_at)"/i.test(message)
+    || (/not-null constraint/i.test(message) && /start_at|expires_at/i.test(message))
+  ) {
+    return '保存失败：开始时间留空需要升级数据库，请在 Supabase SQL Editor 执行 supabase.sql。';
+  }
+  if (message && message.length < 180) return `保存失败：${message}`;
+  return '保存失败。请检查 Supabase 表和权限。';
+}
+
 function isMobileTimePickerEnabled() {
   return window.matchMedia('(max-width: 820px) and (pointer: coarse)').matches;
 }
@@ -2226,6 +2249,7 @@ let currentAssistCopyText = '';
 let currentAssistRecord = null;
 let editingStrategyId = null;
 let editingStrategyPreserve = null;
+let pendingAdminFocusId = '';
 
 function clearEditingStrategy() {
   editingStrategyId = null;
@@ -2410,7 +2434,7 @@ function applyFrontFormDraft(draft, scope) {
   });
 }
 
-function startEditStrategy(row) {
+function startEditStrategy(row, { focusId = '' } = {}) {
   const target = resolveEditableStrategyRow(row) || row;
   const id = String(target?.id ?? '').trim();
   if (!id) return;
@@ -2424,6 +2448,7 @@ function startEditStrategy(row) {
     showToast('顺势而为暂不支持修改');
     return;
   }
+  pendingAdminFocusId = String(focusId || row?.id || id).trim();
   const isFish = strategyType.type === 'fish';
 
   if (isFish) {
@@ -2524,8 +2549,7 @@ function renderAdminDescriptionHtml(description) {
   const text = String(description ?? '').trim();
   if (!text) return '';
   return [
-    '<div class="admin-item__desc">',
-    '<span class="admin-item__desc-label">备注：</span>',
+    `<div class="admin-item__desc" aria-label="备注：${escapeHtml(text)}">`,
     `<p class="admin-item__desc-text">${escapeHtml(text)}</p>`,
     '</div>',
   ].join('');
@@ -4206,7 +4230,7 @@ const ADMIN_TIME_FILTER_LABELS = {
   dueToday: '今日到期',
 };
 
-const DEFAULT_ADMIN_TIME_FILTER = 'all';
+const DEFAULT_ADMIN_TIME_FILTER = 'pinned';
 
 let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
 let adminNameSearch = '';
@@ -4288,7 +4312,7 @@ function normalizeAdminFilter(value, labels, fallback = 'all') {
 }
 
 function normalizeAdminTimeFilter(value) {
-  return normalizeAdminFilter(value, ADMIN_TIME_FILTER_LABELS);
+  return normalizeAdminFilter(value, ADMIN_TIME_FILTER_LABELS, DEFAULT_ADMIN_TIME_FILTER);
 }
 
 function normalizeAdminNameSearch(value) {
@@ -4370,6 +4394,27 @@ function renderAdminActiveNames(rows = latestAdminRows) {
 function renderAdminControls() {
   renderAdminFilterTabs();
   renderAdminActiveNames();
+}
+
+function scrollAdminItemIntoView(rawId) {
+  const id = String(rawId ?? '').trim();
+  if (!id) return;
+  const listEl = document.getElementById('admin-list');
+  if (!listEl) return;
+  const safeId = (typeof CSS !== 'undefined' && typeof CSS.escape === 'function')
+    ? CSS.escape(id)
+    : id.replace(/["\\]/g, '');
+  const itemEl = listEl.querySelector(`.admin-item[data-id="${safeId}"]`)
+    || listEl.querySelector(`[data-id="${safeId}"]`)?.closest('.admin-item');
+  if (!itemEl) return;
+  itemEl.classList.add('is-focused');
+  const align = () => {
+    itemEl.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+  };
+  requestAnimationFrame(() => requestAnimationFrame(align));
+  window.setTimeout(() => {
+    itemEl.classList.remove('is-focused');
+  }, 1800);
 }
 
 function resetAdminPageState() {
@@ -4510,15 +4555,11 @@ function setVisibleAdminSelection(selected) {
   updateAdminSelectionControls();
 }
 
-function confirmDeleteStrategies(count) {
-  if (typeof window.confirm !== 'function') return true;
-  return window.confirm(count > 1 ? `确认删除选中的 ${count} 条策略？` : '确认删除这条策略？');
+function confirmDeleteStrategies() {
+  return true;
 }
 
 function showAdminDeleteError() {
-  if (typeof window.alert === 'function') {
-    window.alert('删除失败，请检查网络或 Supabase 权限。');
-  }
 }
 
 async function deleteStrategyIdsWithConfirm(ids, options = {}) {
@@ -4911,8 +4952,7 @@ function buildAdminListItemHtml(row) {
     ? `<div class="admin-item__head-right">${timeBadgeHtml}</div>`
     : '';
   return [
-    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}${isFishStrategy || showFishView ? ' admin-item--fish' : ''}${showTierAssistView || isTierAssistStrategy ? ' admin-item--tier-assist' : ''}${isStrategyPinned(row) ? ' admin-item--pinned' : ''}">`,
-    remarkStampHtml,
+    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}${isFishStrategy || showFishView ? ' admin-item--fish' : ''}${showTierAssistView || isTierAssistStrategy ? ' admin-item--tier-assist' : ''}${isStrategyPinned(row) ? ' admin-item--pinned' : ''}" data-id="${id}">`,
     '<header class="admin-item__head">',
     selectHtml,
     '<div class="admin-item__head-main">',
@@ -4934,8 +4974,9 @@ function buildAdminListItemHtml(row) {
         '</div>',
       ].join(''),
     '</div>',
-    renderAdminDescriptionHtml(row?.description),
     renderAdminOptionalModesHtml(row),
+    renderAdminDescriptionHtml(row?.description),
+    remarkStampHtml,
     '</article>',
   ].join('');
 }
@@ -5658,15 +5699,11 @@ function setVisibleObsSelection(selected) {
   updateObsSelectionControls();
 }
 
-function confirmDeleteObservations(count) {
-  if (typeof window.confirm !== 'function') return true;
-  return window.confirm(count > 1 ? `确认删除选中的 ${count} 条观测日志？` : '确认删除这条观测日志？');
+function confirmDeleteObservations() {
+  return true;
 }
 
 function showObsDeleteError() {
-  if (typeof window.alert === 'function') {
-    window.alert('删除失败，请检查网络或 Supabase 权限。');
-  }
 }
 
 async function deleteObservationIdsWithConfirm(ids, options = {}) {
@@ -5879,7 +5916,6 @@ function setPage(mode, options = {}) {
   const normalizedMode = allowedPages.includes(requestedMode) ? requestedMode : 'front';
   const wasFront = isFrontPage(currentPage);
   const wasEditing = Boolean(editingStrategyId);
-  const leavingEdit = wasEditing && normalizedMode !== 'front';
   const toAdmin = normalizedMode === 'admin';
   const toStats = normalizedMode === 'stats';
   const toMethodology = normalizedMode === 'methodology';
@@ -5917,30 +5953,42 @@ function setPage(mode, options = {}) {
   updateHeaderClearButton();
 
   if (toAdmin) {
+    const restoreId = String(pendingAdminFocusId || '').trim();
+    const keepAdminState = Boolean(restoreId) || wasEditing;
     resetFrontPage();
     resetAssistPage();
     resetFishPage();
-    resetAdminPageState();
-    renderAdminList().catch(() => {});
+    if (keepAdminState) closeOutcomeStatusPicker();
+    else resetAdminPageState();
+    pendingAdminFocusId = '';
+    renderAdminList()
+      .then(() => {
+        if (restoreId) scrollAdminItemIntoView(restoreId);
+      })
+      .catch(() => {});
   } else if (toStats) {
+    pendingAdminFocusId = '';
     resetFrontPage();
     resetAssistPage();
     resetFishPage();
     resetAdminPageState();
     renderStatsPage().catch(() => {});
   } else if (toMethodology) {
+    pendingAdminFocusId = '';
     resetFrontPage();
     resetAssistPage();
     resetFishPage();
     resetAdminPageState();
     renderMethodologyPage();
   } else if (toCases) {
+    pendingAdminFocusId = '';
     resetFrontPage();
     resetAssistPage();
     resetFishPage();
     resetAdminPageState();
     renderCasesPage().catch(() => {});
   } else if (toObservations) {
+    pendingAdminFocusId = '';
     resetFrontPage();
     resetAssistPage();
     resetFishPage();
@@ -5948,7 +5996,8 @@ function setPage(mode, options = {}) {
     resetObsPageState();
     renderObservationsPage().catch(() => {});
   } else if (toFront) {
-    resetAdminPageState();
+    if (preserveFrontForm) closeOutcomeStatusPicker();
+    else resetAdminPageState();
     if (!wasFront) {
       if (!preserveFrontForm) {
         resetFrontPage();
@@ -5967,32 +6016,27 @@ function setPage(mode, options = {}) {
     }
   }
 
-  if (leavingEdit) showToast('已取消修改');
-
   syncAdminCountdownTimer();
 }
 
-function showToast(message, duration = 1500) {
+function showToast() {
   const toast = document.getElementById('app-toast');
   if (!toast) return;
-  if (toast._toastTimer) clearTimeout(toast._toastTimer);
-  toast.textContent = message;
-  toast.hidden = false;
-  toast._toastTimer = setTimeout(() => {
-    toast.hidden = true;
+  if (toast._toastTimer) {
+    clearTimeout(toast._toastTimer);
     toast._toastTimer = null;
-  }, duration);
+  }
+  toast.hidden = true;
+  toast.textContent = '';
 }
 
-function flashCopyStrategyBtn(btn, label, duration = 1200) {
+function flashCopyStrategyBtn(btn) {
   if (!btn) return;
-  if (!btn.dataset.defaultLabel) btn.dataset.defaultLabel = btn.textContent;
-  if (btn._flashTimer) clearTimeout(btn._flashTimer);
-  btn.textContent = label;
-  btn._flashTimer = setTimeout(() => {
-    btn.textContent = btn.dataset.defaultLabel || '保存';
+  if (btn._flashTimer) {
+    clearTimeout(btn._flashTimer);
     btn._flashTimer = null;
-  }, duration);
+  }
+  btn.textContent = btn.dataset.defaultLabel || '保存';
 }
 
 let isSavingStrategy = false;
@@ -6065,12 +6109,11 @@ async function copyStrategyOutput() {
       logSave('error', 'Supabase 保存失败', {
         message: err?.message || String(err),
       });
-      if (errEl) errEl.textContent = '保存失败。请检查 Supabase 表和权限。';
+      if (errEl) errEl.textContent = formatStrategySaveError(err);
       flashCopyStrategyBtn(btn, '保存失败');
       return;
     }
     if (saved) {
-      showToast(isEditing ? '修改成功' : '保存成功');
       clearEditingStrategy();
       setPage('admin');
     }
@@ -6098,7 +6141,6 @@ function togglePinDraft() {
     nextPinned,
   );
   syncPinButtonUI();
-  showToast(nextPinned ? '已标记关注，请点保存生效' : '已取消关注标记，请点保存生效');
 }
 
 const btnTogglePin = document.getElementById('btn-toggle-pin');
@@ -6147,7 +6189,6 @@ async function saveAssistOutput() {
       await createStrategy(record);
     }
     saved = true;
-    showToast(isEditing ? '修改成功' : '保存成功');
     clearEditingStrategy();
     setPage('admin');
     flashCopyStrategyBtn(btn, isEditing ? '已修改' : '已保存');
@@ -6155,7 +6196,7 @@ async function saveAssistOutput() {
     logSave('error', '顺势而为保存失败', {
       message: err?.message || String(err),
     });
-    if (errEl) errEl.textContent = '保存失败。请检查 Supabase 表和权限。';
+    if (errEl) errEl.textContent = formatStrategySaveError(err);
     flashCopyStrategyBtn(btn, '保存失败');
   } finally {
     isSavingAssist = false;
@@ -6217,7 +6258,6 @@ async function saveFishOutput() {
       await createStrategy(record);
     }
     saved = true;
-    showToast(isEditing ? '修改成功' : '保存成功');
     clearEditingStrategy();
     setPage('admin');
     flashCopyStrategyBtn(btn, isEditing ? '已修改' : '已保存');
@@ -6225,12 +6265,7 @@ async function saveFishOutput() {
     logSave('error', '吃鱼助手保存失败', {
       message: err?.message || String(err),
     });
-    const detail = String(err?.message || '').trim();
-    if (errEl) {
-      errEl.textContent = detail && detail.length < 180
-        ? `保存失败：${detail}`
-        : '保存失败。请检查 Supabase 表和权限。';
-    }
+    if (errEl) errEl.textContent = formatStrategySaveError(err);
     flashCopyStrategyBtn(btn, '保存失败');
   } finally {
     isSavingFish = false;
@@ -6528,7 +6563,8 @@ if (adminListEl) {
       const id = String(editBtn.getAttribute('data-id') ?? '').trim();
       if (!id || isAdminSelectionMode || isDeletingStrategies) return;
       const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
-      if (row) startEditStrategy(row);
+      const displayId = String(editBtn.closest('.admin-item')?.getAttribute('data-id') ?? id).trim();
+      if (row) startEditStrategy(row, { focusId: displayId });
       return;
     }
 
