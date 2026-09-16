@@ -4798,9 +4798,7 @@ function buildAdminListItemHtml(row) {
   const baseSideMod = getPositionSideMod(sideRaw);
   const sideMod = showFishView && relatedFish
     ? getPositionSideMod(relatedFish.positionSide)
-    : (showCounterTrend
-      ? (baseSideMod === 'long' ? 'short' : 'long')
-      : (linkedTier ? getPositionSideMod(linkedTier.side) : baseSideMod));
+    : (linkedTier ? getPositionSideMod(linkedTier.side) : baseSideMod);
   const strategyType = getAdminStrategyTypeInfo(row);
   const isAssistStrategy = strategyType.type === 'assist';
   const isFishStrategy = strategyType.type === 'fish';
@@ -4888,7 +4886,7 @@ function buildAdminListItemHtml(row) {
   }
   const tpSlHtml = showCounterTrend ? '' : renderAdminTakeProfitStopHtml(takeProfitLabel, stopLabel);
   const sideLabel = getPositionSideLabel(sideMod);
-  const sideTagHtml = (!showCounterTrend && sideLabel)
+  const sideTagHtml = sideLabel
     ? `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
     : '';
   const concessionsHtml = renderAdminConcessionsHtml(concessions, stopLabel, {
