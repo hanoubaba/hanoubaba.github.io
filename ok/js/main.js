@@ -941,13 +941,11 @@ function findRelatedFishRow(row) {
   }) || null;
 }
 
-/** 修改入口：优先趋势立项，不存在则吃鱼助手 */
+/** 修改入口：仅支持趋势立项单据 */
 function resolveEditableStrategyRow(row) {
   if (!row) return null;
-  const type = getAdminStrategyTypeInfo(row).type;
-  if (type === 'trend') return row;
-  if (type === 'fish') return findRelatedTrendRow(row) || row;
-  return findRelatedTrendRow(row) || findRelatedFishRow(row) || null;
+  if (getAdminStrategyTypeInfo(row).type === 'trend') return row;
+  return findRelatedTrendRow(row);
 }
 
 function findRelatedTierAssistRow(row) {
@@ -984,6 +982,69 @@ function isCounterTrendItemCurrentTierAssist(item, row) {
   return sourceRate != null
     && Number.isFinite(itemRate)
     && Math.abs(sourceRate - itemRate) < 1e-9;
+}
+
+function getSelectedConcessionFromRow(row) {
+  const raw = normalizeViewState(row?.viewState).selectedConcession;
+  if (!raw || typeof raw !== 'object') return null;
+  const rate = Number(raw.rate);
+  const price = toNumber(raw.price);
+  if (!Number.isFinite(rate) && price == null) return null;
+  return {
+    rate: Number.isFinite(rate) ? rate : null,
+    price,
+  };
+}
+
+function isConcessionItemSelected(item, row) {
+  if (!item || item.isMidpoint) return false;
+  const selected = getSelectedConcessionFromRow(row);
+  if (!selected) return false;
+  const itemRate = Number(item?.rate);
+  if (selected.rate != null && Number.isFinite(itemRate) && Math.abs(itemRate - selected.rate) < 1e-9) {
+    return true;
+  }
+  const itemPrice = toNumber(item?.price);
+  return selected.price != null && itemPrice != null && itemPrice === selected.price;
+}
+
+function isAdminConcessionCurrentItem(item, row) {
+  return isConcessionItemSelected(item, row);
+}
+
+async function setSelectedConcession(strategyId, row, nextSelection) {
+  const id = String(strategyId ?? '').trim();
+  if (!id || !row) return false;
+  const prevViewState = normalizeViewState(row?.viewState);
+  const nextViewState = { ...prevViewState };
+  if (nextSelection) {
+    nextViewState.selectedConcession = {
+      rate: nextSelection.rate,
+      price: nextSelection.price,
+    };
+  } else {
+    delete nextViewState.selectedConcession;
+  }
+  latestAdminRows = latestAdminRows.map((item) => (
+    String(item?.id ?? '').trim() === id
+      ? { ...item, viewState: nextViewState }
+      : item
+  ));
+  renderAdminListItems();
+  try {
+    await updateStrategyView(id, { viewMode: row?.viewMode, viewState: nextViewState });
+    return true;
+  } catch (err) {
+    console.error('[concession-select]', err);
+    latestAdminRows = latestAdminRows.map((item) => (
+      String(item?.id ?? '').trim() === id
+        ? { ...item, viewState: prevViewState }
+        : item
+    ));
+    renderAdminListItems();
+    showToast('选中失败');
+    return false;
+  }
 }
 
 function getTenRPriceFromTrend(trendRow) {
@@ -1076,27 +1137,23 @@ function isAdminCounterTrendView(row) {
     && normalizeStrategyViewMode(row?.viewMode) === STRATEGY_VIEW_MODE_COUNTER;
 }
 
-function isAdminTierAssistView(row) {
-  return getAdminStrategyTypeInfo(row).type === 'trend'
-    && normalizeStrategyViewMode(row?.viewMode) === STRATEGY_VIEW_MODE_TIER_ASSIST
-    && Boolean(getTierAssistViewState(row));
+function isAdminTierAssistView(_row) {
+  return false;
 }
 
-function isAdminFishView(row) {
-  return getAdminStrategyTypeInfo(row).type === 'trend'
-    && normalizeStrategyViewMode(row?.viewMode) === STRATEGY_VIEW_MODE_FISH
-    && Boolean(findRelatedFishRow(row));
+function isAdminFishView(_row) {
+  return false;
 }
 
 function getAdminDisplayViewMode(row) {
-  const type = getAdminStrategyTypeInfo(row).type;
-  if (type === 'fish') return STRATEGY_VIEW_MODE_FISH;
-  if (type === 'tier_assist') return STRATEGY_VIEW_MODE_TIER_ASSIST;
-  if (type === 'assist') return 'assist';
-  if (isAdminFishView(row)) return STRATEGY_VIEW_MODE_FISH;
-  if (isAdminTierAssistView(row)) return STRATEGY_VIEW_MODE_TIER_ASSIST;
   if (isAdminCounterTrendView(row)) return STRATEGY_VIEW_MODE_COUNTER;
   return STRATEGY_VIEW_MODE_TREND;
+}
+
+function coerceSupportedViewMode(value) {
+  return normalizeStrategyViewMode(value) === STRATEGY_VIEW_MODE_COUNTER
+    ? STRATEGY_VIEW_MODE_COUNTER
+    : STRATEGY_VIEW_MODE_TREND;
 }
 
 function getAdminModeChipClass(mode) {
@@ -1125,24 +1182,20 @@ function isLinkedFishRow(row, rows = latestAdminRows) {
 
 function getAdminVisibleRows(rows = latestAdminRows) {
   const list = Array.isArray(rows) ? rows : [];
-  return list.filter((row) => !isStandaloneTierAssistRow(row) && !isLinkedFishRow(row, list));
+  // 仅展示趋势立项单据；挡位辅助 / 吃鱼助手 / 顺势而为不再出现在列表
+  return list.filter((row) => getAdminStrategyTypeInfo(row).type === 'trend');
 }
 
 async function setAdminStrategyViewMode(strategyId, row, nextViewMode, extra = {}) {
   const id = String(strategyId ?? '').trim();
-  const nextMode = normalizeStrategyViewMode(nextViewMode);
+  const nextMode = coerceSupportedViewMode(nextViewMode);
   if (!id || updatingAdminViewModeIds.has(id)) return false;
-  if (nextMode === STRATEGY_VIEW_MODE_COUNTER && !canShowCounterTrend(row)) {
-    showToast('当前单据无法切换趋势力预测');
+  if (normalizeStrategyViewMode(nextViewMode) === STRATEGY_VIEW_MODE_FISH
+    || normalizeStrategyViewMode(nextViewMode) === STRATEGY_VIEW_MODE_TIER_ASSIST) {
     return false;
   }
-  if (nextMode === STRATEGY_VIEW_MODE_TIER_ASSIST) {
-    const probe = extra.viewState !== undefined
-      ? { ...row, viewState: extra.viewState }
-      : row;
-    if (!getTierAssistViewState(probe)) return false;
-  }
-  if (nextMode === STRATEGY_VIEW_MODE_FISH && !findRelatedFishRow(row)) {
+  if (nextMode === STRATEGY_VIEW_MODE_COUNTER && !canShowCounterTrend(row)) {
+    showToast('当前单据无法切换趋势力预测');
     return false;
   }
   const prevViewMode = normalizeStrategyViewMode(row?.viewMode);
@@ -2267,28 +2320,7 @@ function clearEditingStrategy() {
 }
 
 function syncFrontModeSwitchLock() {
-  const locked = Boolean(editingStrategyId);
-  const switchEl = document.querySelector('.front-mode-switch');
-  if (switchEl) {
-    switchEl.classList.toggle('is-locked', locked);
-    switchEl.setAttribute('aria-disabled', locked ? 'true' : 'false');
-  }
-  const buttons = [
-    document.getElementById('btn-front-mode-trend'),
-    document.getElementById('btn-front-mode-fish'),
-  ];
-  buttons.forEach((btn) => {
-    if (!btn) return;
-    const isCurrent = btn.classList.contains('is-active');
-    const disabled = locked && !isCurrent;
-    btn.disabled = disabled;
-    btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
-    if (locked) {
-      btn.title = isCurrent ? '修改中，模式不可切换' : '修改中不可切换模式';
-    } else {
-      btn.removeAttribute('title');
-    }
-  });
+  // 前台仅保留趋势立项，无需模式切换锁定
 }
 
 function syncPinButtonUI() {
@@ -2447,67 +2479,41 @@ function startEditStrategy(row, { focusId = '' } = {}) {
   if (!id) return;
 
   const strategyType = getAdminStrategyTypeInfo(target);
-  if (strategyType.type === 'tier_assist') {
-    showToast('挡位辅助暂不支持修改');
-    return;
-  }
-  if (strategyType.type === 'assist') {
-    showToast('顺势而为暂不支持修改');
+  if (strategyType.type !== 'trend') {
+    showToast('仅支持修改趋势立项单据');
     return;
   }
   pendingAdminFocusId = String(focusId || row?.id || id).trim();
-  const isFish = strategyType.type === 'fish';
 
-  if (isFish) {
-    resetFrontPage();
-    resetAssistPage();
-    populateFishFormFromRow(target);
-  } else {
-    resetAssistPage();
-    resetFishPage();
-    populateTrendFormFromRow(target);
-  }
+  resetAssistPage();
+  resetFishPage();
+  populateTrendFormFromRow(target);
 
   setPage('front', {
     preserveFrontForm: true,
-    frontMode: isFish ? FRONT_MODE_FISH : FRONT_MODE_TREND,
+    frontMode: FRONT_MODE_TREND,
   });
 
   editingStrategyId = id;
   editingStrategyPreserve = {
     outcomeStatus: target?.outcomeStatus,
     outcomeRemark: target?.outcomeRemark,
-    viewMode: target?.viewMode,
+    viewMode: coerceSupportedViewMode(target?.viewMode),
     viewState: target?.viewState,
     description: target?.description,
   };
 
-  if (isFish) generateFish();
-  else generate();
+  generate();
 
   updateSaveButtonLabels();
   updateHeaderClearButton();
   syncPinButtonUI();
-  showToast(isFish ? '已进入修改模式（吃鱼助手）' : '已进入修改模式（趋势立项）');
+  showToast('已进入修改模式（趋势立项）');
   window.scrollTo(0, 0);
 }
 
-function startCreateFishFromTrend(row) {
-  const name = formatStrategyCardTitle(row?.strategyName);
-  resetFrontPage();
-  resetAssistPage();
-  resetFishPage();
-  setPage('front', {
-    preserveFrontForm: true,
-    frontMode: FRONT_MODE_FISH,
-  });
-  const nameEl = document.getElementById('fish-name-input');
-  if (nameEl) nameEl.value = name && name !== '未命名' ? name : '';
-  updateSaveButtonLabels();
-  updateHeaderClearButton();
-  showToast('请完善吃鱼助手后保存');
-  window.scrollTo(0, 0);
-  nameEl?.focus();
+function startCreateFishFromTrend(_row) {
+  showToast('吃鱼助手已下线');
 }
 
 function clearStrategyState() {
@@ -2932,34 +2938,17 @@ function filterCounterTrendConcessionItems(items, expanded) {
   return items.filter((item) => !isCounterTrendHighRate(item?.rate));
 }
 
-function renderCounterTrendSideActionsHtml(strategyId, item) {
+function renderCounterTrendFoldLinkHtml(strategyId) {
   const id = escapeHtml(String(strategyId ?? '').trim());
-  const rateNum = Number(item?.rate);
-  const rateLabel = String(item?.rateLabel ?? '').trim().toUpperCase();
-  const isRRow = rateLabel === 'S' || rateLabel === 'R' || Math.abs(rateNum - 1) < 1e-9;
-  const is100R = Math.abs(rateNum - 100) < 1e-9;
-  const isMidpoint = item?.isMidpoint === true;
-  if (isRRow) {
-    const expanded = isCounterTrendRatesExpanded(strategyId);
-    const label = expanded ? '收起' : '展开';
-    const action = expanded ? 'collapse' : 'expand';
-    return [
-      '<span class="admin-concession__actions">',
-      `<button type="button" class="admin-concession__fold-link" data-counter-fold="${action}" data-id="${id}" aria-expanded="${expanded ? 'true' : 'false'}" aria-label="${expanded ? '收起至50R' : '展开至100R'}">${label}<span class="admin-concession__fold-caret" aria-hidden="true">${expanded ? '▴' : '▾'}</span></button>`,
-      '</span>',
-    ].join('');
-  }
-  if (is100R || isMidpoint) {
-    return '<span class="admin-concession__actions"></span>';
-  }
-  const rate = escapeHtml(String(Number.isFinite(rateNum) ? rateNum : '').trim());
-  const price = escapeHtml(String(item?.price ?? '').trim());
-  return [
-    '<span class="admin-concession__actions">',
-    `<button type="button" class="admin-concession__side-btn admin-concession__side-btn--long" data-counter-side-action="long" data-id="${id}" data-rate="${rate}" data-price="${price}">做多</button>`,
-    `<button type="button" class="admin-concession__side-btn admin-concession__side-btn--short" data-counter-side-action="short" data-id="${id}" data-rate="${rate}" data-price="${price}">做空</button>`,
-    '</span>',
-  ].join('');
+  if (!id) return '';
+  const expanded = isCounterTrendRatesExpanded(strategyId);
+  const label = expanded ? '收起' : '展开';
+  const action = expanded ? 'collapse' : 'expand';
+  return `<button type="button" class="admin-concession__fold-link" data-counter-fold="${action}" data-id="${id}" aria-expanded="${expanded ? 'true' : 'false'}" aria-label="${expanded ? '收起至50R' : '展开至100R'}">${label}<span class="admin-concession__fold-caret" aria-hidden="true">${expanded ? '▴' : '▾'}</span></button>`;
+}
+
+function renderCounterTrendSideActionsHtml() {
+  return '<span class="admin-concession__actions"></span>';
 }
 
 function getCounterTrendDisplayItems(row) {
@@ -3174,6 +3163,8 @@ function renderConcessionRowHtml({
   copyableNumbers = false,
   extraClass = '',
   sideActionsHtml = '',
+  selectable = false,
+  strategyId = '',
 }) {
   const rateClass = strikeRate
     ? `${rowClass}__rate ${rowClass}__rate--strike`
@@ -3194,10 +3185,24 @@ function renderConcessionRowHtml({
     : (copyableNumbers
       ? renderCopyableNumberHtml(stop, `${rowClass}__stop`)
       : `<span class="${rowClass}__stop">${stop}</span>`);
+  const selectableClass = selectable ? ` ${rowClass}--selectable is-selectable` : '';
   const rowExtra = extraClass ? ` ${extraClass}` : '';
+  const rateNum = Number(item?.rate);
+  const rateSelectClass = selectable ? ` ${rowClass}__rate--select` : '';
+  const rateSelectAttrs = selectable
+    ? [
+      ' data-admin-concession-select',
+      ` data-id="${escapeHtml(String(strategyId ?? '').trim())}"`,
+      ` data-rate="${escapeHtml(Number.isFinite(rateNum) ? String(rateNum) : '')}"`,
+      ` data-price="${escapeHtml(String(item?.price ?? '').trim())}"`,
+      ' role="button"',
+      ' tabindex="0"',
+      ' title="点击设为当前"',
+    ].join('')
+    : '';
   return [
-    `<div class="${rowClass}${rowExtra}">`,
-    `<span class="${rateClass}">${escapeHtml(rateLabel)}</span>`,
+    `<div class="${rowClass}${selectableClass}${rowExtra}">`,
+    `<span class="${rateClass}${rateSelectClass}"${rateSelectAttrs}>${escapeHtml(rateLabel)}</span>`,
     priceHtml,
     qtyHtml,
     stopHtml,
@@ -3269,6 +3274,8 @@ function renderConcessionsHtml({
   boundary = null,
   sideActionsMode = false,
   sideActionsStrategyId = '',
+  actionsHeaderHtml = '',
+  selectableStrategyId = '',
   isCurrentItem = null,
 }) {
   let displayItems = getDisplayConcessionItems(items);
@@ -3289,6 +3296,7 @@ function renderConcessionsHtml({
     wrapper = `${wrapper} ${wrapperClass}--side-actions`.trim();
   }
   const useBoundary = Boolean(boundary);
+  const selectId = String(selectableStrategyId || sideActionsStrategyId || '').trim();
 
   const buildRow = (item) => {
     const formatted = item?.isMidpoint
@@ -3301,6 +3309,7 @@ function renderConcessionsHtml({
     const isCurrent = typeof isCurrentItem === 'function'
       ? Boolean(isCurrentItem(item))
       : false;
+    const selectable = Boolean(prefix === 'admin' && selectId && !item?.isMidpoint);
     const extraClass = [
       isCurrent ? `${rowClass}--current is-current` : '',
       item?.isMidpoint ? `${rowClass}--mid` : '',
@@ -3318,11 +3327,10 @@ function renderConcessionsHtml({
       copyableNumbers: prefix === 'admin',
       extraClass,
       sideActionsHtml: useSideActions && prefix === 'admin'
-        ? renderCounterTrendSideActionsHtml(sideActionsStrategyId, {
-          ...item,
-          rateLabel,
-        })
+        ? renderCounterTrendSideActionsHtml()
         : '',
+      selectable,
+      strategyId: selectId,
     });
   };
 
@@ -3370,7 +3378,7 @@ function renderConcessionsHtml({
     `<span class="${rowClass}__rate">${rateHeaderInner}</span>`,
     `<span class="${rowClass}__price">价格</span>`,
     sideActionsMode
-      ? `<span class="${rowClass}__actions">${qtyHeaderInner || '操作'}</span>`
+      ? `<span class="${rowClass}__actions">${String(actionsHeaderHtml ?? '').trim() || qtyHeaderInner}</span>`
       : `<span class="${rowClass}__qty">${qtyHeaderInner}</span>`,
     hideStopColumn ? '' : `<span class="${rowClass}__stop">${stopHeader}</span>`,
     '</div>',
@@ -3410,6 +3418,8 @@ function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
     boundary: options.boundary || null,
     sideActionsMode: options.sideActionsMode === true,
     sideActionsStrategyId: options.sideActionsStrategyId || '',
+    actionsHeaderHtml: options.actionsHeaderHtml || '',
+    selectableStrategyId: options.selectableStrategyId || options.sideActionsStrategyId || '',
     isCurrentItem: typeof options.isCurrentItem === 'function' ? options.isCurrentItem : null,
   });
 }
@@ -4737,52 +4747,30 @@ async function renderAdminList() {
 }
 
 function getAdminCurrentModeTagHtml(row) {
-  const type = getAdminStrategyTypeInfo(row).type;
-  if (isAdminFishView(row) || type === 'fish') {
-    return '<span class="admin-fish-tag" aria-label="吃鱼助手">吃鱼助手</span>';
-  }
-  if (isAdminTierAssistView(row) || type === 'tier_assist') {
-    return '<span class="admin-tier-assist-tag" aria-label="挡位辅助">挡位辅助</span>';
-  }
-  if (isAdminCounterTrendView(row)) {
-    return '<span class="admin-counter-tag" aria-label="趋势力预测">趋势力预测</span>';
-  }
-  if (type === 'assist') {
-    return '<span class="admin-assist-tag" aria-label="顺势而为">顺势而为</span>';
-  }
-  if (type === 'trend') {
-    return '<span class="admin-trend-tag" aria-label="趋势立项">趋势立项</span>';
-  }
-  return '';
-}
-
-function renderAdminOptionalModesHtml(row) {
   const rawId = String(row?.id ?? '').trim();
   if (!rawId || getAdminStrategyTypeInfo(row).type !== 'trend') return '';
-  const current = getAdminDisplayViewMode(row);
   const syncing = updatingAdminViewModeIds.has(rawId);
-  const canCounter = canShowCounterTrend(row);
-  const hasTier = Boolean(getTierAssistViewState(row));
-  const modes = [
-    { value: STRATEGY_VIEW_MODE_TREND, label: '趋势立项', mod: 'trend' },
-    canCounter ? { value: STRATEGY_VIEW_MODE_COUNTER, label: '趋势力预测', mod: 'counter' } : null,
-    hasTier ? { value: STRATEGY_VIEW_MODE_TIER_ASSIST, label: '挡位辅助', mod: 'tier' } : null,
-    { value: STRATEGY_VIEW_MODE_FISH, label: '吃鱼助手', mod: 'fish' },
-  ].filter((mode) => mode && mode.value !== current);
-  if (!modes.length) return '';
-  const buttons = modes.map((mode) => [
-    `<button type="button" class="admin-view-switch__btn admin-view-switch__btn--${mode.mod}${syncing ? ' is-syncing' : ''}"`,
-    ` data-admin-view-mode="${mode.value}" data-id="${escapeHtml(rawId)}"`,
-    syncing ? ' disabled' : '',
-    ` aria-label="切换到${mode.label}">`,
-    escapeHtml(mode.label),
-    '</button>',
-  ].join('')).join('');
+  const isCounter = isAdminCounterTrendView(row);
+  const canCycle = isCounter || canShowCounterTrend(row);
+  const label = isCounter ? '趋势力预测' : '趋势立项';
+  const mod = isCounter ? 'counter' : 'trend';
+  const enabled = canCycle && !syncing;
   return [
-    '<div class="admin-item__modes">',
-    `<div class="admin-view-switch" role="group" aria-label="可选模式">${buttons}</div>`,
-    '</div>',
+    `<button type="button" class="admin-mode-tag admin-mode-tag--${mod}${syncing ? ' is-syncing' : ''}${enabled ? ' is-clickable' : ''}"`,
+    ` data-admin-mode-cycle data-id="${escapeHtml(rawId)}"`,
+    enabled ? '' : ' disabled',
+    ` aria-label="点击切换模式，当前${label}"`,
+    enabled ? ' title="点击切换模式"' : '',
+    '>',
+    escapeHtml(label),
+    '</button>',
   ].join('');
+}
+
+function getNextCycledViewMode(row) {
+  if (isAdminCounterTrendView(row)) return STRATEGY_VIEW_MODE_TREND;
+  if (canShowCounterTrend(row)) return STRATEGY_VIEW_MODE_COUNTER;
+  return null;
 }
 
 function buildAdminListItemHtml(row) {
@@ -4893,15 +4881,17 @@ function buildAdminListItemHtml(row) {
     priceDecimalPlaces,
     assistLabels: isAssistLikeStrategy,
     hideStopColumn: true,
+    selectableStrategyId: rawId,
+    isCurrentItem: (item) => isAdminConcessionCurrentItem(item, row),
     ...(showCounterTrend
       ? {
         formatRate: formatCounterTrendRate,
         rateHeaderLabel: '倍数',
-        qtyHeaderLabel: '操作',
+        qtyHeaderLabel: '',
         sideActionsMode: true,
         sideActionsStrategyId: rawId,
+        actionsHeaderHtml: renderCounterTrendFoldLinkHtml(rawId),
         reverseOrder: true,
-        isCurrentItem: (item) => isCounterTrendItemCurrentTierAssist(item, row),
       }
       : {}),
     ...(tenRBoundary ? { boundary: tenRBoundary } : {}),
@@ -4986,7 +4976,6 @@ function buildAdminListItemHtml(row) {
         '</div>',
       ].join(''),
     '</div>',
-    renderAdminOptionalModesHtml(row),
     renderAdminDescriptionHtml(row?.description),
     remarkStampHtml,
     '</article>',
@@ -5837,57 +5826,17 @@ async function submitObservationForm() {
 }
 
 function setFrontMode(mode, options = {}) {
-  const nextMode = normalizeFrontMode(mode);
-  const prevMode = frontMode;
-  const switched = prevMode !== nextMode;
-  const force = options.force === true;
-
-  if (switched && editingStrategyId && !force) {
-    showToast('修改中不可切换模式');
-    syncFrontModeSwitchLock();
-    return;
-  }
-
-  if (switched) {
-    closeMobileTimePicker();
-    const draft = readFrontFormDraft(frontModeToFormScope(prevMode));
-    applyFrontFormDraft(draft, frontModeToFormScope(nextMode));
-  }
-
-  frontMode = nextMode;
-
+  // 前台仅保留趋势立项
+  frontMode = FRONT_MODE_TREND;
   const trendPanel = document.getElementById('front-trend-panel');
   const fishPanel = document.getElementById('front-fish-panel');
-  const btnTrend = document.getElementById('btn-front-mode-trend');
-  const btnFish = document.getElementById('btn-front-mode-fish');
-  const toFish = nextMode === FRONT_MODE_FISH;
-  const toTrend = nextMode === FRONT_MODE_TREND;
-
-  if (trendPanel) trendPanel.hidden = !toTrend;
-  if (fishPanel) fishPanel.hidden = !toFish;
-  if (btnTrend) {
-    btnTrend.classList.toggle('is-active', toTrend);
-    btnTrend.setAttribute('aria-selected', toTrend ? 'true' : 'false');
-  }
-  if (btnFish) {
-    btnFish.classList.toggle('is-active', toFish);
-    btnFish.setAttribute('aria-selected', toFish ? 'true' : 'false');
-  }
-  syncFrontModeSwitchLock();
-
+  if (trendPanel) trendPanel.hidden = false;
+  if (fishPanel) fishPanel.hidden = true;
   if (!isFrontPage()) return;
-
-  if (switched) {
-    updateSaveButtonLabels();
-    updateHeaderClearButton();
-  }
-
-  if (toFish) {
-    autoGenerateFishIfReady();
-  } else {
-    updateTradeModeAppearance();
-    autoGenerateIfReady();
-  }
+  updateSaveButtonLabels();
+  updateHeaderClearButton();
+  updateTradeModeAppearance();
+  autoGenerateIfReady();
 }
 
 function setPage(mode, options = {}) {
@@ -5921,7 +5870,7 @@ function setPage(mode, options = {}) {
     requestedFrontMode = FRONT_MODE_TREND;
   } else if (mode === 'fish') {
     requestedMode = 'front';
-    requestedFrontMode = FRONT_MODE_FISH;
+    requestedFrontMode = FRONT_MODE_TREND;
   }
 
   const allowedPages = ['admin', 'stats', 'methodology', 'cases', 'observations', 'front'];
@@ -6376,8 +6325,6 @@ document.querySelectorAll('[data-timeframe]').forEach((btn) => {
 
 const btnFrontModeTrend = document.getElementById('btn-front-mode-trend');
 if (btnFrontModeTrend) btnFrontModeTrend.addEventListener('click', () => setFrontMode(FRONT_MODE_TREND));
-const btnFrontModeFish = document.getElementById('btn-front-mode-fish');
-if (btnFrontModeFish) btnFrontModeFish.addEventListener('click', () => setFrontMode(FRONT_MODE_FISH));
 
 function isAdminMoreMenuOpen() {
   const menu = document.getElementById('admin-more-menu');
@@ -6580,17 +6527,17 @@ if (adminListEl) {
       return;
     }
 
-    const counterTrendBtn = target.closest('[data-admin-view-mode]');
-    if (counterTrendBtn) {
+    const modeCycleBtn = target.closest('[data-admin-mode-cycle]');
+    if (modeCycleBtn) {
       e.preventDefault();
       e.stopPropagation();
-      const id = String(counterTrendBtn.getAttribute('data-id') ?? '').trim();
-      const nextMode = String(counterTrendBtn.getAttribute('data-admin-view-mode') ?? '').trim();
-      if (!id || counterTrendBtn.disabled) return;
+      const id = String(modeCycleBtn.getAttribute('data-id') ?? '').trim();
+      if (!id || modeCycleBtn.disabled) return;
       const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
       if (!row) return;
-      if (nextMode === STRATEGY_VIEW_MODE_FISH && !findRelatedFishRow(row)) {
-        startCreateFishFromTrend(row);
+      const nextMode = getNextCycledViewMode(row);
+      if (!nextMode) {
+        showToast('当前单据无法切换趋势力预测');
         return;
       }
       setAdminStrategyViewMode(id, row, nextMode);
@@ -6609,19 +6556,28 @@ if (adminListEl) {
       return;
     }
 
-    const counterSideBtn = target.closest('[data-counter-side-action]');
-    if (counterSideBtn) {
+    const concessionSelectRow = target.closest('[data-admin-concession-select]');
+    if (concessionSelectRow) {
       e.preventDefault();
       e.stopPropagation();
-      if (isCreatingTierAssist || isAdminSelectionMode || isDeletingStrategies) return;
-      const id = String(counterSideBtn.getAttribute('data-id') ?? '').trim();
-      const side = String(counterSideBtn.getAttribute('data-counter-side-action') ?? '').trim();
-      const rate = Number(counterSideBtn.getAttribute('data-rate'));
-      const price = counterSideBtn.getAttribute('data-price');
-      if (!id || (side !== 'long' && side !== 'short')) return;
+      if (isAdminSelectionMode || isDeletingStrategies) return;
+      const id = String(concessionSelectRow.getAttribute('data-id') ?? '').trim();
+      if (!id) return;
       const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
       if (!row) return;
-      createTierAssistFromCounterAction(row, side, rate, price).catch(() => {});
+      const rateRaw = String(concessionSelectRow.getAttribute('data-rate') ?? '').trim();
+      const priceRaw = String(concessionSelectRow.getAttribute('data-price') ?? '').trim();
+      const rate = Number(rateRaw);
+      const price = toNumber(priceRaw);
+      const current = getSelectedConcessionFromRow(row);
+      const sameRate = current?.rate != null && Number.isFinite(rate) && Math.abs(current.rate - rate) < 1e-9;
+      const samePrice = current?.price != null && price != null && current.price === price;
+      // 已选中同一行则保持，不再取消；点其他行则切换（同 tab）
+      if (sameRate || samePrice) return;
+      setSelectedConcession(id, row, {
+        rate: Number.isFinite(rate) ? rate : null,
+        price,
+      }).catch(() => {});
       return;
     }
 
