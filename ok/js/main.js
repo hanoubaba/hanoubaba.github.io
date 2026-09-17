@@ -1468,9 +1468,15 @@ const METHODOLOGY_SECTIONS = [
       '理论实际结合',
       '长线波段结合',
       '过程结果结合',
-      '结果合约，过程盈利。不吃满全部收益，见好就收。',
+    ],
+  },
+  {
+    title: '23、悟道',
+    items: [
+      '浮亏是机会，踏空是风险。',
+      '只要结果是好的，过程中的曲折都是值得的。',
+      '结果合约，过程盈利。不要吃满全部收益，不要期望开在最好的位置。',
       '正确但不准确是常态，暂时的亏损不是问题。不要在长久的等待中迷失。',
-      '过程的曲折是对意志力巨大的考验。扛不住极限压力不丢人，贵在有自知之明，有对应的解决方案。',
     ],
   },
 ];
@@ -2301,6 +2307,7 @@ let currentAssistRecord = null;
 let editingStrategyId = null;
 let editingStrategyPreserve = null;
 let pendingAdminFocusId = '';
+let frontCreateViewState = {};
 
 function clearEditingStrategy() {
   editingStrategyId = null;
@@ -2314,12 +2321,17 @@ function syncFrontModeSwitchLock() {
   // 前台仅保留趋势立项，无需模式切换锁定
 }
 
+function getFrontPinViewState() {
+  if (editingStrategyPreserve) return editingStrategyPreserve.viewState;
+  return frontCreateViewState;
+}
+
 function syncPinButtonUI() {
   const btn = document.getElementById('btn-toggle-pin');
   if (!btn) return;
-  const isEditing = Boolean(editingStrategyId);
-  const pinned = isStrategyPinned({ viewState: editingStrategyPreserve?.viewState });
-  btn.hidden = !isEditing;
+  const showPin = isFrontPage();
+  const pinned = isStrategyPinned({ viewState: getFrontPinViewState() });
+  btn.hidden = !showPin;
   btn.textContent = pinned ? '取消关注' : '关注';
   btn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
   btn.classList.toggle('is-pinned', pinned);
@@ -2593,6 +2605,11 @@ function enrichStrategyRecordForSubmit(record) {
       next.outcomeRemark = editingStrategyPreserve.outcomeRemark ?? '';
       next.viewMode = editingStrategyPreserve.viewMode ?? next.viewMode;
       next.viewState = editingStrategyPreserve.viewState ?? next.viewState;
+    } else {
+      next.viewState = {
+        ...normalizeViewState(next.viewState),
+        ...normalizeViewState(frontCreateViewState),
+      };
     }
     return next;
   }
@@ -2625,6 +2642,11 @@ function enrichStrategyRecordForSubmit(record) {
     next.outcomeRemark = editingStrategyPreserve.outcomeRemark ?? '';
     next.viewMode = editingStrategyPreserve.viewMode ?? next.viewMode;
     next.viewState = editingStrategyPreserve.viewState ?? next.viewState;
+  } else {
+    next.viewState = {
+      ...normalizeViewState(next.viewState),
+      ...normalizeViewState(frontCreateViewState),
+    };
   }
   return next;
 }
@@ -3618,6 +3640,7 @@ if (stopInput) stopInput.addEventListener('input', autoGenerateIfReady);
 function resetFrontPage() {
   closeMobileTimePicker();
   setStartTimeUserPicked(false, 'trend');
+  frontCreateViewState = {};
   clearEditingStrategy();
   setFrontTimeframeMode(DEFAULT_TIMEFRAME, { refresh: false, scope: 'trend' });
   rebuildStartTimeOptions(null, { scope: 'trend' });
@@ -4240,8 +4263,6 @@ function getTimeRangeStatusByEndAt(endAt) {
 const ADMIN_TIME_FILTER_LABELS = {
   all: '全部',
   pinned: '关注',
-  active: '进行中',
-  createdToday: '今日创建',
   dueToday: '今日到期',
 };
 
@@ -5966,6 +5987,7 @@ function setPage(mode, options = {}) {
       updateSaveButtonLabels();
       updateHeaderClearButton();
     }
+    syncPinButtonUI();
   }
 
   syncAdminCountdownTimer();
@@ -6083,15 +6105,14 @@ const btnCopyStrategy = document.getElementById('btn-copy-strategy');
 if (btnCopyStrategy) btnCopyStrategy.addEventListener('click', copyStrategyOutput);
 
 function togglePinDraft() {
-  if (!editingStrategyId || !editingStrategyPreserve) {
-    showToast('请先进入修改模式');
-    return;
+  if (!isFrontPage()) return;
+  const nextPinned = !isStrategyPinned({ viewState: getFrontPinViewState() });
+  const nextState = setPinnedInViewState(getFrontPinViewState(), nextPinned);
+  if (editingStrategyPreserve) {
+    editingStrategyPreserve.viewState = nextState;
+  } else {
+    frontCreateViewState = nextState;
   }
-  const nextPinned = !isStrategyPinned({ viewState: editingStrategyPreserve.viewState });
-  editingStrategyPreserve.viewState = setPinnedInViewState(
-    editingStrategyPreserve.viewState,
-    nextPinned,
-  );
   syncPinButtonUI();
 }
 
