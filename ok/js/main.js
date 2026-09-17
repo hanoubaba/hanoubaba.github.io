@@ -1312,18 +1312,17 @@ const METHODOLOGY_SECTIONS = [
       '8小时节点观测，全天候覆盖无遗漏。',
     ],
   },
-  { title: '8、无悖论', paragraphs: ['相邻时间维度趋势不冲突，有冲突不做。'] },
-  { title: '9、目标', paragraphs: ['目标35岁之前退休，计划不变。'] },
+  { title: '8、目标', paragraphs: ['目标35岁之前退休，计划不变。'] },
   {
-    title: '10、理性和感性冲突的终极解法',
-    items: ['固定策略选一边覆盖。', '统一标准量化分析。', '1个单位0.5倍，超出预期可做T，预期内则坚持到底。'],
+    title: '9、理性和感性冲突的终极解法',
+    items: ['固定策略选一边覆盖。', '统一标准量化分析。'],
   },
   {
-    title: '11、让每一个操作都有意义',
-    items: ['做好开仓记录。', '做好观测日志。', '4小时定点操作。', '不做任何无效操作。'],
+    title: '10、让每一个操作都有意义',
+    items: ['做好开仓记录。', '做好观测日志。', '不做任何无效操作。'],
   },
   {
-    title: '12、操作手法',
+    title: '11、操作手法',
     items: [
       '确定性第一，风险第二，盈亏比第三。浮亏浮盈是最后。',
       '最大止损不超过50%，最大止盈不超过一个数量级。',
@@ -1345,7 +1344,7 @@ const METHODOLOGY_SECTIONS = [
     ],
   },
   {
-    title: '13、基本定律',
+    title: '12、基本定律',
     items: [
       '博弈中盈亏比与确定性互斥。盈亏比高的情况往往是还没走向确定，等确定性很高了往往也没有多少盈亏比。',
       '做多赢得多，做空盈利快。',
@@ -1355,34 +1354,17 @@ const METHODOLOGY_SECTIONS = [
     ],
   },
   {
-    title: '14、提醒自己',
-    items: [
-      '右侧交易，趋势立项，4h维度，交易量过亿（差一点都不行）',
-      '不做彩票单（1%的概率，10倍的收益，这是愚者行为）',
-      '严格选品，耐心等待，保守前进。',
-    ],
-  },
-  {
-    title: '15、放弃的艺术',
-    items: [
-      '不纠结，越轻松越赚钱。',
-      '1小时强背离可以退出避险。',
-      '已经实现3-5倍的不去参与，风险收益比不高。',
-    ],
-  },
-  {
-    title: '16、简要',
+    title: '13、简要',
     items: [
       '不做BTC 和 ETH，难度太大。',
       '只做自己的行情，不参考其他人的信息。',
       '不加仓不减仓，使用自己的方法判断。',
       '尊重客观事实，不做无法实现的梦。',
-      '用4h和1d维度决策方向，1h辅助判断细节。',
       '没有符合生命周期理论的就不操作，找点其他乐子。',
     ],
   },
   {
-    title: '17、天道',
+    title: '14、天道',
     items: [
       '以小博大是弱者思维，胜率太小经不起波澜。以大博小是强者思维，确定性永远排在第一位。',
       '顺境时不要张狂，要懂得居安思危。逆境时不要焦虑，要从风险中看到机会。',
@@ -1392,7 +1374,7 @@ const METHODOLOGY_SECTIONS = [
     ],
   },
   {
-    title: '18、观测不仔细就会错过机会。',
+    title: '15、观测不仔细就会错过机会。',
     items: [
       '正确的流程：顺序看4h，倒序看1d。',
       '每天早中晚观测3遍可以覆盖全时间段。',
@@ -1400,7 +1382,7 @@ const METHODOLOGY_SECTIONS = [
     ],
   },
   {
-    title: '19、我喜欢不焦虑的人',
+    title: '16、我喜欢不焦虑的人',
     items: [
       '不加仓，不减仓，不滚仓，不改变。',
       '不后悔，不遗憾。平静的面对，渐进式增长。',
@@ -1408,7 +1390,7 @@ const METHODOLOGY_SECTIONS = [
     ],
   },
   {
-    title: '20、最新感悟',
+    title: '17、最新感悟',
     items: [
       '格局大点，没到100万都是欢乐豆。',
       '优先级：趋势立项＞趋势力预测＞顺势而为',
@@ -1432,14 +1414,13 @@ const METHODOLOGY_SECTIONS = [
       '排行榜前10是最大的机会，种类不超过三。',
       '打好基础，指数增长。技术爆炸。螺旋上升。',
       '4h为主，1d为辅。优先级不能变，',
-      '1小时/4小时不对劲可避险，15分钟不具备参考价值。',
       '先保证生存才有资格谈盈利。渐进增长是可行的，螺旋上升不具备安全性。',
       '最危险的不是市场，是自己的心。',
       '真正的考验是关键位置的抗压能力。',
     ],
   },
   {
-    title: '21、合约的本质',
+    title: '18、合约的本质',
     items: [
       '短线重仓确定性最好位置，根据后续时间维度连续性判断止盈离场。',
       '绝对的理性，只看数据。',
@@ -1449,8 +1430,6 @@ const METHODOLOGY_SECTIONS = [
       '双向思维，多时间维度分析。',
       '谨慎会导致盈利的缩水，但也是活着的必要代价。',
       '知行合一，星辰大海只是时间问题。',
-      '趋势立项的机会，往往不在热度排行榜，而是在水下。',
-      '1天＝3个8小时。做1看2，止盈止损两个时间单位。（顺势而为数据化解析）',
       '想赚钱还是要做头部热度排行榜。',
       '认真挂好每一单，永远相信美好的事情即将发生。',
       '只做龙头日内8小时右侧趋势，8小时内不操作。',
@@ -1460,10 +1439,9 @@ const METHODOLOGY_SECTIONS = [
     ],
   },
   {
-    title: '22、思路无敌，操作拉跨的解决方案',
+    title: '19、思路无敌，操作拉跨的解决方案',
     items: [
       '确立思路是做8小时日内趋势，8小时内不操作，不看小趋势。',
-      '8点开单，12-16-20调整，24点结束。',
       '主动出击，立即成交。时间点调整补仓减仓调整。确保成交率，保留调整机会。',
       '仓位控制，不要心态影响操作。时间才是最好的杠杆。',
       '龙头机会最大，这是不争的事实。',
@@ -1475,11 +1453,23 @@ const METHODOLOGY_SECTIONS = [
     ],
   },
   {
-    title: '23、一个模型，三种形态',
+    title: '20、一个模型，三种形态',
     items: [
       '只挂前50%优势单，劣势单最多用1个。',
       '趋势方向明确，在关键时间关键位置上搏一把。',
       '关键点确定之前靠猜测，出现以后靠精准计算。',
+    ],
+  },
+  {
+    title: '21、解读',
+    items: [
+      '大小周期结合',
+      '形态数值结合',
+      '理论实际结合',
+      '长线波段结合',
+      '过程结果结合',
+      '结果合约，过程盈利。不吃满全部收益，见好就收。',
+      '正确但不准确是常态，暂时的亏损不是问题。不要在长久的等待中迷失。',
     ],
   },
 ];
@@ -5899,13 +5889,13 @@ function setPage(mode, options = {}) {
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   btnStats.classList.toggle('is-active', toStats);
   btnMethodology.classList.toggle('is-active', toMethodology);
+  btnMethodology.setAttribute('aria-selected', toMethodology ? 'true' : 'false');
   btnCases.classList.toggle('is-active', toCases);
   btnObservations.classList.toggle('is-active', toObservations);
-  btnObservations.setAttribute('aria-selected', toObservations ? 'true' : 'false');
 
   const moreToggle = document.getElementById('admin-more-toggle');
   if (moreToggle) {
-    moreToggle.classList.toggle('is-active', toStats || toMethodology || toCases);
+    moreToggle.classList.toggle('is-active', toStats || toObservations || toCases);
   }
   closeAdminMoreMenu();
 
