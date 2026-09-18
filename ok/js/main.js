@@ -765,7 +765,9 @@ function setPinnedInViewState(viewState, pinned) {
   return next;
 }
 
-function getTierAssistViewState(row) {
+function getDefaultCreateViewState() {
+  return setPinnedInViewState({}, true);
+}
   const raw = normalizeViewState(row?.viewState).tierAssist;
   if (!raw || typeof raw !== 'object') return null;
   const side = raw.side === 'short' ? 'short' : (raw.side === 'long' ? 'long' : null);
@@ -1477,6 +1479,13 @@ const METHODOLOGY_SECTIONS = [
       '只要结果是好的，过程中的曲折都是值得的。',
       '结果合约，过程盈利。不要吃满全部收益，不要期望开在最好的位置。',
       '正确但不准确是常态，暂时的亏损不是问题。不要在长久的等待中迷失。',
+      '追求本金的螺旋上升，不要在意胜率和价格好坏。',
+      '要有本金剧烈波动的心里准备。风险固定，收益看机会。',
+      '只在关键位置和时间操作，中间态不操作不关注。',
+      '小趋势（15m/1h）不能作为操作依据。',
+      '最佳状态是快准狠，不要瞻前顾后想太多。',
+      '限定的风险是必须的，是为了解决正确不准确的客观事实，防止小概率的黑天鹅意外。',
+      '分析和操作两权分立。空仓观测分析，持有仓位以后不再分析和操作，只相信最初的判断。',
     ],
   },
 ];
@@ -2307,7 +2316,7 @@ let currentAssistRecord = null;
 let editingStrategyId = null;
 let editingStrategyPreserve = null;
 let pendingAdminFocusId = '';
-let frontCreateViewState = {};
+let frontCreateViewState = getDefaultCreateViewState();
 
 function clearEditingStrategy() {
   editingStrategyId = null;
@@ -3640,7 +3649,7 @@ if (stopInput) stopInput.addEventListener('input', autoGenerateIfReady);
 function resetFrontPage() {
   closeMobileTimePicker();
   setStartTimeUserPicked(false, 'trend');
-  frontCreateViewState = {};
+  frontCreateViewState = getDefaultCreateViewState();
   clearEditingStrategy();
   setFrontTimeframeMode(DEFAULT_TIMEFRAME, { refresh: false, scope: 'trend' });
   rebuildStartTimeOptions(null, { scope: 'trend' });
