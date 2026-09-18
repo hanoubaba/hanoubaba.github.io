@@ -768,6 +768,8 @@ function setPinnedInViewState(viewState, pinned) {
 function getDefaultCreateViewState() {
   return setPinnedInViewState({}, true);
 }
+
+function getTierAssistViewState(row) {
   const raw = normalizeViewState(row?.viewState).tierAssist;
   if (!raw || typeof raw !== 'object') return null;
   const side = raw.side === 'short' ? 'short' : (raw.side === 'long' ? 'long' : null);
@@ -1486,6 +1488,7 @@ const METHODOLOGY_SECTIONS = [
       '最佳状态是快准狠，不要瞻前顾后想太多。',
       '限定的风险是必须的，是为了解决正确不准确的客观事实，防止小概率的黑天鹅意外。',
       '分析和操作两权分立。空仓观测分析，持有仓位以后不再分析和操作，只相信最初的判断。',
+      '最佳时机是8/16/24点，过程垃圾时间需要忽视。（可以提前半小时准备）',
     ],
   },
 ];
