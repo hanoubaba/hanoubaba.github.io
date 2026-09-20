@@ -747,12 +747,6 @@ function isStrategyPinned(row) {
   return Boolean(normalizeViewState(row?.viewState).pinned);
 }
 
-function getStrategyPinnedAtTs(row) {
-  if (!isStrategyPinned(row)) return 0;
-  const at = parseDateValue(normalizeViewState(row?.viewState).pinnedAt);
-  return at?.getTime() || 0;
-}
-
 function setPinnedInViewState(viewState, pinned) {
   const next = { ...normalizeViewState(viewState) };
   if (pinned) {
@@ -4324,24 +4318,10 @@ function compareAdminRowsByExpiresAsc(a, b) {
   return aTs - bTs;
 }
 
-function compareAdminRowsByPinFirst(a, b) {
-  const aPinned = isStrategyPinned(a);
-  const bPinned = isStrategyPinned(b);
-  if (aPinned !== bPinned) return aPinned ? -1 : 1;
-  if (aPinned && bPinned) {
-    return getStrategyPinnedAtTs(b) - getStrategyPinnedAtTs(a);
-  }
-  return 0;
-}
-
 function getDisplayAdminRows(rows = latestAdminRows) {
   const filtered = getFilteredAdminRows(rows);
-  return filtered.slice().sort((a, b) => {
-    const pinCmp = compareAdminRowsByPinFirst(a, b);
-    if (pinCmp !== 0) return pinCmp;
-    if (adminSortByExpiresAsc) return compareAdminRowsByExpiresAsc(a, b);
-    return 0;
-  });
+  if (!adminSortByExpiresAsc) return filtered;
+  return filtered.slice().sort(compareAdminRowsByExpiresAsc);
 }
 
 function toggleAdminNameFilter(name) {
