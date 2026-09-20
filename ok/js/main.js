@@ -759,10 +759,6 @@ function setPinnedInViewState(viewState, pinned) {
   return next;
 }
 
-function getDefaultCreateViewState() {
-  return setPinnedInViewState({}, true);
-}
-
 function getTierAssistViewState(row) {
   const raw = normalizeViewState(row?.viewState).tierAssist;
   if (!raw || typeof raw !== 'object') return null;
@@ -2316,7 +2312,6 @@ let currentAssistRecord = null;
 let editingStrategyId = null;
 let editingStrategyPreserve = null;
 let pendingAdminFocusId = '';
-let frontCreateViewState = getDefaultCreateViewState();
 
 function clearEditingStrategy() {
   editingStrategyId = null;
@@ -2330,17 +2325,12 @@ function syncFrontModeSwitchLock() {
   // 前台仅保留趋势立项，无需模式切换锁定
 }
 
-function getFrontPinViewState() {
-  if (editingStrategyPreserve) return editingStrategyPreserve.viewState;
-  return frontCreateViewState;
-}
-
 function syncPinButtonUI() {
   const btn = document.getElementById('btn-toggle-pin');
   if (!btn) return;
-  const showPin = isFrontPage();
-  const pinned = isStrategyPinned({ viewState: getFrontPinViewState() });
-  btn.hidden = !showPin;
+  const isEditing = Boolean(editingStrategyId);
+  const pinned = isStrategyPinned({ viewState: editingStrategyPreserve?.viewState });
+  btn.hidden = !isEditing;
   btn.textContent = pinned ? '取消关注' : '关注';
   btn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
   btn.classList.toggle('is-pinned', pinned);
@@ -2614,11 +2604,6 @@ function enrichStrategyRecordForSubmit(record) {
       next.outcomeRemark = editingStrategyPreserve.outcomeRemark ?? '';
       next.viewMode = editingStrategyPreserve.viewMode ?? next.viewMode;
       next.viewState = editingStrategyPreserve.viewState ?? next.viewState;
-    } else {
-      next.viewState = {
-        ...normalizeViewState(next.viewState),
-        ...normalizeViewState(frontCreateViewState),
-      };
     }
     return next;
   }
@@ -2651,11 +2636,6 @@ function enrichStrategyRecordForSubmit(record) {
     next.outcomeRemark = editingStrategyPreserve.outcomeRemark ?? '';
     next.viewMode = editingStrategyPreserve.viewMode ?? next.viewMode;
     next.viewState = editingStrategyPreserve.viewState ?? next.viewState;
-  } else {
-    next.viewState = {
-      ...normalizeViewState(next.viewState),
-      ...normalizeViewState(frontCreateViewState),
-    };
   }
   return next;
 }
@@ -3649,7 +3629,6 @@ if (stopInput) stopInput.addEventListener('input', autoGenerateIfReady);
 function resetFrontPage() {
   closeMobileTimePicker();
   setStartTimeUserPicked(false, 'trend');
-  frontCreateViewState = getDefaultCreateViewState();
   clearEditingStrategy();
   setFrontTimeframeMode(DEFAULT_TIMEFRAME, { refresh: false, scope: 'trend' });
   rebuildStartTimeOptions(null, { scope: 'trend' });
@@ -6100,14 +6079,12 @@ const btnCopyStrategy = document.getElementById('btn-copy-strategy');
 if (btnCopyStrategy) btnCopyStrategy.addEventListener('click', copyStrategyOutput);
 
 function togglePinDraft() {
-  if (!isFrontPage()) return;
-  const nextPinned = !isStrategyPinned({ viewState: getFrontPinViewState() });
-  const nextState = setPinnedInViewState(getFrontPinViewState(), nextPinned);
-  if (editingStrategyPreserve) {
-    editingStrategyPreserve.viewState = nextState;
-  } else {
-    frontCreateViewState = nextState;
-  }
+  if (!editingStrategyId || !editingStrategyPreserve) return;
+  const nextPinned = !isStrategyPinned({ viewState: editingStrategyPreserve.viewState });
+  editingStrategyPreserve.viewState = setPinnedInViewState(
+    editingStrategyPreserve.viewState,
+    nextPinned,
+  );
   syncPinButtonUI();
 }
 
