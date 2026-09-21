@@ -261,8 +261,9 @@ const BEST_TAKE_PROFIT_R = 5;
 const STRATEGY_DURATION_PERIODS = 10;
 const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
-/** 吃鱼助手：与顺势而为同档位，止盈空间 1 倍；无时间 UI，落库用长效占位以满足非空约束 */
+/** 吃鱼助手：与顺势而为同档位，止盈空间 1 倍；止损为 from→to 反方向 10% 的价格，数量按该止损计算 */
 const FISH_TAKE_PROFIT_MULTIPLE = 1;
+const FISH_STOP_RATE = -0.1;
 /** 吃鱼助手：每档本金固定 66，不随总资金比例变化 */
 const FISH_TIER_OPEN_COST = 66;
 const FISH_TIMEFRAME = '1d';
@@ -738,7 +739,15 @@ function buildAdminDisplayConcessions(row) {
 
 function buildAdminAssistConcessionsForDisplay(row) {
   const savedConcessions = buildAdminConcessionsForRow(row);
-  const stopLoss = toNumber(row?.inputPrice ?? row?.stopLossPrice);
+  const isFish = getAdminStrategyTypeInfo(row).type === 'fish';
+  const decimalPlaces = Math.max(3, getAdminPriceDecimalPlacesFromRow(row));
+  const stopLoss = isFish
+    ? calcFishStopPrice(
+      toNumber(row?.inputPrice),
+      toNumber(row?.inputStopLoss),
+      decimalPlaces,
+    )
+    : toNumber(row?.inputPrice ?? row?.stopLossPrice);
   const options = { isAssist: true, fixedTierOpenCost: getAssistDisplayTierOpenCost(row) };
   if (isCurrentAssistConcessionSet(savedConcessions)) {
     return applyAdminFixedTierQuantities(savedConcessions, stopLoss, options);
@@ -1090,41 +1099,6 @@ async function setSelectedConcession(strategyId, row, nextSelection) {
   }
 }
 
-function getTenRPriceFromTrend(trendRow) {
-  const entry = toNumber(trendRow?.entryPrice);
-  const stop = toNumber(trendRow?.stopLossPrice);
-  return calcTakeProfit(entry, stop, COUNTER_TREND_STOP_MULTIPLE);
-}
-
-function isStopAtOrBeyondTenR(stopPrice, trendRow) {
-  const entry = toNumber(trendRow?.entryPrice);
-  const stop = toNumber(trendRow?.stopLossPrice);
-  const tenR = getTenRPriceFromTrend(trendRow);
-  const price = toNumber(stopPrice);
-  if (entry == null || stop == null || tenR == null || price == null) return false;
-  const eps = Math.abs(entry - stop) * 0.05;
-  if (entry > stop) return price >= tenR - eps;
-  return price <= tenR + eps;
-}
-
-function isAdminTenRBoundaryRow(row) {
-  const type = getAdminStrategyTypeInfo(row).type;
-  if (type === 'trend' && isAdminTierAssistView(row)) {
-    const state = getTierAssistViewState(row);
-    const refPrice = state
-      ? toNumber(state.entryPrice ?? state.stopLoss)
-      : toNumber(row?.entryPrice ?? row?.stopLossPrice);
-    return isStopAtOrBeyondTenR(refPrice, row);
-  }
-  if (type !== 'assist' && type !== 'fish' && type !== 'tier_assist') return false;
-  const relatedTrend = findRelatedTrendRow(row);
-  if (!relatedTrend) return false;
-  const refPrice = type === 'tier_assist'
-    ? toNumber(row?.inputPrice ?? row?.entryPrice ?? row?.stopLossPrice)
-    : toNumber(row?.inputPrice ?? row?.stopLossPrice);
-  return isStopAtOrBeyondTenR(refPrice, relatedTrend);
-}
-
 function calcAssistTierPrice(from, to, ratio, decimalPlaces) {
   if (!Number.isFinite(from) || !Number.isFinite(to) || !Number.isFinite(ratio)) return null;
   const price = from + (to - from) * ratio;
@@ -1132,7 +1106,20 @@ function calcAssistTierPrice(from, to, ratio, decimalPlaces) {
   return Number(formatFixedDecimals(price, decimalPlaces));
 }
 
-function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces, fixedTierOpenCost = null) {
+/** 吃鱼助手止损：from 沿 to 的反方向移动 10% 区间 */
+function calcFishStopPrice(from, to, decimalPlaces) {
+  if (from == null || to == null) return null;
+  const start = Number(from);
+  const end = Number(to);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start === end) return null;
+  const raw = calcAssistTierPrice(start, end, FISH_STOP_RATE, decimalPlaces);
+  if (raw == null) return null;
+  const clamped = clampPriceAtZero(raw);
+  if (clamped == null) return null;
+  return Number(formatFixedDecimals(clamped, decimalPlaces));
+}
+
+function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces, fixedTierOpenCost = null, stopPrice = null) {
   if (
     from == null
     || to == null
@@ -1141,7 +1128,8 @@ function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces, fixe
   ) {
     return [];
   }
-  const stop = from;
+  const overrideStop = toNumber(stopPrice);
+  const stop = overrideStop != null ? overrideStop : from;
   const minFundedShare = getMinFundedTierCostShare(ASSIST_TIER_RATIOS);
   const items = [];
   const rawQtys = [];
@@ -1541,6 +1529,17 @@ const METHODOLOGY_SECTIONS = [
       '没有万全之策。胆子大一点，要有资产剧烈波动的心理准备。',
       '持仓不分析，分析不持仓。',
       '必须克服波段操作，并且坚持到底，否则什么都无法改变。',
+    ],
+  },
+  {
+    title: '24、操作守则',
+    items: [
+      '不加仓，不减仓，不改变。',
+      '有利润随意出，浮亏扛到底。',
+      '时间和空间指标重合是信号。',
+      '不要定不切实际的目标。目标越大，难度越大。目标越小，赚的越快。',
+      '趋势建仓是主线，吃鱼助手是过程学习和娱乐。',
+      '4小时/8小时关键时间必须停下一切专注行情。',
     ],
   },
 ];
@@ -3315,51 +3314,6 @@ function renderConcessionRowHtml({
   ].join('');
 }
 
-function getConcessionBoundaryZone(item, boundary) {
-  if (!boundary) return 'none';
-  if (typeof boundary.getZone === 'function') return boundary.getZone(item) || 'none';
-  if (boundary.rate != null && Number.isFinite(Number(item?.rate))) {
-    const r = Number(item.rate);
-    return r >= Number(boundary.rate) - 1e-9 ? 'beyond' : 'within';
-  }
-  return 'none';
-}
-
-function renderBoundaryGroupedRows(displayItems, buildRow, prefix, boundary) {
-  const chunks = [];
-  let zone = null;
-  let bucket = [];
-  const flush = () => {
-    if (!bucket.length || !zone || zone === 'none') {
-      if (bucket.length) chunks.push(bucket.map(buildRow).join(''));
-      bucket = [];
-      return;
-    }
-    if (zone === 'beyond') {
-      chunks.push([
-        `<div class="${prefix}-concession-beyond-group" aria-label="10R以上">`,
-        bucket.map(buildRow).join(''),
-        '</div>',
-      ].join(''));
-    } else {
-      chunks.push([
-        `<div class="${prefix}-concession-within-group" aria-label="10R以内">`,
-        bucket.map(buildRow).join(''),
-        '</div>',
-      ].join(''));
-    }
-    bucket = [];
-  };
-  for (const item of displayItems) {
-    const nextZone = getConcessionBoundaryZone(item, boundary);
-    if (zone != null && nextZone !== zone) flush();
-    zone = nextZone;
-    bucket.push(item);
-  }
-  flush();
-  return chunks.join('');
-}
-
 function renderConcessionsHtml({
   prefix,
   items,
@@ -3376,7 +3330,6 @@ function renderConcessionsHtml({
   formatRate = formatConcessionPercent,
   groupBestPeers = false,
   hideStopColumn = false,
-  boundary = null,
   sideActionsMode = false,
   sideActionsStrategyId = '',
   actionsHeaderHtml = '',
@@ -3400,7 +3353,6 @@ function renderConcessionsHtml({
   if (sideActionsMode) {
     wrapper = `${wrapper} ${wrapperClass}--side-actions`.trim();
   }
-  const useBoundary = Boolean(boundary);
   const selectId = String(selectableStrategyId || sideActionsStrategyId || '').trim();
 
   const buildRow = (item) => {
@@ -3440,9 +3392,7 @@ function renderConcessionsHtml({
   };
 
   let bodyHtml = '';
-  if (useBoundary) {
-    bodyHtml = renderBoundaryGroupedRows(displayItems, buildRow, prefix, boundary);
-  } else if (groupBestPeers) {
+  if (groupBestPeers) {
     const chunks = [];
     let bestChunk = [];
     const flushBest = () => {
@@ -3519,9 +3469,8 @@ function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
     reverseOrder: options.reverseOrder === true,
     assistLabels: options.assistLabels === true,
     formatRate: options.formatRate,
-    groupBestPeers: options.groupBestPeers !== false && !options.boundary,
+    groupBestPeers: options.groupBestPeers !== false,
     hideStopColumn,
-    boundary: options.boundary || null,
     sideActionsMode: options.sideActionsMode === true,
     sideActionsStrategyId: options.sideActionsStrategyId || '',
     actionsHeaderHtml: options.actionsHeaderHtml || '',
@@ -3923,18 +3872,24 @@ function buildFishStrategy(from, to, openCostTotal, priceDecimalPlaces) {
   const nameEl = document.getElementById('fish-name-input');
   const name = String(nameEl?.value ?? '').trim() || 'test';
   const side = to > from ? 'long' : 'short';
-  const stop = from;
+  const stop = calcFishStopPrice(from, to, priceDecimalPlaces);
   const takeProfit = calcAssistTakeProfitPrice(from, to, FISH_TAKE_PROFIT_MULTIPLE);
-  if (takeProfit == null) return null;
+  if (stop == null || takeProfit == null) return null;
   const stopLabel = formatTrimmedFixedDecimals(stop, priceDecimalPlaces);
   const tpLabel = formatTrimmedFixedDecimals(takeProfit, priceDecimalPlaces);
-  const concessionItems = buildAssistConcessionItems(from, to, openCostTotal, priceDecimalPlaces, FISH_TIER_OPEN_COST);
+  const concessionItems = buildAssistConcessionItems(
+    from,
+    to,
+    openCostTotal,
+    priceDecimalPlaces,
+    FISH_TIER_OPEN_COST,
+    stop,
+  );
   if (!concessionItems.length) return null;
   const primaryItem = concessionItems[0];
   const openCostMultiplier = OPEN_COST_MULTIPLIER_DEFAULT;
   const openCost = FISH_TIER_OPEN_COST;
   const description = getStrategyDescription('fish');
-  const fromLabel = formatTrimmedFixedDecimals(from, priceDecimalPlaces);
   const fishTime = buildFishTimeRange();
   const copyText = [
     formatFishStrategyTitle(name),
@@ -3945,7 +3900,7 @@ function buildFishStrategy(from, to, openCostTotal, priceDecimalPlaces) {
         : `${label}：${item.price} / ${item.quantity}`;
     }),
     `止盈价格：${tpLabel}`,
-    `止损价格：${fromLabel}`,
+    `止损价格：${stopLabel}`,
     ...(description ? [`描述：${description}`] : []),
   ].join('\n');
 
@@ -4356,6 +4311,7 @@ const ADMIN_TIME_FILTER_LABELS = {
   all: '全部',
   pinned: '关注',
   dueToday: '今日到期',
+  fish: '吃鱼助手',
 };
 
 const DEFAULT_ADMIN_TIME_FILTER = 'all';
@@ -4387,11 +4343,18 @@ function rowMatchesAdminNameFilter(row) {
   return getAdminRowNameFilterKey(row) === adminNameFilter;
 }
 
-function getFilteredAdminRows(rows = latestAdminRows) {
-  let visible = getAdminVisibleRows(rows);
-  if (normalizeAdminTimeFilter(adminTimeFilter) === 'pinned') {
-    visible = visible.filter(isStrategyPinned);
+function filterRowsByAdminTimeFilter(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const filter = normalizeAdminTimeFilter(adminTimeFilter);
+  if (filter === 'pinned') return list.filter(isStrategyPinned);
+  if (filter === 'fish') {
+    return list.filter((row) => getAdminStrategyTypeInfo(row).type === 'fish');
   }
+  return list;
+}
+
+function getFilteredAdminRows(rows = latestAdminRows) {
+  const visible = filterRowsByAdminTimeFilter(getAdminVisibleRows(rows));
   if (!adminNameFilter) return visible;
   return visible.filter(rowMatchesAdminNameFilter);
 }
@@ -4568,10 +4531,7 @@ function compareAdminNamesByFirstLetter(a, b) {
 }
 
 function collectAdminNameCounts(rows) {
-  let list = getAdminVisibleRows(rows);
-  if (normalizeAdminTimeFilter(adminTimeFilter) === 'pinned') {
-    list = list.filter(isStrategyPinned);
-  }
+  const list = filterRowsByAdminTimeFilter(getAdminVisibleRows(rows));
   const counts = new Map();
   for (const row of list) {
     const raw = String(row?.strategyName ?? '').trim();
@@ -4958,8 +4918,10 @@ async function renderAdminList() {
   }
   let rows = [];
   try {
-    // 关注筛选取全量，便于关联单据查找；展示层再按关注过滤
-    const fetchFilter = adminTimeFilter === 'pinned' ? 'all' : adminTimeFilter;
+    // 关注、吃鱼助手在展示层过滤；关注还需全量以便关联单据查找
+    const fetchFilter = adminTimeFilter === 'pinned' || adminTimeFilter === 'fish'
+      ? 'all'
+      : adminTimeFilter;
     rows = await fetchStrategies(fetchFilter);
   } catch (err) {
     selectedStrategyIds.clear();
@@ -5043,8 +5005,6 @@ function buildAdminListItemHtml(row) {
   let concessions;
   let stopLabel;
   let takeProfitLabel;
-  let tenRBoundary = null;
-  let showTenREffect = false;
   if (showCounterTrend) {
     const counter = buildCounterTrendConcessions(row);
     concessions = filterCounterTrendConcessionItems(
@@ -5054,14 +5014,10 @@ function buildAdminListItemHtml(row) {
     // 趋势力预测：止盈=原开仓价，止损=10R（计算逻辑不变，仅改展示位置）
     takeProfitLabel = counter.refTakeProfit || '—';
     stopLabel = counter.stopLoss || '—';
-    tenRBoundary = { rate: COUNTER_TREND_STOP_MULTIPLE, label: '10R 分界' };
   } else if (showTierAssistView) {
     concessions = linkedTier?.concessions || [];
     takeProfitLabel = linkedTier?.takeProfitLabel || '—';
     stopLabel = linkedTier?.stopLabel || '—';
-    if (isAdminTenRBoundaryRow(row)) {
-      showTenREffect = true;
-    }
   } else if (showFishView && relatedFish) {
     concessions = buildAdminAssistConcessionsForDisplay(relatedFish);
     const assistFrom = toNumber(relatedFish?.inputPrice ?? relatedFish?.stopLossPrice);
@@ -5070,10 +5026,10 @@ function buildAdminListItemHtml(row) {
     takeProfitLabel = assistTp != null
       ? formatTrimmedFixedDecimals(assistTp, priceDecimalPlaces)
       : (formatAdminPriceFromValue(relatedFish?.takeProfitPrice, priceDecimalPlaces) || '—');
-    stopLabel = formatAdminPriceFromValue(relatedFish?.inputPrice ?? relatedFish?.stopLossPrice, priceDecimalPlaces) || '—';
-    if (isAdminTenRBoundaryRow(relatedFish)) {
-      showTenREffect = true;
-    }
+    const fishStop = calcFishStopPrice(assistFrom, assistTo, priceDecimalPlaces);
+    stopLabel = fishStop != null
+      ? formatTrimmedFixedDecimals(fishStop, priceDecimalPlaces)
+      : (formatAdminPriceFromValue(relatedFish?.inputPrice ?? relatedFish?.stopLossPrice, priceDecimalPlaces) || '—');
   } else if (isTierAssistStrategy) {
     const saved = hasConcessions(row?.concessions) ? row.concessions : [];
     const stopLoss = toNumber(row?.stopLossPrice);
@@ -5083,12 +5039,9 @@ function buildAdminListItemHtml(row) {
     ));
     takeProfitLabel = formatAdminPriceFromValue(row?.takeProfitPrice, priceDecimalPlaces) || '—';
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
-    if (isAdminTenRBoundaryRow(row)) {
-      showTenREffect = true;
-    }
   } else if (isAssistLikeStrategy) {
     concessions = buildAdminAssistConcessionsForDisplay(row);
-    // 顺势而为：2 倍；吃鱼助手：1 倍；止损=from
+    // 顺势而为：2 倍，止损=from；吃鱼助手：1 倍，止损=from→to 的 -10%
     const assistFrom = toNumber(row?.inputPrice ?? row?.stopLossPrice);
     const assistTo = toNumber(row?.inputStopLoss);
     const tpMultiple = isFishStrategy ? FISH_TAKE_PROFIT_MULTIPLE : ASSIST_TAKE_PROFIT_MULTIPLE;
@@ -5096,10 +5049,12 @@ function buildAdminListItemHtml(row) {
     takeProfitLabel = assistTp != null
       ? formatTrimmedFixedDecimals(assistTp, priceDecimalPlaces)
       : (formatAdminPriceFromValue(row?.takeProfitPrice, priceDecimalPlaces) || '—');
-    stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
-    if (isAdminTenRBoundaryRow(row)) {
-      showTenREffect = true;
-    }
+    const fishStop = isFishStrategy
+      ? calcFishStopPrice(toNumber(row?.inputPrice), assistTo, priceDecimalPlaces)
+      : null;
+    stopLabel = fishStop != null
+      ? formatTrimmedFixedDecimals(fishStop, priceDecimalPlaces)
+      : (formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—');
   } else {
     concessions = buildAdminDisplayConcessions(row);
     // 趋势立项：止盈=5R 最佳点位（区分多空），止损=原止损
@@ -5131,7 +5086,6 @@ function buildAdminListItemHtml(row) {
         reverseOrder: true,
       }
       : {}),
-    ...(tenRBoundary ? { boundary: tenRBoundary } : {}),
   });
   const baseStartAt = getStrategyStartAt(row);
   const baseEndAt = getStrategyEndAt(row);
@@ -5171,9 +5125,6 @@ function buildAdminListItemHtml(row) {
   const pinTagHtml = isStrategyPinned(row)
     ? '<span class="admin-pin-tag" aria-label="已关注" title="已关注">♥</span>'
     : '';
-  const tenRTagHtml = showTenREffect
-    ? '<span class="admin-ten-r-tag" aria-label="10R分界">10R分界</span>'
-    : '';
   const timeframeTagHtml = (strategyType.type === 'trend' && !showFishView)
     ? getTimeframeTagHtml(row?.timeframe)
     : '';
@@ -5182,7 +5133,6 @@ function buildAdminListItemHtml(row) {
     `<span class="admin-item__title">${title}</span>`,
     sideTagHtml,
     currentModeTagHtml,
-    tenRTagHtml,
     timeframeTagHtml,
     pinTagHtml,
     '</div>',
