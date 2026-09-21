@@ -263,6 +263,8 @@ const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
 /** 吃鱼助手：与顺势而为同档位，止盈空间 1 倍；无时间 UI，落库用长效占位以满足非空约束 */
 const FISH_TAKE_PROFIT_MULTIPLE = 1;
+/** 吃鱼助手：每档本金固定 66，不随总资金比例变化 */
+const FISH_TIER_OPEN_COST = 66;
 const FISH_TIMEFRAME = '1d';
 const FISH_TIMEFRAME_MINUTES = 1440;
 const FISH_VALID_PERIODS = 3650; // ≈10 年，视为长期有效
@@ -428,6 +430,10 @@ function getAdminTierFixedOpenCost() {
   return getTotalCapital() * ADMIN_TIER_COST_RATIO;
 }
 
+function getAssistDisplayTierOpenCost(row) {
+  return isFishStrategyRow(row) ? FISH_TIER_OPEN_COST : getAdminTierFixedOpenCost();
+}
+
 /** 仅从已保存值恢复输入框（加载数据） */
 function restoreUnitCostInput() {
   const el = document.getElementById('unit-cost-input');
@@ -498,14 +504,15 @@ function hasAdminTierCostBudget(openCostTotal = null, fixedTierOpenCost = null) 
   return Number.isFinite(total) && total > 0;
 }
 
-function applyAdminFixedTierQuantities(concessions, stopLoss, { isAssist: _isAssist = false } = {}) {
+function applyAdminFixedTierQuantities(concessions, stopLoss, { isAssist: _isAssist = false, fixedTierOpenCost = null } = {}) {
   if (!hasConcessions(concessions)) return [];
   const stop = toNumber(stopLoss);
-  if (stop == null || !(getAdminTierFixedOpenCost() > 0)) return concessions.slice();
+  const tierCost = Number(fixedTierOpenCost ?? getAdminTierFixedOpenCost());
+  if (stop == null || !(tierCost > 0)) return concessions.slice();
   const rawQtys = concessions.map((item) => {
     const price = toNumber(item.price);
     if (price == null || price === stop) return null;
-    const qty = calcQuantityByRisk(getAdminTierFixedOpenCost(), price, stop);
+    const qty = calcQuantityByRisk(tierCost, price, stop);
     return qty != null && qty > 0 ? qty : null;
   });
   return applyDatasetQuantityFormat(concessions.map((item) => ({ ...item })), rawQtys);
@@ -732,10 +739,11 @@ function buildAdminDisplayConcessions(row) {
 function buildAdminAssistConcessionsForDisplay(row) {
   const savedConcessions = buildAdminConcessionsForRow(row);
   const stopLoss = toNumber(row?.inputPrice ?? row?.stopLossPrice);
+  const options = { isAssist: true, fixedTierOpenCost: getAssistDisplayTierOpenCost(row) };
   if (isCurrentAssistConcessionSet(savedConcessions)) {
-    return applyAdminFixedTierQuantities(savedConcessions, stopLoss, { isAssist: true });
+    return applyAdminFixedTierQuantities(savedConcessions, stopLoss, options);
   }
-  return applyAdminFixedTierQuantities(buildAssistConcessionsFromRow(row), stopLoss, { isAssist: true });
+  return applyAdminFixedTierQuantities(buildAssistConcessionsFromRow(row), stopLoss, options);
 }
 
 function buildTrendAdminConcessions(row) {
@@ -975,10 +983,11 @@ function findRelatedFishRow(row) {
   }) || null;
 }
 
-/** 修改入口：仅支持趋势立项单据 */
+/** 修改入口：趋势立项与吃鱼助手各自改自己的单据 */
 function resolveEditableStrategyRow(row) {
   if (!row) return null;
-  if (getAdminStrategyTypeInfo(row).type === 'trend') return row;
+  const type = getAdminStrategyTypeInfo(row).type;
+  if (type === 'trend' || type === 'fish') return row;
   return findRelatedTrendRow(row);
 }
 
@@ -1169,7 +1178,7 @@ function buildAssistConcessionsFromRow(row) {
   const from = toNumber(row?.inputPrice ?? row?.stopLossPrice);
   const to = toNumber(row?.inputStopLoss);
   const decimalPlaces = Math.max(3, getAdminPriceDecimalPlacesFromRow(row));
-  return buildAssistConcessionItems(from, to, null, decimalPlaces, getAdminTierFixedOpenCost());
+  return buildAssistConcessionItems(from, to, null, decimalPlaces, getAssistDisplayTierOpenCost(row));
 }
 
 function isAdminCounterTrendView(row) {
@@ -1186,6 +1195,7 @@ function isAdminFishView(_row) {
 }
 
 function getAdminDisplayViewMode(row) {
+  if (getAdminStrategyTypeInfo(row).type === 'fish') return STRATEGY_VIEW_MODE_FISH;
   if (isAdminCounterTrendView(row)) return STRATEGY_VIEW_MODE_COUNTER;
   return STRATEGY_VIEW_MODE_TREND;
 }
@@ -1222,8 +1232,11 @@ function isLinkedFishRow(row, rows = latestAdminRows) {
 
 function getAdminVisibleRows(rows = latestAdminRows) {
   const list = Array.isArray(rows) ? rows : [];
-  // 仅展示趋势立项单据；挡位辅助 / 吃鱼助手 / 顺势而为不再出现在列表
-  return list.filter((row) => getAdminStrategyTypeInfo(row).type === 'trend');
+  // 趋势立项与吃鱼助手各自成卡；挡位辅助 / 顺势而为仍不出现在列表
+  return list.filter((row) => {
+    const type = getAdminStrategyTypeInfo(row).type;
+    return type === 'trend' || type === 'fish';
+  });
 }
 
 async function setAdminStrategyViewMode(strategyId, row, nextViewMode, extra = {}) {
@@ -2368,7 +2381,21 @@ function clearEditingStrategy() {
 }
 
 function syncFrontModeSwitchLock() {
-  // 前台仅保留趋势立项，无需模式切换锁定
+  const wrap = document.querySelector('.front-mode-switch');
+  const locked = Boolean(editingStrategyId);
+  if (wrap) wrap.classList.toggle('is-locked', locked);
+  document.querySelectorAll('.front-mode-switch__btn').forEach((btn) => {
+    btn.disabled = locked;
+  });
+}
+
+function syncFrontModeSwitchUI() {
+  document.querySelectorAll('.front-mode-switch__btn').forEach((btn) => {
+    const active = btn.getAttribute('data-front-mode') === frontMode;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  syncFrontModeSwitchLock();
 }
 
 function syncPinButtonUI() {
@@ -2527,19 +2554,27 @@ function startEditStrategy(row, { focusId = '' } = {}) {
   if (!id) return;
 
   const strategyType = getAdminStrategyTypeInfo(target);
-  if (strategyType.type !== 'trend') {
-    showToast('仅支持修改趋势立项单据');
+  if (strategyType.type !== 'trend' && strategyType.type !== 'fish') {
+    showToast('仅支持修改趋势立项或吃鱼助手单据');
     return;
   }
   pendingAdminFocusId = String(focusId || row?.id || id).trim();
 
-  resetAssistPage();
-  resetFishPage();
-  populateTrendFormFromRow(target);
+  const isFish = strategyType.type === 'fish';
+  if (isFish) {
+    resetFrontPage();
+    resetAssistPage();
+    populateFishFormFromRow(target);
+  } else {
+    resetAssistPage();
+    resetFishPage();
+    populateTrendFormFromRow(target);
+  }
 
   setPage('front', {
     preserveFrontForm: true,
-    frontMode: FRONT_MODE_TREND,
+    frontMode: isFish ? FRONT_MODE_FISH : FRONT_MODE_TREND,
+    forceFrontMode: true,
   });
 
   editingStrategyId = id;
@@ -2551,17 +2586,18 @@ function startEditStrategy(row, { focusId = '' } = {}) {
     description: target?.description,
   };
 
-  generate();
+  if (isFish) generateFish();
+  else generate();
 
   updateSaveButtonLabels();
   updateHeaderClearButton();
   syncPinButtonUI();
-  showToast('已进入修改模式（趋势立项）');
+  showToast(isFish ? '已进入修改模式（吃鱼助手）' : '已进入修改模式（趋势立项）');
   window.scrollTo(0, 0);
 }
 
 function startCreateFishFromTrend(_row) {
-  showToast('吃鱼助手已下线');
+  showToast('吃鱼助手请在前台单独开单');
 }
 
 function clearStrategyState() {
@@ -2796,7 +2832,7 @@ function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel, { name, e
       '<button type="button" class="admin-edit-btn admin-copy-value"',
       ` data-copy-text="${escapeHtml(alarmText)}"`,
       ' title="点击复制闹钟指令"',
-      ' aria-label="复制闹钟指令">复制</button>',
+      ' aria-label="复制闹钟指令">指令</button>',
       '</span>',
     ].join('')
     : '<span class="admin-item__tp-sl-item admin-item__tp-sl-spacer" aria-hidden="true"></span>';
@@ -3892,11 +3928,11 @@ function buildFishStrategy(from, to, openCostTotal, priceDecimalPlaces) {
   if (takeProfit == null) return null;
   const stopLabel = formatTrimmedFixedDecimals(stop, priceDecimalPlaces);
   const tpLabel = formatTrimmedFixedDecimals(takeProfit, priceDecimalPlaces);
-  const concessionItems = buildAssistConcessionItems(from, to, openCostTotal, priceDecimalPlaces);
+  const concessionItems = buildAssistConcessionItems(from, to, openCostTotal, priceDecimalPlaces, FISH_TIER_OPEN_COST);
   if (!concessionItems.length) return null;
   const primaryItem = concessionItems[0];
   const openCostMultiplier = OPEN_COST_MULTIPLIER_DEFAULT;
-  const openCost = openCostTotal / DEFAULT_TIER_COUNT;
+  const openCost = FISH_TIER_OPEN_COST;
   const description = getStrategyDescription('fish');
   const fromLabel = formatTrimmedFixedDecimals(from, priceDecimalPlaces);
   const fishTime = buildFishTimeRange();
@@ -4329,6 +4365,11 @@ let adminNameSearch = '';
 let adminNameFilter = '';
 let adminSortByExpiresAsc = false;
 let isUnpinningAll = false;
+let isUnpinAllArmed = false;
+let unpinAllArmedAt = 0;
+let unpinAllArmTimer = 0;
+const UNPIN_ALL_ARM_MS = 4000;
+const UNPIN_ALL_CONFIRM_DELAY_MS = 700;
 function getAdminNameFilterKey(name) {
   const raw = String(name ?? '').trim();
   if (!raw) return '';
@@ -4376,10 +4417,52 @@ function getPinnedAdminRowsForUnpin(rows = latestAdminRows) {
   return getFilteredAdminRows(rows).filter(isStrategyPinned);
 }
 
+function disarmUnpinAll() {
+  if (unpinAllArmTimer) {
+    window.clearTimeout(unpinAllArmTimer);
+    unpinAllArmTimer = 0;
+  }
+  isUnpinAllArmed = false;
+  unpinAllArmedAt = 0;
+}
+
+function armUnpinAll() {
+  isUnpinAllArmed = true;
+  unpinAllArmedAt = Date.now();
+  if (unpinAllArmTimer) window.clearTimeout(unpinAllArmTimer);
+  unpinAllArmTimer = window.setTimeout(() => {
+    unpinAllArmTimer = 0;
+    isUnpinAllArmed = false;
+    unpinAllArmedAt = 0;
+    renderAdminActiveNames();
+  }, UNPIN_ALL_ARM_MS);
+  renderAdminActiveNames();
+}
+
+function requestUnpinDisplayedAdminStrategies() {
+  if (isUnpinningAll || isDeletingStrategies || isAdminSelectionMode) return;
+  const pinnedCount = getPinnedAdminRowsForUnpin().length;
+  if (!pinnedCount) {
+    disarmUnpinAll();
+    renderAdminActiveNames();
+    return;
+  }
+  if (!isUnpinAllArmed) {
+    armUnpinAll();
+    return;
+  }
+  if (Date.now() - unpinAllArmedAt < UNPIN_ALL_CONFIRM_DELAY_MS) return;
+  unpinDisplayedAdminStrategies().catch(() => {});
+}
+
 async function unpinDisplayedAdminStrategies() {
   if (isUnpinningAll || isDeletingStrategies || isAdminSelectionMode) return;
+  disarmUnpinAll();
   const targets = getPinnedAdminRowsForUnpin();
-  if (!targets.length) return;
+  if (!targets.length) {
+    renderAdminActiveNames();
+    return;
+  }
   const snapshots = targets.map((row) => {
     const id = String(row?.id ?? '').trim();
     return {
@@ -4389,7 +4472,10 @@ async function unpinDisplayedAdminStrategies() {
       nextViewState: setPinnedInViewState(row?.viewState, false),
     };
   }).filter((item) => item.id);
-  if (!snapshots.length) return;
+  if (!snapshots.length) {
+    renderAdminActiveNames();
+    return;
+  }
 
   const nextById = new Map(snapshots.map((item) => [item.id, item.nextViewState]));
   const prevById = new Map(snapshots.map((item) => [item.id, item.prevViewState]));
@@ -4436,12 +4522,14 @@ async function unpinDisplayedAdminStrategies() {
 function toggleAdminNameFilter(name) {
   const key = getAdminNameFilterKey(name);
   if (!key) return;
+  disarmUnpinAll();
   adminNameFilter = adminNameFilter === key ? '' : key;
   renderAdminListItems();
   renderAdminActiveNames();
 }
 
 function toggleAdminSortByExpires() {
+  disarmUnpinAll();
   adminSortByExpiresAsc = !adminSortByExpiresAsc;
   renderAdminListItems();
   renderAdminActiveNames();
@@ -4515,14 +4603,25 @@ function renderAdminActiveNames(rows = latestAdminRows) {
     '</button>',
   ].join('');
   const pinnedCount = getPinnedAdminRowsForUnpin(rows).length;
-  const canUnpin = !isAdminSelectionMode && !isDeletingStrategies && (pinnedCount > 0 || isUnpinningAll);
+  if (isUnpinAllArmed && pinnedCount === 0 && !isUnpinningAll) disarmUnpinAll();
+  const canUnpin = !isAdminSelectionMode && !isDeletingStrategies && (pinnedCount > 0 || isUnpinningAll || isUnpinAllArmed);
+  const unpinStateClass = isUnpinningAll ? ' is-busy' : (isUnpinAllArmed ? ' is-armed' : '');
+  const unpinLabel = isUnpinningAll
+    ? '取关中'
+    : (isUnpinAllArmed ? `确认取关 ${pinnedCount}` : '一键取关');
+  const unpinAria = isUnpinningAll
+    ? '正在取消关注'
+    : (isUnpinAllArmed
+      ? `再点一次确认取消关注当前 ${pinnedCount} 条，4 秒内未确认将取消`
+      : `一键取消关注当前 ${pinnedCount} 条，需再确认一次`);
   const unpinHtml = canUnpin
     ? [
-      `<button type="button" class="admin-active-names__unpin${isUnpinningAll ? ' is-busy' : ''}" data-admin-unpin-all`,
+      `<button type="button" class="admin-active-names__unpin${unpinStateClass}" data-admin-unpin-all`,
       isUnpinningAll ? ' disabled' : '',
       ` aria-busy="${isUnpinningAll ? 'true' : 'false'}"`,
-      ` aria-label="${isUnpinningAll ? '正在取消关注' : `一键取消关注当前 ${pinnedCount} 条`}">`,
-      isUnpinningAll ? '取关中' : '一键取关',
+      ` aria-pressed="${isUnpinAllArmed ? 'true' : 'false'}"`,
+      ` aria-label="${unpinAria}">`,
+      unpinLabel,
       '</button>',
     ].join('')
     : '';
@@ -4580,6 +4679,7 @@ function resetAdminPageState() {
   visibleAdminStrategyIds = [];
   isDeletingStrategies = false;
   isUnpinningAll = false;
+  disarmUnpinAll();
   updatingAdminViewModeIds.clear();
   renderAdminControls();
   updateAdminSelectionControls();
@@ -4671,6 +4771,7 @@ function updateHeaderClearButton() {
 }
 
 function enterAdminSelectionMode() {
+  disarmUnpinAll();
   isAdminSelectionMode = true;
   renderAdminList().catch(() => updateAdminSelectionControls());
 }
@@ -4877,7 +4978,11 @@ async function renderAdminList() {
 
 function getAdminCurrentModeTagHtml(row) {
   const rawId = String(row?.id ?? '').trim();
-  if (!rawId || getAdminStrategyTypeInfo(row).type !== 'trend') return '';
+  const type = getAdminStrategyTypeInfo(row).type;
+  if (type === 'fish') {
+    return '<span class="admin-fish-tag" aria-label="吃鱼助手">吃鱼助手</span>';
+  }
+  if (!rawId || type !== 'trend') return '';
   const syncing = updatingAdminViewModeIds.has(rawId);
   const isCounter = isAdminCounterTrendView(row);
   const canCycle = isCounter || canShowCounterTrend(row);
@@ -5394,6 +5499,11 @@ async function renderCasesPage() {
 let observationContentColumnAvailable = true;
 const OBS_DAILY_TIMEFRAME = '1d';
 const OBS_DURATION_PERIODS = 9;
+const OPP_RANK_MAX = 10;
+const OPP_RANK_ACTIONABLE = 3;
+let latestObservationRecords = [];
+let isPersistingOpp = false;
+let editingOppTarget = null;
 
 function isMissingObservationContentColumnError(errorText) {
   return /content/i.test(String(errorText ?? ''))
@@ -5465,11 +5575,50 @@ function getObservationTemplateFields(item = {}) {
   ].filter((field) => field.value);
 }
 
+function normalizeObservationRank(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n);
+}
+
+function makeObservationItemId() {
+  return `oi_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getObservationRecordDayDate(record) {
+  const createdAt = record?.createdAt ? new Date(record.createdAt) : null;
+  if (createdAt && !Number.isNaN(createdAt.getTime())) return createdAt;
+  return new Date();
+}
+
+function getObservationDayKey(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function isObservationRecordOnLocalDay(record, date = new Date()) {
+  return getObservationDayKey(getObservationRecordDayDate(record)) === getObservationDayKey(date);
+}
+
+function getObservationItemKey(recordId, itemId) {
+  return `${String(recordId ?? '').trim()}::${String(itemId ?? '').trim()}`;
+}
+
+function parseObservationItemKey(key) {
+  const raw = String(key ?? '');
+  const splitAt = raw.indexOf('::');
+  if (splitAt < 0) return { recordId: '', itemId: raw };
+  return {
+    recordId: raw.slice(0, splitAt),
+    itemId: raw.slice(splitAt + 2),
+  };
+}
+
 function hasObservationItemContent(item = {}) {
   return Boolean(
     String(item?.name ?? '').trim()
     || String(item?.description ?? '').trim()
-    || getObservationTemplateFields(item).length
   );
 }
 
@@ -5484,19 +5633,17 @@ function normalizeObservationItems(items) {
       const price = String(item?.price ?? '').trim();
       const stopLoss = String(item?.stopLoss ?? item?.stop ?? item?.stop_loss ?? '').trim();
       const description = String(item?.description ?? item?.desc ?? item?.note ?? legacyDescription).trim();
-      const heat = String(item?.heat ?? item?.hot ?? '').trim();
-      const change = String(item?.change ?? item?.changePct ?? item?.pct ?? '').trim();
-      const pattern = String(item?.pattern ?? item?.form ?? item?.shape ?? '').trim();
+      const id = String(item?.id ?? '').trim();
+      const rank = normalizeObservationRank(item?.rank ?? item?.order);
       return {
+        id,
+        rank,
         name,
         time,
         timeLabel,
         price,
         stopLoss,
         description,
-        heat,
-        change,
-        pattern,
       };
     })
     .filter((item) => hasObservationItemContent(item));
@@ -5532,6 +5679,95 @@ function fromObservationRecord(row) {
     createdAt: row?.created_at ?? null,
     items,
   };
+}
+
+function sortOpportunityItems(items) {
+  const source = Array.isArray(items) ? items.slice() : [];
+  source.sort((a, b) => {
+    const aRank = normalizeObservationRank(a?.rank);
+    const bRank = normalizeObservationRank(b?.rank);
+    const aHas = aRank != null;
+    const bHas = bRank != null;
+    if (aHas && bHas && aRank !== bRank) return aRank - bRank;
+    if (aHas !== bHas) return aHas ? -1 : 1;
+    return 0;
+  });
+  return source.map((item, index) => ({
+    ...item,
+    rank: index + 1,
+    id: String(item?.id ?? '').trim() || makeObservationItemId(),
+  }));
+}
+
+function serializeObservationItems(items) {
+  return sortOpportunityItems(items)
+    .slice(0, OPP_RANK_MAX)
+    .map((item, index) => {
+      const next = { id: item.id, rank: index + 1 };
+      if (item.name) next.name = item.name;
+      if (item.description) next.description = item.description;
+      return next;
+    })
+    .filter((item) => hasObservationItemContent(item));
+}
+
+function flattenOpportunityItems(records) {
+  const list = Array.isArray(records) ? records.slice() : [];
+  list.sort((a, b) => {
+    const aTs = getObservationRecordDayDate(a).getTime();
+    const bTs = getObservationRecordDayDate(b).getTime();
+    return aTs - bTs;
+  });
+  const items = [];
+  for (const record of list) {
+    const recordId = String(record?.id ?? '').trim();
+    const rawItems = normalizeObservationItems(record?.items);
+    rawItems.forEach((item, index) => {
+      const itemId = String(item?.id ?? '').trim() || `${recordId}:${index}`;
+      items.push({
+        ...item,
+        id: itemId,
+        recordId,
+        itemKey: getObservationItemKey(recordId, itemId),
+      });
+    });
+  }
+  return sortOpportunityItems(items);
+}
+
+function groupObservationRecordsByDay(records) {
+  const groups = [];
+  const byKey = new Map();
+  const list = Array.isArray(records) ? records : [];
+  for (const record of list) {
+    const date = getObservationRecordDayDate(record);
+    const key = getObservationDayKey(date);
+    if (!key) continue;
+    if (!byKey.has(key)) {
+      const group = { key, date, records: [] };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+    byKey.get(key).records.push(record);
+  }
+  groups.sort((a, b) => b.date.getTime() - a.date.getTime());
+  return groups;
+}
+
+function getTodayOpportunityCount(records = latestObservationRecords) {
+  const todayRecords = (Array.isArray(records) ? records : [])
+    .filter((record) => isObservationRecordOnLocalDay(record));
+  return flattenOpportunityItems(todayRecords).length;
+}
+
+function getDayRecordsForItemKey(itemKey, records = latestObservationRecords) {
+  const { recordId } = parseObservationItemKey(itemKey);
+  const match = (Array.isArray(records) ? records : [])
+    .find((record) => String(record?.id ?? '').trim() === recordId);
+  if (!match) return [];
+  const dayKey = getObservationDayKey(getObservationRecordDayDate(match));
+  return (Array.isArray(records) ? records : [])
+    .filter((record) => getObservationDayKey(getObservationRecordDayDate(record)) === dayKey);
 }
 
 async function fetchObservationRecords(filterValue = obsTimeFilter) {
@@ -5582,17 +5818,7 @@ function buildObservationLegacyContent(items) {
 }
 
 async function createObservationRecord(items) {
-  const normalizedItems = normalizeObservationItems(items)
-    .map((item) => {
-      const next = {};
-      if (item.name) next.name = item.name;
-      if (item.heat) next.heat = item.heat;
-      if (item.change) next.change = item.change;
-      if (item.pattern) next.pattern = item.pattern;
-      if (item.description) next.description = item.description;
-      return next;
-    })
-    .filter((item) => hasObservationItemContent(item));
+  const normalizedItems = serializeObservationItems(items);
   if (!normalizedItems.length) throw new Error('记录内容不能为空');
   const legacyContent = buildObservationLegacyContent(normalizedItems);
   const payload = {
@@ -5619,6 +5845,59 @@ async function createObservationRecord(items) {
   throw new Error(errorText);
 }
 
+async function updateObservationRecord(id, items) {
+  const normalizedId = String(id ?? '').trim();
+  if (!normalizedId) throw new Error('缺少记录 ID');
+  const normalizedItems = serializeObservationItems(items);
+  if (!normalizedItems.length) {
+    await deleteObservationRecords([normalizedId]);
+    return;
+  }
+  const payload = observationContentColumnAvailable
+    ? { items: normalizedItems, content: buildObservationLegacyContent(normalizedItems) }
+    : { items: normalizedItems };
+  const res = await supabaseFetch(`${OBSERVATIONS_ENDPOINT}?id=eq.${encodeURIComponent(normalizedId)}`, {
+    method: 'PATCH',
+    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+    body: JSON.stringify(payload),
+  });
+  if (res.ok) return;
+  const errorText = await res.text();
+  if (observationContentColumnAvailable && isMissingObservationContentColumnError(errorText)) {
+    observationContentColumnAvailable = false;
+    const retryRes = await supabaseFetch(`${OBSERVATIONS_ENDPOINT}?id=eq.${encodeURIComponent(normalizedId)}`, {
+      method: 'PATCH',
+      headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+      body: JSON.stringify({ items: normalizedItems }),
+    });
+    if (retryRes.ok) return;
+    throw new Error(await retryRes.text());
+  }
+  throw new Error(errorText);
+}
+
+async function persistDayOpportunityBoard(dayRecords, items) {
+  const payloadItems = serializeObservationItems(items);
+  const records = (Array.isArray(dayRecords) ? dayRecords : [])
+    .slice()
+    .sort((a, b) => getObservationRecordDayDate(a).getTime() - getObservationRecordDayDate(b).getTime());
+  if (!payloadItems.length) {
+    await deleteObservationRecords(records.map((record) => record.id));
+    return;
+  }
+  if (!records.length) {
+    await createObservationRecord(payloadItems);
+    return;
+  }
+  const keepId = String(records[0]?.id ?? '').trim();
+  await updateObservationRecord(keepId, payloadItems);
+  const extraIds = records
+    .slice(1)
+    .map((record) => String(record?.id ?? '').trim())
+    .filter((id) => id && id !== keepId);
+  if (extraIds.length) await deleteObservationRecords(extraIds);
+}
+
 async function deleteObservationRecords(ids) {
   const normalizedIds = Array.from(new Set(
     (Array.isArray(ids) ? ids : [ids])
@@ -5634,63 +5913,60 @@ async function deleteObservationRecords(ids) {
   if (!res.ok) throw new Error(await res.text());
 }
 
-function renderObservationRecordItem(record) {
-  const rawId = String(record?.id ?? '').trim();
-  const id = escapeHtml(rawId);
-  const items = normalizeObservationItems(record.items);
-  const primary = items[0] || {};
-  const checked = rawId && selectedObservationIds.has(rawId) ? ' checked' : '';
-  const disabled = isDeletingObservations ? ' disabled' : '';
-  const selectorDisabled = isDeletingObservations ? ' is-disabled' : '';
-  const selectHtml = rawId && isObsSelectionMode
+function renderOpportunityRankItem(item, { index, selectable = true } = {}) {
+  const itemKey = escapeHtml(String(item?.itemKey ?? ''));
+  const rank = Number(item?.rank) || (index + 1);
+  const checked = item?.itemKey && selectedObservationIds.has(item.itemKey) ? ' checked' : '';
+  const disabled = isDeletingObservations || isPersistingOpp ? ' disabled' : '';
+  const selectorDisabled = (isDeletingObservations || isPersistingOpp) ? ' is-disabled' : '';
+  const selectHtml = selectable && item?.itemKey && isObsSelectionMode
     ? [
-      `<label class="admin-item__selector${selectorDisabled}" aria-label="选择观测日志">`,
-      `<input type="checkbox" class="admin-item__select" data-id="${id}"${checked}${disabled}>`,
+      `<label class="admin-item__selector${selectorDisabled}" aria-label="选择机会">`,
+      `<input type="checkbox" class="admin-item__select" data-id="${itemKey}"${checked}${disabled}>`,
       '<span class="admin-item__checkmark" aria-hidden="true"></span>',
       '</label>',
     ].join('')
     : '';
-  const createdAt = record?.createdAt ? new Date(record.createdAt) : null;
-  const timeLabel = createdAt && !Number.isNaN(createdAt.getTime())
-    ? formatStartSlotValue(createdAt)
+  const nameHtml = item?.name
+    ? `<p class="obs-rank-item__name">${escapeHtml(item.name)}</p>`
+    : '<p class="obs-rank-item__name obs-rank-item__name--empty">未命名</p>';
+  const descHtml = item?.description
+    ? `<p class="obs-rank-item__desc">${escapeHtml(item.description)}</p>`
     : '';
-  const timeHtml = timeLabel
-    ? `<span class="obs-record__time" aria-label="创建时间">${escapeHtml(timeLabel)}</span>`
-    : '';
-  const nameHtml = primary.name
-    ? `<p class="obs-template__name">${escapeHtml(primary.name)}</p>`
-    : '';
-  const descHtml = primary.description
-    ? `<p class="obs-template__desc">${escapeHtml(primary.description)}</p>`
-    : '';
-  const templateFields = getObservationTemplateFields(primary);
-  const fieldHtml = (!nameHtml && !descHtml)
-    ? templateFields
-      .map((field) => [
-        '<div class="obs-template__field">',
-        `<span class="obs-template__field-label">${escapeHtml(field.label)}</span>`,
-        `<span class="obs-template__field-value">${escapeHtml(field.value)}</span>`,
-        '</div>',
-      ].join(''))
-      .join('')
-    : '';
-  const bodyHtml = nameHtml || descHtml || fieldHtml
-    ? `<div class="obs-template__row">${nameHtml}${descHtml}${fieldHtml}</div>`
-    : '';
-  const headHtml = (selectHtml || timeHtml)
+  const canMove = !isObsSelectionMode && !isDeletingObservations && !isPersistingOpp;
+  const moveHtml = canMove
     ? [
-      '<header class="admin-item__head obs-record__head">',
-      selectHtml,
-      timeHtml,
-      '</header>',
+      `<button type="button" class="obs-rank-item__move" data-opp-move="-1" data-opp-key="${itemKey}" aria-label="上移"${rank <= 1 ? ' disabled' : ''}>`,
+      '<svg class="obs-rank-item__move-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 14.5 12 8.5l6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      '</button>',
     ].join('')
     : '';
-
+  const rankClass = rank <= OPP_RANK_ACTIONABLE ? ` obs-rank-item--${rank}` : '';
   return [
-    '<article class="admin-item admin-item--flat obs-record">',
-    headHtml,
-    bodyHtml ? `<div class="obs-template">${bodyHtml}</div>` : '',
+    `<article class="admin-item admin-item--flat obs-rank-item${rankClass}" data-opp-key="${itemKey}">`,
+    selectHtml,
+    `<span class="obs-rank-item__pos" aria-label="第 ${rank} 名">${rank}</span>`,
+    '<div class="obs-rank-item__main">',
+    `<div class="obs-rank-item__title">${nameHtml}</div>`,
+    descHtml,
+    '</div>',
+    moveHtml,
     '</article>',
+  ].join('');
+}
+
+function renderOpportunityBoard(items, { title = '', selectable = true } = {}) {
+  const list = Array.isArray(items) ? items : [];
+  const titleHtml = title
+    ? `<h3 class="obs-board__title">${escapeHtml(title)}</h3>`
+    : '';
+  if (!list.length) return titleHtml;
+  return [
+    titleHtml,
+    list.map((item, index) => renderOpportunityRankItem(item, {
+      index,
+      selectable,
+    })).join(''),
   ].join('');
 }
 
@@ -5701,20 +5977,22 @@ function renderObservationFormRow(item = {}) {
     '<div class="obs-form-row">',
     '<label class="obs-form-field">',
     '<span class="obs-form-field__label">名称</span>',
-    `<input class="obs-form-row__input obs-form-row__name" type="text" value="${name}" placeholder="选填" autocomplete="off" />`,
+    `<input class="obs-form-row__input obs-form-row__name" type="text" value="${name}" placeholder="必填" autocomplete="off" />`,
     '</label>',
     '<label class="obs-form-field">',
     '<span class="obs-form-field__label">描述</span>',
-    `<textarea class="obs-form-row__input obs-form-row__desc" rows="3" placeholder="选填" autocomplete="off">${description}</textarea>`,
+    `<textarea class="obs-form-row__input obs-form-row__desc" rows="3" autocomplete="off">${description}</textarea>`,
     '</label>',
     '</div>',
   ].join('');
 }
 
-function renderObservationFormList() {
+function renderObservationFormList(item = {}) {
   const listEl = document.getElementById('obs-form-list');
+  const titleEl = document.getElementById('obs-form-title');
   if (!listEl) return;
-  listEl.innerHTML = renderObservationFormRow();
+  listEl.innerHTML = renderObservationFormRow(item);
+  if (titleEl) titleEl.textContent = editingOppTarget ? '修改机会' : '加入机会';
   requestAnimationFrame(() => {
     listEl.querySelector('.obs-form-row__name')?.focus();
   });
@@ -5726,7 +6004,7 @@ function collectObservationFormItems() {
       name: String(row.querySelector('.obs-form-row__name')?.value ?? '').trim(),
       description: String(row.querySelector('.obs-form-row__desc')?.value ?? '').trim(),
     }))
-    .filter((item) => hasObservationItemContent(item));
+    .filter((item) => String(item.name ?? '').trim());
 }
 
 let selectedObservationIds = new Set();
@@ -5736,7 +6014,7 @@ let visibleObservationIds = [];
 
 const OBS_TIME_FILTER_LABELS = {
   all: '全部',
-  createdToday: '今日创建',
+  createdToday: '今日',
 };
 const DEFAULT_OBS_TIME_FILTER = 'createdToday';
 let obsTimeFilter = DEFAULT_OBS_TIME_FILTER;
@@ -5758,7 +6036,8 @@ function getVisibleObservationIds() {
 }
 
 function syncObsSelectionWithRows(records) {
-  visibleObservationIds = records.map((row) => String(row?.id ?? '').trim()).filter(Boolean);
+  const items = flattenOpportunityItems(records);
+  visibleObservationIds = items.map((item) => String(item?.itemKey ?? '').trim()).filter(Boolean);
   const visibleIds = new Set(visibleObservationIds);
   selectedObservationIds = new Set(Array.from(selectedObservationIds).filter((id) => visibleIds.has(id)));
   updateObsSelectionControls();
@@ -5806,7 +6085,9 @@ function resetObsPageState() {
   selectedObservationIds.clear();
   visibleObservationIds = [];
   isDeletingObservations = false;
+  editingOppTarget = null;
   updateObsSelectionControls();
+  updateObsAddButton();
 }
 
 function setObsDeleteLoading(loading) {
@@ -5838,20 +6119,36 @@ function confirmDeleteObservations() {
 function showObsDeleteError() {
 }
 
-async function deleteObservationIdsWithConfirm(ids, options = {}) {
-  const { exitSelectionMode = false } = options;
-  const normalizedIds = Array.from(new Set(
-    (Array.isArray(ids) ? ids : [ids])
-      .map((id) => String(id ?? '').trim())
-      .filter(Boolean),
-  ));
-  if (!normalizedIds.length || isDeletingObservations) return;
-  if (!confirmDeleteObservations(normalizedIds.length)) return;
+async function deleteSelectedObservations() {
+  const keys = Array.from(selectedObservationIds);
+  if (!keys.length || isDeletingObservations) return;
+  if (!confirmDeleteObservations(keys.length)) return;
   setObsDeleteLoading(true);
   try {
-    await deleteObservationRecords(normalizedIds);
-    normalizedIds.forEach((id) => selectedObservationIds.delete(id));
-    if (exitSelectionMode) isObsSelectionMode = false;
+    const remainingByDay = new Map();
+    for (const record of latestObservationRecords) {
+      const dayKey = getObservationDayKey(getObservationRecordDayDate(record));
+      if (!remainingByDay.has(dayKey)) {
+        remainingByDay.set(dayKey, {
+          records: [],
+          items: [],
+        });
+      }
+      remainingByDay.get(dayKey).records.push(record);
+    }
+    remainingByDay.forEach((group) => {
+      group.items = flattenOpportunityItems(group.records)
+        .filter((item) => !selectedObservationIds.has(item.itemKey));
+    });
+    const tasks = [];
+    remainingByDay.forEach((group) => {
+      const originalCount = flattenOpportunityItems(group.records).length;
+      if (group.items.length === originalCount) return;
+      tasks.push(persistDayOpportunityBoard(group.records, group.items));
+    });
+    await Promise.all(tasks);
+    selectedObservationIds.clear();
+    isObsSelectionMode = false;
     await renderObservationsPage();
   } catch {
     showObsDeleteError();
@@ -5860,8 +6157,13 @@ async function deleteObservationIdsWithConfirm(ids, options = {}) {
   }
 }
 
-async function deleteSelectedObservations() {
-  await deleteObservationIdsWithConfirm(Array.from(selectedObservationIds), { exitSelectionMode: true });
+function updateObsAddButton() {
+  const btn = document.getElementById('obs-add-btn');
+  if (!btn) return;
+  const count = getTodayOpportunityCount();
+  const full = count >= OPP_RANK_MAX;
+  btn.disabled = full || isSavingObservation || isPersistingOpp || isDeletingObservations;
+  btn.textContent = full ? `今日已满 ${OPP_RANK_MAX} 个` : '加入机会';
 }
 
 async function renderObservationsPage() {
@@ -5873,35 +6175,61 @@ async function renderObservationsPage() {
 
   try {
     const records = await fetchObservationRecords(obsTimeFilter);
-    if (records.length === 0) {
+    latestObservationRecords = records;
+    const groups = groupObservationRecordsByDay(records)
+      .map((group) => ({
+        ...group,
+        items: flattenOpportunityItems(group.records),
+      }))
+      .filter((group) => group.items.length);
+    if (!groups.length) {
       visibleObservationIds = [];
       selectedObservationIds.clear();
       listEl.innerHTML = obsTimeFilter === 'createdToday'
-        ? '<p class="obs-empty">今日暂无观测日志。</p>'
-        : '<p class="obs-empty">暂无观测日志，点击下方按钮新增。</p>';
+        ? '<p class="obs-empty">今日暂无机会，点击下方加入。</p>'
+        : '<p class="obs-empty">暂无机会，点击下方加入。</p>';
       updateObsSelectionControls();
+      updateObsAddButton();
       syncAdminCountdownTimer();
       return;
     }
     syncObsSelectionWithRows(records);
-    listEl.innerHTML = records.map(renderObservationRecordItem).join('');
+    const isTodayOnly = obsTimeFilter === 'createdToday';
+    listEl.innerHTML = groups.map((group) => {
+      const countLabel = `${group.items.length}/${OPP_RANK_MAX}`;
+      const title = isTodayOnly
+        ? `今日 · ${countLabel}`
+        : `${formatObservationDateLabel(group.date)} · ${countLabel}`;
+      return `<section class="obs-board">${renderOpportunityBoard(group.items, { title })}</section>`;
+    }).join('');
     updateObsSelectionControls();
+    updateObsAddButton();
     updateAdminCountdowns();
     syncAdminCountdownTimer();
   } catch (err) {
+    latestObservationRecords = [];
     visibleObservationIds = [];
     selectedObservationIds.clear();
     listEl.innerHTML = `<p class="obs-error">加载失败：${escapeHtml(String(err?.message || '未知错误'))}</p>`;
     updateObsSelectionControls();
+    updateObsAddButton();
     syncAdminCountdownTimer();
   }
 }
 
-function openObservationFormPicker() {
+function openObservationFormPicker(item = null) {
   const picker = document.getElementById('obs-form-picker');
   const errorEl = document.getElementById('obs-form-error');
   if (!picker) return;
-  renderObservationFormList();
+  const source = item && typeof item === 'object' && item.itemKey ? item : null;
+  if (!source && getTodayOpportunityCount() >= OPP_RANK_MAX) {
+    showToast(`今日最多 ${OPP_RANK_MAX} 个机会`);
+    return;
+  }
+  editingOppTarget = source
+    ? { itemKey: source.itemKey, item: source }
+    : null;
+  renderObservationFormList(source || {});
   if (errorEl) errorEl.textContent = '';
   picker.hidden = false;
 }
@@ -5912,6 +6240,7 @@ function closeObservationFormPicker() {
   const errorEl = document.getElementById('obs-form-error');
   if (!picker) return;
   picker.hidden = true;
+  editingOppTarget = null;
   if (listEl) listEl.innerHTML = '';
   if (errorEl) errorEl.textContent = '';
 }
@@ -5923,7 +6252,7 @@ async function submitObservationForm() {
   const submitBtn = document.getElementById('obs-form-submit');
   const items = collectObservationFormItems();
   if (!items.length) {
-    if (errorEl) errorEl.textContent = '请填写名称或描述。';
+    if (errorEl) errorEl.textContent = '请填写名称。';
     document.querySelector('#obs-form-list .obs-form-row__name')?.focus();
     return;
   }
@@ -5932,23 +6261,52 @@ async function submitObservationForm() {
   if (isSavingObservation) return;
 
   isSavingObservation = true;
+  updateObsAddButton();
   if (submitBtn) {
     submitBtn.disabled = true;
     submitBtn.textContent = '保存中';
   }
 
   try {
-    await createObservationRecord([{
-      name: item.name,
-      description: item.description,
-    }]);
-    closeObservationFormPicker();
-    showToast('记录已保存');
+    if (editingOppTarget?.itemKey) {
+      const dayRecords = getDayRecordsForItemKey(editingOppTarget.itemKey);
+      const current = flattenOpportunityItems(dayRecords);
+      const next = current.map((entry) => (
+        entry.itemKey === editingOppTarget.itemKey
+          ? {
+            ...entry,
+            name: item.name,
+            description: item.description,
+          }
+          : entry
+      ));
+      await persistDayOpportunityBoard(dayRecords, next);
+      closeObservationFormPicker();
+      showToast('已更新');
+    } else {
+      const todayRecords = await fetchObservationRecords('createdToday');
+      const current = flattenOpportunityItems(todayRecords);
+      if (current.length >= OPP_RANK_MAX) {
+        throw new Error(`今日最多 ${OPP_RANK_MAX} 个机会`);
+      }
+      await persistDayOpportunityBoard(todayRecords, [
+        ...current,
+        {
+          id: makeObservationItemId(),
+          rank: current.length + 1,
+          name: item.name,
+          description: item.description,
+        },
+      ]);
+      closeObservationFormPicker();
+      showToast('已加入今日榜');
+    }
     if (currentPage === 'observations') await renderObservationsPage();
   } catch (err) {
     if (errorEl) errorEl.textContent = `保存失败：${String(err?.message || '未知错误')}`;
   } finally {
     isSavingObservation = false;
+    updateObsAddButton();
     if (submitBtn) {
       submitBtn.disabled = false;
       submitBtn.textContent = '保存';
@@ -5956,18 +6314,54 @@ async function submitObservationForm() {
   }
 }
 
+async function moveOpportunityItem(itemKey, delta) {
+  const key = String(itemKey ?? '').trim();
+  const step = Number(delta);
+  if (!key || !Number.isFinite(step) || !step || isPersistingOpp || isObsSelectionMode) return;
+  const dayRecords = getDayRecordsForItemKey(key);
+  const current = flattenOpportunityItems(dayRecords);
+  const index = current.findIndex((item) => item.itemKey === key);
+  const nextIndex = index + step;
+  if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return;
+  const next = current.slice();
+  const [moved] = next.splice(index, 1);
+  next.splice(nextIndex, 0, moved);
+  isPersistingOpp = true;
+  updateObsAddButton();
+  try {
+    await persistDayOpportunityBoard(dayRecords, next.map((item, rankIndex) => ({
+      ...item,
+      rank: rankIndex + 1,
+    })));
+    await renderObservationsPage();
+  } catch (err) {
+    showToast(`排序失败：${String(err?.message || '未知错误')}`);
+  } finally {
+    isPersistingOpp = false;
+    updateObsAddButton();
+  }
+}
+
+function findOpportunityItemByKey(itemKey) {
+  const records = getDayRecordsForItemKey(itemKey);
+  return flattenOpportunityItems(records).find((item) => item.itemKey === itemKey) || null;
+}
+
 function setFrontMode(mode, options = {}) {
-  // 前台仅保留趋势立项
-  frontMode = FRONT_MODE_TREND;
+  const next = normalizeFrontMode(mode);
+  if (editingStrategyId && !options.force && next !== frontMode) return;
+  frontMode = next;
   const trendPanel = document.getElementById('front-trend-panel');
   const fishPanel = document.getElementById('front-fish-panel');
-  if (trendPanel) trendPanel.hidden = false;
-  if (fishPanel) fishPanel.hidden = true;
+  if (trendPanel) trendPanel.hidden = frontMode !== FRONT_MODE_TREND;
+  if (fishPanel) fishPanel.hidden = frontMode !== FRONT_MODE_FISH;
+  syncFrontModeSwitchUI();
   if (!isFrontPage()) return;
   updateSaveButtonLabels();
   updateHeaderClearButton();
   updateTradeModeAppearance();
-  autoGenerateIfReady();
+  if (frontMode === FRONT_MODE_FISH) autoGenerateFishIfReady();
+  else autoGenerateIfReady();
 }
 
 function setPage(mode, options = {}) {
@@ -6001,7 +6395,7 @@ function setPage(mode, options = {}) {
     requestedFrontMode = FRONT_MODE_TREND;
   } else if (mode === 'fish') {
     requestedMode = 'front';
-    requestedFrontMode = FRONT_MODE_TREND;
+    requestedFrontMode = FRONT_MODE_FISH;
   }
 
   const allowedPages = ['admin', 'stats', 'methodology', 'cases', 'observations', 'front'];
@@ -6030,13 +6424,13 @@ function setPage(mode, options = {}) {
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   btnStats.classList.toggle('is-active', toStats);
   btnMethodology.classList.toggle('is-active', toMethodology);
-  btnMethodology.setAttribute('aria-selected', toMethodology ? 'true' : 'false');
   btnCases.classList.toggle('is-active', toCases);
   btnObservations.classList.toggle('is-active', toObservations);
+  btnObservations.setAttribute('aria-selected', toObservations ? 'true' : 'false');
 
   const moreToggle = document.getElementById('admin-more-toggle');
   if (moreToggle) {
-    moreToggle.classList.toggle('is-active', toStats || toObservations || toCases);
+    moreToggle.classList.toggle('is-active', toStats || toMethodology || toCases);
   }
   closeAdminMoreMenu();
 
@@ -6455,6 +6849,8 @@ document.querySelectorAll('[data-timeframe]').forEach((btn) => {
 
 const btnFrontModeTrend = document.getElementById('btn-front-mode-trend');
 if (btnFrontModeTrend) btnFrontModeTrend.addEventListener('click', () => setFrontMode(FRONT_MODE_TREND));
+const btnFrontModeFish = document.getElementById('btn-front-mode-fish');
+if (btnFrontModeFish) btnFrontModeFish.addEventListener('click', () => setFrontMode(FRONT_MODE_FISH));
 
 function isAdminMoreMenuOpen() {
   const menu = document.getElementById('admin-more-menu');
@@ -6499,11 +6895,16 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && isAdminMoreMenuOpen()) closeAdminMoreMenu();
+  if (e.key !== 'Escape') return;
+  if (isAdminMoreMenuOpen()) closeAdminMoreMenu();
+  if (isUnpinAllArmed) {
+    disarmUnpinAll();
+    renderAdminActiveNames();
+  }
 });
 
 const obsAddBtn = document.getElementById('obs-add-btn');
-if (obsAddBtn) obsAddBtn.addEventListener('click', openObservationFormPicker);
+if (obsAddBtn) obsAddBtn.addEventListener('click', () => openObservationFormPicker());
 
 const obsListEl = document.getElementById('obs-list');
 if (obsListEl) {
@@ -6515,6 +6916,24 @@ if (obsListEl) {
     if (checkbox.checked) selectedObservationIds.add(id);
     else selectedObservationIds.delete(id);
     updateObsSelectionControls();
+  });
+  obsListEl.addEventListener('click', (e) => {
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    if (!target) return;
+    const moveBtn = target.closest('[data-opp-move]');
+    if (moveBtn) {
+      e.preventDefault();
+      moveOpportunityItem(moveBtn.getAttribute('data-opp-key'), moveBtn.getAttribute('data-opp-move'))
+        .catch(() => {});
+      return;
+    }
+    if (isObsSelectionMode) return;
+    if (target.closest('.admin-item__selector')) return;
+    const row = target.closest('[data-opp-key]');
+    if (!row) return;
+    const item = findOpportunityItemByKey(row.getAttribute('data-opp-key'));
+    if (!item) return;
+    openObservationFormPicker(item);
   });
 }
 
@@ -6563,6 +6982,7 @@ if (adminFilterTabsEl) {
     if (!target) return;
     const nextFilter = normalizeAdminTimeFilter(target.getAttribute('data-admin-time-filter'));
     if (adminTimeFilter === nextFilter) return;
+    disarmUnpinAll();
     adminTimeFilter = nextFilter;
     adminNameFilter = '';
     adminSortByExpiresAsc = false;
@@ -6592,7 +7012,7 @@ if (adminActiveNamesEl) {
       return;
     }
     if (target.closest('[data-admin-unpin-all]')) {
-      unpinDisplayedAdminStrategies().catch(() => {});
+      requestUnpinDisplayedAdminStrategies();
       return;
     }
     const nameTarget = target.closest('[data-admin-name-filter]');
