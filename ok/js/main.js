@@ -34,7 +34,7 @@ function formatFixed2FromValue(value) {
   return formatFixedDecimals(n, 2);
 }
 
-const ADMIN_DECIMAL_PLACES = 3;
+const QUANTITY_DECIMALS_MAX = 8;
 
 /** 后台价格：按输入/存储精度展示，去掉尾随 0 */
 function formatAdminPriceFromValue(value, decimalPlaces) {
@@ -44,15 +44,52 @@ function formatAdminPriceFromValue(value, decimalPlaces) {
   return formatTrimmedFixedDecimals(n, decimals);
 }
 
-/** 后台数量：最多 3 位小数，去掉尾随 0 */
-function formatAdminDecimalFromValue(value, maxDecimals = ADMIN_DECIMAL_PLACES) {
-  const n = toNumber(value);
-  if (n == null) return String(value ?? '').trim();
-  return formatTrimmedFixedDecimals(n, maxDecimals);
+/** 按单值量级决定数量小数位：≥10 取整，1~10 一位小数，更小按量级加位 */
+function getQuantityDecimalsFromValue(n) {
+  const v = Math.abs(Number(n));
+  if (!Number.isFinite(v) || v <= 0) return 1;
+  if (v >= 10) return 0;
+  if (v >= 1) return 1;
+  if (v >= 0.1) return 2;
+  if (v >= 0.01) return 3;
+  if (v >= 0.001) return 4;
+  if (v >= 0.0001) return 5;
+  if (v >= 0.00001) return 6;
+  if (v >= 0.000001) return 7;
+  return QUANTITY_DECIMALS_MAX;
 }
 
-function formatQuantity(n) {
-  return formatFixedDecimals(n, 1);
+/** 同一组档位共用取整精度，以最小正数量为准 */
+function getQuantityDecimalsFromDataset(values) {
+  const nums = (Array.isArray(values) ? values : [values])
+    .map((value) => (typeof value === 'number' && Number.isFinite(value) ? value : toNumber(value)))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (!nums.length) return 1;
+  return getQuantityDecimalsFromValue(Math.min(...nums));
+}
+
+function formatQuantity(n, decimals) {
+  const value = Number(n);
+  if (!Number.isFinite(value)) return '';
+  const d = decimals == null ? getQuantityDecimalsFromValue(value) : decimals;
+  return formatTrimmedFixedDecimals(value, d);
+}
+
+function formatQuantityFromValue(value, decimals) {
+  const text = String(value ?? '').trim();
+  if (!text) return text;
+  const n = toNumber(value);
+  if (n == null) return text;
+  return formatQuantity(n, decimals);
+}
+
+function applyDatasetQuantityFormat(items, rawQtys) {
+  const decimals = getQuantityDecimalsFromDataset(rawQtys);
+  return (Array.isArray(items) ? items : []).map((item, index) => {
+    const qty = rawQtys[index];
+    if (qty == null || !(Number(qty) > 0)) return item;
+    return { ...item, quantity: formatQuantity(qty, decimals) };
+  });
 }
 
 /** 从输入字符串读取小数位数（以价格输入为准） */
@@ -159,7 +196,7 @@ function getCurrentTimeSlot(stepMinutes) {
 }
 
 const START_TIME_SLOT_COUNT = 5;
-const DEFAULT_TIMEFRAME = '8h';
+const DEFAULT_TIMEFRAME = '4h';
 const DEFAULT_ASSIST_TIMEFRAME = '8h';
 const FRONT_TREND_TIMEFRAMES = ['4h', '8h', '1d'];
 const FRONT_PAGES = ['front'];
@@ -213,9 +250,10 @@ const OPEN_COST_BASE = 100;
 const OPEN_COST_MULTIPLIER_MIN = 1;
 const OPEN_COST_MULTIPLIER_MAX = 10;
 const OPEN_COST_MULTIPLIER_DEFAULT = 3;
-/** 数据统计：输入框数值落库为 unit_cost，并作为每档单位本金使用 */
-const ADMIN_TIER_FIXED_OPEN_COST = 100;
-let cachedUnitCostInput = ADMIN_TIER_FIXED_OPEN_COST;
+/** 后台管理：输入框为总资金，落库 unit_cost；每档本金 = 总资金的 1/3（凯利惯例） */
+const ADMIN_TOTAL_CAPITAL_DEFAULT = 100;
+const ADMIN_TIER_COST_RATIO = 1 / 3;
+let cachedUnitCostInput = ADMIN_TOTAL_CAPITAL_DEFAULT;
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R = 3;
@@ -382,15 +420,19 @@ function getUnitCostInputValue() {
   return String(el?.value ?? '').trim();
 }
 
+function getTotalCapital() {
+  return normalizeUnitCost(cachedUnitCostInput) ?? ADMIN_TOTAL_CAPITAL_DEFAULT;
+}
+
 function getAdminTierFixedOpenCost() {
-  return normalizeUnitCost(cachedUnitCostInput) ?? ADMIN_TIER_FIXED_OPEN_COST;
+  return getTotalCapital() * ADMIN_TIER_COST_RATIO;
 }
 
 /** 仅从已保存值恢复输入框（加载数据） */
 function restoreUnitCostInput() {
   const el = document.getElementById('unit-cost-input');
   if (!el || document.activeElement === el) return;
-  el.value = String(getAdminTierFixedOpenCost());
+  el.value = String(getTotalCapital());
 }
 
 async function fetchAppSettings() {
@@ -437,7 +479,8 @@ async function handleUnitCostSave() {
   }
   try {
     await saveAppSettings(inputValue);
-    showToast('单位本金已保存');
+    showToast('已保存');
+    if (currentPage === 'admin') renderAdminListItems();
   } catch (err) {
     showToast(String(err?.message || '保存失败'));
   } finally {
@@ -459,16 +502,13 @@ function applyAdminFixedTierQuantities(concessions, stopLoss, { isAssist: _isAss
   if (!hasConcessions(concessions)) return [];
   const stop = toNumber(stopLoss);
   if (stop == null || !(getAdminTierFixedOpenCost() > 0)) return concessions.slice();
-  return concessions.map((item) => {
-    const next = { ...item };
+  const rawQtys = concessions.map((item) => {
     const price = toNumber(item.price);
-    if (price == null || price === stop) return next;
+    if (price == null || price === stop) return null;
     const qty = calcQuantityByRisk(getAdminTierFixedOpenCost(), price, stop);
-    if (qty != null && qty > 0) {
-      next.quantity = formatQuantity(qty);
-    }
-    return next;
+    return qty != null && qty > 0 ? qty : null;
   });
+  return applyDatasetQuantityFormat(concessions.map((item) => ({ ...item })), rawQtys);
 }
 
 function getConcessionRates() {
@@ -1095,6 +1135,7 @@ function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces, fixe
   const stop = from;
   const minFundedShare = getMinFundedTierCostShare(ASSIST_TIER_RATIOS);
   const items = [];
+  const rawQtys = [];
   for (const rateConfig of ASSIST_TIER_RATIOS) {
     const { rate, costShare, reuseMinTierCost } = normalizeConcessionRateConfig(rateConfig);
     const price = calcAssistTierPrice(from, to, rate, decimalPlaces);
@@ -1111,12 +1152,17 @@ function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces, fixe
       rate,
       display: true,
       price: formatTrimmedFixedDecimals(price, decimalPlaces),
-      quantity: qty != null && qty > 0 ? formatQuantity(qty) : '0.0',
+      quantity: '',
     };
     if (reuseMinTierCost) item.reuseMinTierCost = true;
     items.push(item);
+    rawQtys.push(qty != null && qty > 0 ? qty : 0);
   }
-  return items;
+  const decimals = getQuantityDecimalsFromDataset(rawQtys);
+  return items.map((item, index) => ({
+    ...item,
+    quantity: formatQuantity(rawQtys[index], decimals),
+  }));
 }
 
 function buildAssistConcessionsFromRow(row) {
@@ -1756,7 +1802,7 @@ async function enterAuthenticatedApp() {
   try {
     await fetchAppSettings();
   } catch {
-    cachedUnitCostInput = ADMIN_TIER_FIXED_OPEN_COST;
+    cachedUnitCostInput = ADMIN_TOTAL_CAPITAL_DEFAULT;
     restoreUnitCostInput();
   }
   setPage('admin');
@@ -2728,9 +2774,10 @@ function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) 
   return formatTrimmedFixedDecimals(normalized, decimals);
 }
 
-function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel) {
+function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel, { name, endAt } = {}) {
   const tpRaw = String(takeProfitLabel ?? '').trim() || '—';
   const slRaw = String(stopLossLabel ?? '').trim() || '—';
+  const alarmText = buildAlarmCopyText(name, endAt);
 
   const renderBlock = (modClass, label, value, ariaLabel, { copyable = true } = {}) => {
     const text = String(value ?? '').trim() || '—';
@@ -2743,13 +2790,31 @@ function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel) {
     return `<${tag} class="${className}"${copyAttrs}><span class="admin-item__tp-sl-label">${escapeHtml(label)}</span><span class="admin-item__tp-sl-value">${escapeHtml(text)}</span></${tag}>`;
   };
 
+  const copyHtml = alarmText
+    ? [
+      '<span class="admin-item__tp-sl-item admin-item__tp-sl-copy-wrap">',
+      '<button type="button" class="admin-edit-btn admin-copy-value"',
+      ` data-copy-text="${escapeHtml(alarmText)}"`,
+      ' title="点击复制闹钟指令"',
+      ' aria-label="复制闹钟指令">复制</button>',
+      '</span>',
+    ].join('')
+    : '<span class="admin-item__tp-sl-item admin-item__tp-sl-spacer" aria-hidden="true"></span>';
+
   return [
     '<div class="admin-item__tp-sl" aria-label="止盈止损">',
-    '<span class="admin-item__tp-sl-item admin-item__tp-sl-spacer" aria-hidden="true"></span>',
+    copyHtml,
     renderBlock('admin-item__tp-sl-item--tp', '止盈', tpRaw, '止盈价格'),
     renderBlock('admin-item__tp-sl-item--sl', '止损', slRaw, '止损价格'),
     '</div>',
   ].join('');
+}
+
+function buildAlarmCopyText(name, endAt) {
+  const title = formatStrategyCardTitle(name);
+  const time = formatCompactDateTimeLabel(endAt);
+  if (!title || !time) return '';
+  return `请加一个${time}点的闹钟，名称为${title}`;
 }
 
 function calcAdjustedOpenPrice(open, stop, decimalPlaces) {
@@ -2889,6 +2954,7 @@ function buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces
   const fundedCount = countFundedRateConfigs(rates);
   const minFundedShare = getMinFundedTierCostShare(rates);
   const items = [];
+  const rawQtys = [];
   for (const rateConfig of rates) {
     const { rate, display, costShare, reuseMinTierCost } = normalizeConcessionRateConfig(rateConfig);
     const price = calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces, reverse);
@@ -2903,13 +2969,14 @@ function buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces
     const item = {
       rate,
       price: formatTrimmedFixedDecimals(price, decimalPlaces),
-      quantity: formatQuantity(qty),
+      quantity: '',
     };
     if (display) item.display = true;
     if (reuseMinTierCost) item.reuseMinTierCost = true;
     items.push(item);
+    rawQtys.push(qty);
   }
-  return items;
+  return applyDatasetQuantityFormat(items, rawQtys);
 }
 
 function reverseConcessionPriceQty(displayItems) {
@@ -3391,10 +3458,11 @@ function renderConcessionsHtml({
 
 function formatAdminConcessionItems(items, priceDecimalPlaces = 0) {
   if (!Array.isArray(items)) return [];
+  const decimals = getQuantityDecimalsFromDataset(items.map((item) => item?.quantity));
   return items.map((item) => ({
     ...item,
     price: formatAdminPriceFromValue(item?.price, priceDecimalPlaces),
-    quantity: formatAdminDecimalFromValue(item?.quantity),
+    quantity: formatQuantityFromValue(item?.quantity, decimals),
   }));
 }
 
@@ -4254,12 +4322,13 @@ const ADMIN_TIME_FILTER_LABELS = {
   dueToday: '今日到期',
 };
 
-const DEFAULT_ADMIN_TIME_FILTER = 'pinned';
+const DEFAULT_ADMIN_TIME_FILTER = 'all';
 
 let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
 let adminNameSearch = '';
 let adminNameFilter = '';
 let adminSortByExpiresAsc = false;
+let isUnpinningAll = false;
 function getAdminNameFilterKey(name) {
   const raw = String(name ?? '').trim();
   if (!raw) return '';
@@ -4301,6 +4370,67 @@ function getDisplayAdminRows(rows = latestAdminRows) {
   const filtered = getFilteredAdminRows(rows);
   if (!adminSortByExpiresAsc) return filtered;
   return filtered.slice().sort(compareAdminRowsByExpiresAsc);
+}
+
+function getPinnedAdminRowsForUnpin(rows = latestAdminRows) {
+  return getFilteredAdminRows(rows).filter(isStrategyPinned);
+}
+
+async function unpinDisplayedAdminStrategies() {
+  if (isUnpinningAll || isDeletingStrategies || isAdminSelectionMode) return;
+  const targets = getPinnedAdminRowsForUnpin();
+  if (!targets.length) return;
+  const snapshots = targets.map((row) => {
+    const id = String(row?.id ?? '').trim();
+    return {
+      id,
+      viewMode: row?.viewMode,
+      prevViewState: normalizeViewState(row?.viewState),
+      nextViewState: setPinnedInViewState(row?.viewState, false),
+    };
+  }).filter((item) => item.id);
+  if (!snapshots.length) return;
+
+  const nextById = new Map(snapshots.map((item) => [item.id, item.nextViewState]));
+  const prevById = new Map(snapshots.map((item) => [item.id, item.prevViewState]));
+
+  isUnpinningAll = true;
+  latestAdminRows = latestAdminRows.map((item) => {
+    const id = String(item?.id ?? '').trim();
+    if (!nextById.has(id)) return item;
+    return { ...item, viewState: nextById.get(id) };
+  });
+  renderAdminListItems();
+  renderAdminActiveNames();
+  updateAdminSelectionControls();
+
+  try {
+    const results = await Promise.allSettled(snapshots.map((item) => (
+      updateStrategyView(item.id, {
+        viewMode: item.viewMode,
+        viewState: item.nextViewState,
+      })
+    )));
+    const failedIds = new Set();
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        failedIds.add(snapshots[index].id);
+        console.error('[admin-unpin-all]', snapshots[index].id, result.reason);
+      }
+    });
+    if (failedIds.size) {
+      latestAdminRows = latestAdminRows.map((item) => {
+        const id = String(item?.id ?? '').trim();
+        if (!failedIds.has(id)) return item;
+        return { ...item, viewState: prevById.get(id) };
+      });
+    }
+  } finally {
+    isUnpinningAll = false;
+    renderAdminListItems();
+    renderAdminActiveNames();
+    updateAdminSelectionControls();
+  }
 }
 
 function toggleAdminNameFilter(name) {
@@ -4384,6 +4514,18 @@ function renderAdminActiveNames(rows = latestAdminRows) {
     `排序 ${uniqueTotal}`,
     '</button>',
   ].join('');
+  const pinnedCount = getPinnedAdminRowsForUnpin(rows).length;
+  const canUnpin = !isAdminSelectionMode && !isDeletingStrategies && (pinnedCount > 0 || isUnpinningAll);
+  const unpinHtml = canUnpin
+    ? [
+      `<button type="button" class="admin-active-names__unpin${isUnpinningAll ? ' is-busy' : ''}" data-admin-unpin-all`,
+      isUnpinningAll ? ' disabled' : '',
+      ` aria-busy="${isUnpinningAll ? 'true' : 'false'}"`,
+      ` aria-label="${isUnpinningAll ? '正在取消关注' : `一键取消关注当前 ${pinnedCount} 条`}">`,
+      isUnpinningAll ? '取关中' : '一键取关',
+      '</button>',
+    ].join('')
+    : '';
   const activeKey = adminNameFilter;
   const namesHtml = nameCounts.map(({ name, count, mode }) => {
     const chipClass = getAdminModeChipClass(mode);
@@ -4398,7 +4540,7 @@ function renderAdminActiveNames(rows = latestAdminRows) {
       '</button>',
     ].join('');
   }).join('');
-  el.innerHTML = `${sortHtml}${namesHtml}`;
+  el.innerHTML = `${sortHtml}${unpinHtml}${namesHtml}`;
 }
 
 function renderAdminControls() {
@@ -4437,6 +4579,7 @@ function resetAdminPageState() {
   selectedStrategyIds.clear();
   visibleAdminStrategyIds = [];
   isDeletingStrategies = false;
+  isUnpinningAll = false;
   updatingAdminViewModeIds.clear();
   renderAdminControls();
   updateAdminSelectionControls();
@@ -4858,7 +5001,10 @@ function buildAdminListItemHtml(row) {
     takeProfitLabel = buildAdminBestTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
   }
-  const tpSlHtml = showCounterTrend ? '' : renderAdminTakeProfitStopHtml(takeProfitLabel, stopLabel);
+  const tpSlHtml = showCounterTrend ? '' : renderAdminTakeProfitStopHtml(takeProfitLabel, stopLabel, {
+    name: nameRaw,
+    endAt: getStrategyEndAt(row),
+  });
   const sideLabel = getPositionSideLabel(sideMod);
   const sideTagHtml = sideLabel
     ? `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
@@ -5035,7 +5181,6 @@ async function renderStatsPage() {
   const statsEl = document.getElementById('stats-recent-10');
   if (!statsEl) return;
 
-  restoreUnitCostInput();
   statsEl.innerHTML = '<div class="stats-loading">加载中...</div>';
 
   try {
@@ -5908,6 +6053,7 @@ function setPage(mode, options = {}) {
     if (keepAdminState) closeOutcomeStatusPicker();
     else resetAdminPageState();
     pendingAdminFocusId = '';
+    restoreUnitCostInput();
     renderAdminList()
       .then(() => {
         if (restoreId) scrollAdminItemIntoView(restoreId);
@@ -6443,6 +6589,10 @@ if (adminActiveNamesEl) {
     if (!target) return;
     if (target.closest('[data-admin-sort-expires]')) {
       toggleAdminSortByExpires();
+      return;
+    }
+    if (target.closest('[data-admin-unpin-all]')) {
+      unpinDisplayedAdminStrategies().catch(() => {});
       return;
     }
     const nameTarget = target.closest('[data-admin-name-filter]');
