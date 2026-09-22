@@ -1155,11 +1155,20 @@ function findRelatedTierAssistRow(row) {
 }
 
 function getTierAssistSourceRate(row) {
+  const fromState = Number(normalizeViewState(row?.viewState).sourceRate);
+  if (Number.isFinite(fromState)) return fromState;
   const desc = String(row?.description ?? '');
   const matched = desc.match(/来源\s*(\d+(?:\.\d+)?)R/i);
   if (!matched) return null;
   const rate = Number(matched[1]);
   return Number.isFinite(rate) ? rate : null;
+}
+
+/** 去掉趋势辅助自动写入的「趋势辅助·做多/做空；来源 xR」前缀 */
+function stripTierAssistMetaDescription(description) {
+  return String(description ?? '')
+    .replace(/^趋势辅助·(?:做多|做空)(?:；\s*来源\s*\d+(?:\.\d+)?R)?；?/i, '')
+    .trim();
 }
 
 function isCounterTrendItemCurrentTierAssist(item, parentRow) {
@@ -3129,11 +3138,6 @@ function buildTierAssistRecord({
   const entryLabel = formatTrimmedFixedDecimals(entryPrice, decimalPlaces);
   const stopLabel = formatTrimmedFixedDecimals(stopLoss, decimalPlaces);
   const tpLabel = formatTrimmedFixedDecimals(takeProfit, decimalPlaces);
-  const sideLabel = side === 'short' ? '做空' : '做多';
-  const rateNum = Number(rate);
-  const rateLabel = Number.isFinite(rateNum)
-    ? formatCounterTrendRate(rateNum).replace(/—/g, '')
-    : '';
   const timeRange = getCounterTrendTimeRange(parentRow);
   const timeframe = normalizeTimeframeMode(parentRow?.timeframe);
   const timeframeMinutes = Number(parentRow?.timeframeMinutes) > 0
@@ -3141,11 +3145,8 @@ function buildTierAssistRecord({
     : getTimeframeMinutes(timeframe);
   const validPeriods = STRATEGY_DURATION_PERIODS;
   const durationMinutes = timeframeMinutes * validPeriods;
-  const description = [
-    `趋势辅助·${sideLabel}`,
-    rateLabel ? `来源 ${rateLabel}` : '',
-    String(parentRow?.description ?? '').trim(),
-  ].filter(Boolean).join('；');
+  const rateNum = Number(rate);
+  const description = String(parentRow?.description ?? '').trim();
 
   return {
     strategyName: name,
@@ -3176,6 +3177,7 @@ function buildTierAssistRecord({
     expiresAt: timeRange?.endAt ? timeRange.endAt.toISOString() : null,
     outcomeStatus: 'pending',
     viewMode: STRATEGY_VIEW_MODE_TREND,
+    viewState: Number.isFinite(rateNum) ? { sourceRate: rateNum } : {},
   };
 }
 
@@ -5105,7 +5107,11 @@ function buildAdminListItemHtml(row) {
         '</div>',
       ].join(''),
     '</div>',
-    renderAdminDescriptionHtml(row?.description),
+    renderAdminDescriptionHtml(
+      isTierAssistStrategy
+        ? stripTierAssistMetaDescription(row?.description)
+        : row?.description,
+    ),
     remarkStampHtml,
     '</article>',
   ].join('');
