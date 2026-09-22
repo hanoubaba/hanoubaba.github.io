@@ -2413,7 +2413,6 @@ function renderMethodologyBalanceBannerHtml() {
     '<span class="methodology-balance__arrow" aria-hidden="true">==&gt;</span>',
     '<div class="methodology-balance__side">',
     '<span class="methodology-balance__stage">趋势力回调</span>',
-    '<span class="methodology-balance__desc">时间空间都满足，止损空间翻倍非常安全</span>',
     '</div>',
     '<span class="methodology-balance__arrow" aria-hidden="true">==&gt;</span>',
     '<div class="methodology-balance__side">',
