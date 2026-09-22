@@ -202,7 +202,6 @@ const FRONT_TREND_TIMEFRAMES = ['4h', '8h', '1d'];
 const FRONT_PAGES = ['front'];
 const FRONT_MODE_TREND = 'trend';
 const FRONT_MODE_ASSIST = 'assist';
-const FRONT_MODE_FISH = 'fish';
 let frontMode = FRONT_MODE_TREND;
 
 const TIMEFRAME_MINUTES = {
@@ -250,10 +249,37 @@ const OPEN_COST_BASE = 100;
 const OPEN_COST_MULTIPLIER_MIN = 1;
 const OPEN_COST_MULTIPLIER_MAX = 10;
 const OPEN_COST_MULTIPLIER_DEFAULT = 3;
-/** 后台管理：输入框为总资金，落库 unit_cost；每档本金 = 总资金的 1/3（凯利惯例） */
+/** 后台管理：输入框为欢乐豆总数（总资金），落库 unit_cost；每档本金 = 总资金 × 凯利系数 */
 const ADMIN_TOTAL_CAPITAL_DEFAULT = 100;
-const ADMIN_TIER_COST_RATIO = 1 / 3;
+const KELLY_RATIO_MIN = 0.1;
+const KELLY_RATIO_MAX = 0.5;
+const KELLY_DENOM_MIN = 2;
+const KELLY_DENOM_MAX = 10;
+const KELLY_DENOM_DEFAULT = 3;
+const KELLY_RATIO_DEFAULT = 1 / KELLY_DENOM_DEFAULT;
+const KELLY_RATIO_STORAGE_KEY = 'ok_kelly_ratio';
+const DEVELOPER_MODE_STORAGE_KEY = 'ok_developer_mode';
 let cachedUnitCostInput = ADMIN_TOTAL_CAPITAL_DEFAULT;
+let cachedKellyRatio = KELLY_RATIO_DEFAULT;
+let kellyRatioColumnAvailable = true;
+let isDeveloperMode = false;
+
+function loadCachedKellyRatioFallback() {
+  try {
+    const kelly = normalizeKellyRatio(localStorage.getItem(KELLY_RATIO_STORAGE_KEY));
+    if (kelly != null) cachedKellyRatio = kelly;
+  } catch {
+    // ignore
+  }
+}
+
+function persistKellyRatioFallback(kelly) {
+  try {
+    localStorage.setItem(KELLY_RATIO_STORAGE_KEY, String(kelly));
+  } catch {
+    // ignore
+  }
+}
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R = 3;
@@ -261,14 +287,6 @@ const BEST_TAKE_PROFIT_R = 5;
 const STRATEGY_DURATION_PERIODS = 10;
 const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
-/** 吃鱼助手：与顺势而为同档位，止盈空间 1 倍；止损为 from→to 反方向 20% 的价格，数量按该止损计算 */
-const FISH_TAKE_PROFIT_MULTIPLE = 1;
-const FISH_STOP_RATE = -0.2;
-/** 吃鱼助手：每档本金固定 66，不随总资金比例变化 */
-const FISH_TIER_OPEN_COST = 66;
-const FISH_TIMEFRAME = '1d';
-const FISH_TIMEFRAME_MINUTES = 1440;
-const FISH_VALID_PERIODS = 3650; // ≈10 年，视为长期有效
 /** 反趋势：挂单档位 = 原策略 3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R–100R 价格（无数量） */
 const COUNTER_TREND_ENTRY_MULTIPLES = [3, 5];
 const COUNTER_TREND_PRICE_ONLY_MULTIPLES = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
@@ -281,11 +299,11 @@ const COUNTER_TREND_STOP_MULTIPLE = 10;
 const COUNTER_TREND_COLLAPSED_MAX_RATE = 50;
 /** 辅助开单：10%/20% 复用最小让利档仓位；后台每档固定本金；80% 仅展示 */
 const ASSIST_TIER_RATIOS = [
-  { rate: 0.1, label: '10%（鱼头三选一）', reuseMinTierCost: true },
-  { rate: 0.2, label: '20%（鱼头三选一）', reuseMinTierCost: true },
-  { rate: 0.3, label: '30%（鱼头三选一）', costShare: 3 / 5 },
+  { rate: 0.1, label: '10%（三选一）', reuseMinTierCost: true },
+  { rate: 0.2, label: '20%（三选一）', reuseMinTierCost: true },
+  { rate: 0.3, label: '30%（三选一）', costShare: 3 / 5 },
   { rate: 0.5, label: '50%', costShare: 2 / 5 },
-  { rate: 0.8, label: '80%（鱼尾）', costShare: 0 },
+  { rate: 0.8, label: '80%', costShare: 0 },
 ];
 /** 兼容旧辅助开单比例识别 */
 const ASSIST_TIER_RATES_LEGACY = [1 / 3, 1 / 2, 2 / 3];
@@ -298,9 +316,8 @@ const ASSIST_TIER_RATES_LEGACY_10_20_30_50_80 = [0.1, 0.2, 0.3, 0.5, 0.8];
 const ASSIST_TIER_RATES_LEGACY_10_TO_100 = Array.from({ length: 10 }, (_, index) => (index + 1) / 10);
 const ASSIST_TIER_RATES_LEGACY_20_TO_100 = Array.from({ length: 9 }, (_, index) => (index + 2) / 10);
 const ASSIST_TITLE_SUFFIX = ' (顺势而为)';
-const FISH_TITLE_SUFFIX = ' (吃鱼助手)';
-const TIER_ASSIST_TITLE_SUFFIX = ' (挡位辅助)';
-/** 挡位辅助：00% / 10% 两档，每档固定本金 */
+const TIER_ASSIST_TITLE_SUFFIX = ' (趋势辅助)';
+/** 趋势辅助：00% / 10% 两档，每档固定本金 */
 const TIER_ASSIST_RATES = [
   { rate: 0, display: true, costShare: 1 / 2 },
   { rate: 0.1, display: true, costShare: 1 / 2 },
@@ -316,13 +333,11 @@ function clampOpenCostMultiplier(value) {
 
 function getFrontFormScope() {
   if (frontMode === FRONT_MODE_ASSIST) return 'assist';
-  if (frontMode === FRONT_MODE_FISH) return 'fish';
   return 'trend';
 }
 
 function frontModeToFormScope(mode) {
   if (mode === FRONT_MODE_ASSIST) return 'assist';
-  if (mode === FRONT_MODE_FISH) return 'fish';
   return 'trend';
 }
 
@@ -376,8 +391,7 @@ function setFrontTimeframeMode(mode, { refresh = true, scope = getFrontFormScope
   autoGenerateIfReady();
 }
 
-function normalizeFrontMode(mode) {
-  if (mode === FRONT_MODE_FISH) return FRONT_MODE_FISH;
+function normalizeFrontMode(_mode) {
   return FRONT_MODE_TREND;
 }
 
@@ -387,10 +401,6 @@ function isFrontPage(page = currentPage) {
 
 function isFrontAssistMode() {
   return isFrontPage() && frontMode === FRONT_MODE_ASSIST;
-}
-
-function isFrontFishMode() {
-  return isFrontPage() && frontMode === FRONT_MODE_FISH;
 }
 
 function isFrontTrendMode() {
@@ -427,12 +437,81 @@ function getTotalCapital() {
   return normalizeUnitCost(cachedUnitCostInput) ?? ADMIN_TOTAL_CAPITAL_DEFAULT;
 }
 
-function getAdminTierFixedOpenCost() {
-  return getTotalCapital() * ADMIN_TIER_COST_RATIO;
+function normalizeKellyRatio(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n < KELLY_RATIO_MIN - 1e-9 || n > KELLY_RATIO_MAX + 1e-9) return null;
+  return Math.round(n * 10000) / 10000;
 }
 
-function getAssistDisplayTierOpenCost(row) {
-  return isFishStrategyRow(row) ? FISH_TIER_OPEN_COST : getAdminTierFixedOpenCost();
+function normalizeKellyDenominator(value) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n) || n < KELLY_DENOM_MIN || n > KELLY_DENOM_MAX) return null;
+  return n;
+}
+
+function kellyRatioFromDenominator(denom) {
+  const n = normalizeKellyDenominator(denom);
+  if (n == null) return null;
+  return normalizeKellyRatio(1 / n);
+}
+
+function kellyDenominatorFromRatio(ratio) {
+  const kelly = normalizeKellyRatio(ratio);
+  if (kelly == null || !(kelly > 0)) return KELLY_DENOM_DEFAULT;
+  const denom = Math.round(1 / kelly);
+  return normalizeKellyDenominator(denom) ?? KELLY_DENOM_DEFAULT;
+}
+
+function getKellyRatio() {
+  return normalizeKellyRatio(cachedKellyRatio) ?? KELLY_RATIO_DEFAULT;
+}
+
+function getKellyDenominator() {
+  return kellyDenominatorFromRatio(getKellyRatio());
+}
+
+function getAdminTierFixedOpenCost() {
+  return getTotalCapital() * getKellyRatio();
+}
+
+function getAssistDisplayTierOpenCost(_row) {
+  return getAdminTierFixedOpenCost();
+}
+
+function loadDeveloperMode() {
+  try {
+    isDeveloperMode = localStorage.getItem(DEVELOPER_MODE_STORAGE_KEY) === '1';
+  } catch {
+    isDeveloperMode = false;
+  }
+  return isDeveloperMode;
+}
+
+function setDeveloperMode(enabled) {
+  isDeveloperMode = Boolean(enabled);
+  try {
+    localStorage.setItem(DEVELOPER_MODE_STORAGE_KEY, isDeveloperMode ? '1' : '0');
+  } catch {
+    // ignore
+  }
+  syncDeveloperModeUI();
+  if (!isDeveloperMode) {
+    if (isAdminSelectionMode) exitAdminSelectionMode();
+    if (isObsSelectionMode) exitObsSelectionMode();
+  }
+  updateHeaderClearButton();
+  updateAdminSelectionControls();
+  updateObsSelectionControls();
+}
+
+function syncDeveloperModeUI() {
+  const toggle = document.getElementById('developer-mode-toggle');
+  if (toggle) {
+    toggle.classList.toggle('is-on', isDeveloperMode);
+    toggle.setAttribute('aria-checked', isDeveloperMode ? 'true' : 'false');
+  }
+  document.body.classList.toggle('developer-mode', isDeveloperMode);
 }
 
 /** 仅从已保存值恢复输入框（加载数据） */
@@ -442,33 +521,99 @@ function restoreUnitCostInput() {
   el.value = String(getTotalCapital());
 }
 
+function restoreKellyRatioInput() {
+  const el = document.getElementById('kelly-denom-input');
+  if (!el || document.activeElement === el) return;
+  el.value = String(getKellyDenominator());
+}
+
+function restoreConfigForm() {
+  restoreUnitCostInput();
+  restoreKellyRatioInput();
+  syncDeveloperModeUI();
+  updateConfigUnpinButton();
+}
+
+function isMissingKellyRatioColumnError(errorText) {
+  return /kelly_ratio/i.test(String(errorText ?? ''))
+    && /(column|schema cache|could not find|not found)/i.test(String(errorText ?? ''));
+}
+
 async function fetchAppSettings() {
-  const res = await supabaseFetch(`${SETTINGS_ENDPOINT}?id=eq.${encodeURIComponent(APP_SETTINGS_ID)}&select=unit_cost`);
-  if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+  const select = kellyRatioColumnAvailable ? 'unit_cost,kelly_ratio' : 'unit_cost';
+  const res = await supabaseFetch(`${SETTINGS_ENDPOINT}?id=eq.${encodeURIComponent(APP_SETTINGS_ID)}&select=${select}`);
+  if (!res.ok) {
+    const errorText = await res.text();
+    if (kellyRatioColumnAvailable && isMissingKellyRatioColumnError(errorText)) {
+      kellyRatioColumnAvailable = false;
+      return fetchAppSettings();
+    }
+    throw new Error(errorText || `HTTP ${res.status}`);
+  }
   const rows = await res.json();
   const row = Array.isArray(rows) ? rows[0] : null;
   const inputValue = normalizeUnitCost(row?.unit_cost);
   if (inputValue != null) cachedUnitCostInput = inputValue;
-  restoreUnitCostInput();
+    if (kellyRatioColumnAvailable) {
+      const kelly = normalizeKellyRatio(row?.kelly_ratio);
+      if (kelly != null) {
+        cachedKellyRatio = kelly;
+        persistKellyRatioFallback(kelly);
+      }
+    } else {
+      loadCachedKellyRatioFallback();
+    }
+  restoreConfigForm();
   return getAdminTierFixedOpenCost();
 }
 
-async function saveAppSettings(inputValue) {
-  const cost = normalizeUnitCost(inputValue);
-  if (cost == null) throw new Error('请输入大于 0 的数字');
+async function saveAppSettings(patch = {}) {
+  const payload = { id: APP_SETTINGS_ID };
+  if (Object.prototype.hasOwnProperty.call(patch, 'unit_cost')) {
+    const cost = normalizeUnitCost(patch.unit_cost);
+    if (cost == null) throw new Error('请输入大于 0 的数字');
+    payload.unit_cost = cost;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'kelly_ratio')) {
+    const kelly = normalizeKellyRatio(patch.kelly_ratio);
+    if (kelly == null) throw new Error(`分母须为 ${KELLY_DENOM_MIN}–${KELLY_DENOM_MAX} 的整数（即 1/${KELLY_DENOM_MAX}–1/${KELLY_DENOM_MIN}）`);
+    if (kellyRatioColumnAvailable) payload.kelly_ratio = kelly;
+    else {
+      cachedKellyRatio = kelly;
+      persistKellyRatioFallback(kelly);
+      return { unit_cost: cachedUnitCostInput, kelly_ratio: kelly };
+    }
+  }
+  if (Object.keys(payload).length <= 1) throw new Error('没有可保存的配置');
+
   const res = await supabaseFetch(`${SETTINGS_ENDPOINT}?on_conflict=id`, {
     method: 'POST',
     headers: {
       Prefer: 'resolution=merge-duplicates,return=minimal',
     },
-    body: JSON.stringify({
-      id: APP_SETTINGS_ID,
-      unit_cost: cost,
-    }),
+    body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
-  cachedUnitCostInput = cost;
-  return cost;
+  if (!res.ok) {
+    const errorText = await res.text();
+    if (kellyRatioColumnAvailable && payload.kelly_ratio != null && isMissingKellyRatioColumnError(errorText)) {
+      kellyRatioColumnAvailable = false;
+      if (payload.kelly_ratio != null) {
+        cachedKellyRatio = payload.kelly_ratio;
+        persistKellyRatioFallback(payload.kelly_ratio);
+      }
+      if (payload.unit_cost != null) {
+        await saveAppSettings({ unit_cost: payload.unit_cost });
+      }
+      return { unit_cost: cachedUnitCostInput, kelly_ratio: cachedKellyRatio };
+    }
+    throw new Error(errorText || `HTTP ${res.status}`);
+  }
+  if (payload.unit_cost != null) cachedUnitCostInput = payload.unit_cost;
+  if (payload.kelly_ratio != null) {
+    cachedKellyRatio = payload.kelly_ratio;
+    persistKellyRatioFallback(payload.kelly_ratio);
+  }
+  return { unit_cost: cachedUnitCostInput, kelly_ratio: cachedKellyRatio };
 }
 
 async function handleUnitCostSave() {
@@ -485,8 +630,42 @@ async function handleUnitCostSave() {
     btn.textContent = '保存中';
   }
   try {
-    await saveAppSettings(inputValue);
-    showToast('已保存');
+    await saveAppSettings({ unit_cost: inputValue });
+    showToast('欢乐豆总数已保存');
+    if (currentPage === 'admin') renderAdminListItems();
+  } catch (err) {
+    showToast(String(err?.message || '保存失败'));
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '保存';
+    }
+  }
+}
+
+function getKellyDenominatorInputValue() {
+  const el = document.getElementById('kelly-denom-input');
+  return String(el?.value ?? '').trim();
+}
+
+async function handleKellyRatioSave() {
+  const input = document.getElementById('kelly-denom-input');
+  const btn = document.getElementById('kelly-ratio-save');
+  const denom = normalizeKellyDenominator(getKellyDenominatorInputValue());
+  const kelly = kellyRatioFromDenominator(denom);
+  if (denom == null || kelly == null) {
+    showToast(`分母须为 ${KELLY_DENOM_MIN}–${KELLY_DENOM_MAX} 的整数`);
+    input?.focus();
+    return;
+  }
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '保存中';
+  }
+  try {
+    await saveAppSettings({ kelly_ratio: kelly });
+    restoreKellyRatioInput();
+    showToast(kellyRatioColumnAvailable ? `凯利系数已保存为 1/${denom}` : `凯利系数已保存到本机：1/${denom}`);
     if (currentPage === 'admin') renderAdminListItems();
   } catch (err) {
     showToast(String(err?.message || '保存失败'));
@@ -662,62 +841,43 @@ function formatAssistStrategyTitle(name) {
   return `${formatStrategyCardTitle(name)}${ASSIST_TITLE_SUFFIX}`;
 }
 
-function formatFishStrategyTitle(name) {
-  return `${formatStrategyCardTitle(name)}${FISH_TITLE_SUFFIX}`;
-}
-
 function formatTierAssistStrategyTitle(name) {
   return `${formatStrategyCardTitle(name)}${TIER_ASSIST_TITLE_SUFFIX}`;
 }
 
-function buildFishTimeRange(now = new Date()) {
+/** 长期有效时间范围回退（1d × 3650） */
+function buildFallbackTimeRange(now = new Date()) {
   const startAt = new Date(now instanceof Date && !Number.isNaN(now.getTime()) ? now.getTime() : Date.now());
   startAt.setMilliseconds(0);
-  const durationMinutes = FISH_TIMEFRAME_MINUTES * FISH_VALID_PERIODS;
+  const timeframe = '1d';
+  const timeframeMinutes = 1440;
+  const validPeriods = 3650;
+  const durationMinutes = timeframeMinutes * validPeriods;
   const expiresAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
   return {
-    timeframe: FISH_TIMEFRAME,
-    timeframeMinutes: FISH_TIMEFRAME_MINUTES,
-    timeframeLabel: getTimeframeLabel(FISH_TIMEFRAME),
-    validPeriods: FISH_VALID_PERIODS,
+    timeframe,
+    timeframeMinutes,
+    timeframeLabel: getTimeframeLabel(timeframe),
+    validPeriods,
     durationMinutes,
     startAt: startAt.toISOString(),
     expiresAt: expiresAt.toISOString(),
   };
 }
 
-function isFishTakeProfitMultiple(value) {
-  const n = Number(value);
-  return Number.isFinite(n) && Math.abs(n - FISH_TAKE_PROFIT_MULTIPLE) < 1e-9;
-}
-
-function isFishStrategyRow(row) {
-  const rawConcessions = hasConcessions(row?.concessions) ? row.concessions : [];
-  const concessions = isAssistConcessionSet(rawConcessions)
-    ? rawConcessions
-    : buildAdminConcessionsForRow(row);
-  return isAssistConcessionSet(concessions) && isFishTakeProfitMultiple(row?.takeProfitRMultiple);
-}
-
 function getAdminStrategyTypeInfo(row) {
   const rawConcessions = hasConcessions(row?.concessions) ? row.concessions : [];
   if (isTierAssistConcessionSet(rawConcessions)) {
-    return { label: '挡位辅助', type: 'tier_assist' };
+    return { label: '趋势辅助', type: 'tier_assist' };
   }
   if (isAssistConcessionSet(rawConcessions)) {
-    if (isFishTakeProfitMultiple(row?.takeProfitRMultiple)) {
-      return { label: '吃鱼助手', type: 'fish' };
-    }
     return { label: '顺势而为', type: 'assist' };
   }
   const savedConcessions = buildAdminConcessionsForRow(row);
   if (isTierAssistConcessionSet(savedConcessions)) {
-    return { label: '挡位辅助', type: 'tier_assist' };
+    return { label: '趋势辅助', type: 'tier_assist' };
   }
   if (isAssistConcessionSet(savedConcessions)) {
-    if (isFishTakeProfitMultiple(row?.takeProfitRMultiple)) {
-      return { label: '吃鱼助手', type: 'fish' };
-    }
     return { label: '顺势而为', type: 'assist' };
   }
   return { label: '趋势立项', type: 'trend' };
@@ -739,15 +899,7 @@ function buildAdminDisplayConcessions(row) {
 
 function buildAdminAssistConcessionsForDisplay(row) {
   const savedConcessions = buildAdminConcessionsForRow(row);
-  const isFish = getAdminStrategyTypeInfo(row).type === 'fish';
-  const decimalPlaces = Math.max(3, getAdminPriceDecimalPlacesFromRow(row));
-  const stopLoss = isFish
-    ? calcFishStopPrice(
-      toNumber(row?.inputPrice),
-      toNumber(row?.inputStopLoss),
-      decimalPlaces,
-    )
-    : toNumber(row?.inputPrice ?? row?.stopLossPrice);
+  const stopLoss = toNumber(row?.inputPrice ?? row?.stopLossPrice);
   const options = { isAssist: true, fixedTierOpenCost: getAssistDisplayTierOpenCost(row) };
   if (isCurrentAssistConcessionSet(savedConcessions)) {
     return applyAdminFixedTierQuantities(savedConcessions, stopLoss, options);
@@ -777,12 +929,10 @@ function buildTrendAdminConcessions(row) {
 const STRATEGY_VIEW_MODE_TREND = 'trend';
 const STRATEGY_VIEW_MODE_COUNTER = 'counter_trend';
 const STRATEGY_VIEW_MODE_TIER_ASSIST = 'tier_assist';
-const STRATEGY_VIEW_MODE_FISH = 'fish';
 
 function normalizeStrategyViewMode(value) {
   if (value === STRATEGY_VIEW_MODE_COUNTER) return STRATEGY_VIEW_MODE_COUNTER;
   if (value === STRATEGY_VIEW_MODE_TIER_ASSIST) return STRATEGY_VIEW_MODE_TIER_ASSIST;
-  if (value === STRATEGY_VIEW_MODE_FISH) return STRATEGY_VIEW_MODE_FISH;
   return STRATEGY_VIEW_MODE_TREND;
 }
 
@@ -881,7 +1031,11 @@ function getCounterTrendRateRows() {
     const rate = COUNTER_TREND_BASE_MULTIPLES[i];
     if (i > 0) {
       const prev = COUNTER_TREND_BASE_MULTIPLES[i - 1];
-      rows.push({ rate: (prev + rate) / 2, isMidpoint: true });
+      // 3R 与 5R 之间不插中间值
+      const skipMid = (prev === 3 && rate === 5) || (prev === 5 && rate === 3);
+      if (!skipMid) {
+        rows.push({ rate: (prev + rate) / 2, isMidpoint: true });
+      }
     }
     rows.push({ rate, isMidpoint: false });
   }
@@ -890,7 +1044,7 @@ function getCounterTrendRateRows() {
 
 /**
  * 反趋势策略：以原策略 R 倍数推算挂单价。
- * 档位 3/5R 与 10–100R 仅展示价格；相邻档之间插入中间值；末行 S = 原开仓价。
+ * 档位 3/5R 与 10–100R 仅展示价格；除 3R–5R 外相邻档插入中间值（默认折叠，展开可见）；末行 S = 原开仓价。
  * 时间范围接在原策略结束后再排 10 个周期。
  */
 function buildCounterTrendConcessions(row) {
@@ -980,23 +1134,11 @@ function findRelatedTrendRow(row) {
   }) || null;
 }
 
-function findRelatedFishRow(row) {
-  const key = getStrategyNameKey(row?.strategyName);
-  if (!key || key === '未命名') return null;
-  const selfId = String(row?.id ?? '').trim();
-  const rows = Array.isArray(latestAdminRows) ? latestAdminRows : [];
-  return rows.find((item) => {
-    if (!item || String(item?.id ?? '').trim() === selfId) return false;
-    if (getStrategyNameKey(item?.strategyName) !== key) return false;
-    return getAdminStrategyTypeInfo(item).type === 'fish';
-  }) || null;
-}
-
-/** 修改入口：趋势立项与吃鱼助手各自改自己的单据 */
+/** 修改入口：仅趋势立项可直接编辑 */
 function resolveEditableStrategyRow(row) {
   if (!row) return null;
   const type = getAdminStrategyTypeInfo(row).type;
-  if (type === 'trend' || type === 'fish') return row;
+  if (type === 'trend') return row;
   return findRelatedTrendRow(row);
 }
 
@@ -1020,16 +1162,19 @@ function getTierAssistSourceRate(row) {
   return Number.isFinite(rate) ? rate : null;
 }
 
-function isCounterTrendItemCurrentTierAssist(item, row) {
-  const state = getTierAssistViewState(row);
-  if (!state || !item) return false;
-  const entry = state.entryPrice;
+function isCounterTrendItemCurrentTierAssist(item, parentRow) {
+  if (!item || !parentRow) return false;
+  const assist = findRelatedTierAssistRow(parentRow);
+  if (!assist) return false;
+
+  const entry = toNumber(assist?.inputPrice ?? assist?.entryPrice);
   const price = toNumber(item?.price);
   if (entry != null && price != null) {
     const eps = Math.max(Math.abs(entry) * 1e-6, 1e-6);
     if (Math.abs(entry - price) <= eps) return true;
   }
-  const sourceRate = state.rate;
+
+  const sourceRate = getTierAssistSourceRate(assist);
   const itemRate = Number(item?.rate);
   return sourceRate != null
     && Number.isFinite(itemRate)
@@ -1061,6 +1206,10 @@ function isConcessionItemSelected(item, row) {
 }
 
 function isAdminConcessionCurrentItem(item, row) {
+  // 趋势力预测：选中态跟随已创建的趋势辅助档位
+  if (isAdminCounterTrendView(row)) {
+    return isCounterTrendItemCurrentTierAssist(item, row);
+  }
   return isConcessionItemSelected(item, row);
 }
 
@@ -1104,19 +1253,6 @@ function calcAssistTierPrice(from, to, ratio, decimalPlaces) {
   const price = from + (to - from) * ratio;
   if (!Number.isFinite(price)) return null;
   return Number(formatFixedDecimals(price, decimalPlaces));
-}
-
-/** 吃鱼助手止损：from 沿 to 的反方向移动 20% 区间 */
-function calcFishStopPrice(from, to, decimalPlaces) {
-  if (from == null || to == null) return null;
-  const start = Number(from);
-  const end = Number(to);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start === end) return null;
-  const raw = calcAssistTierPrice(start, end, FISH_STOP_RATE, decimalPlaces);
-  if (raw == null) return null;
-  const clamped = clampPriceAtZero(raw);
-  if (clamped == null) return null;
-  return Number(formatFixedDecimals(clamped, decimalPlaces));
 }
 
 function buildAssistConcessionItems(from, to, openCostTotal, decimalPlaces, fixedTierOpenCost = null, stopPrice = null) {
@@ -1178,12 +1314,7 @@ function isAdminTierAssistView(_row) {
   return false;
 }
 
-function isAdminFishView(_row) {
-  return false;
-}
-
 function getAdminDisplayViewMode(row) {
-  if (getAdminStrategyTypeInfo(row).type === 'fish') return STRATEGY_VIEW_MODE_FISH;
   if (isAdminCounterTrendView(row)) return STRATEGY_VIEW_MODE_COUNTER;
   return STRATEGY_VIEW_MODE_TREND;
 }
@@ -1195,7 +1326,6 @@ function coerceSupportedViewMode(value) {
 }
 
 function getAdminModeChipClass(mode) {
-  if (mode === STRATEGY_VIEW_MODE_FISH) return 'fish';
   if (mode === STRATEGY_VIEW_MODE_TIER_ASSIST) return 'tier_assist';
   if (mode === STRATEGY_VIEW_MODE_COUNTER) return 'counter';
   if (mode === 'assist') return 'assist';
@@ -1206,33 +1336,55 @@ function isStandaloneTierAssistRow(row) {
   return getAdminStrategyTypeInfo(row).type === 'tier_assist';
 }
 
-function isLinkedFishRow(row, rows = latestAdminRows) {
-  if (getAdminStrategyTypeInfo(row).type !== 'fish') return false;
-  const key = getStrategyNameKey(row?.strategyName);
-  if (!key || key === '未命名') return false;
-  const selfId = String(row?.id ?? '').trim();
-  return (Array.isArray(rows) ? rows : []).some((item) => {
-    if (!item || String(item?.id ?? '').trim() === selfId) return false;
-    if (getStrategyNameKey(item?.strategyName) !== key) return false;
-    return getAdminStrategyTypeInfo(item).type === 'trend';
+function getAdminVisibleRows(rows = latestAdminRows) {
+  const list = Array.isArray(rows) ? rows : [];
+  // 趋势立项 / 趋势辅助各自成卡；顺势而为不出现在列表
+  return list.filter((row) => {
+    const type = getAdminStrategyTypeInfo(row).type;
+    return type === 'trend' || type === 'tier_assist';
   });
 }
 
-function getAdminVisibleRows(rows = latestAdminRows) {
-  const list = Array.isArray(rows) ? rows : [];
-  // 趋势立项与吃鱼助手各自成卡；挡位辅助 / 顺势而为仍不出现在列表
-  return list.filter((row) => {
-    const type = getAdminStrategyTypeInfo(row).type;
-    return type === 'trend' || type === 'fish';
-  });
+/** 趋势辅助紧挨同名原订单；每个原订单最多保留一张辅助单 */
+function arrangeLinkedTierAssistRows(rows) {
+  const list = Array.isArray(rows) ? rows.slice() : [];
+  if (!list.length) return list;
+  const assistsByKey = new Map();
+  const primaries = [];
+  for (const row of list) {
+    if (getAdminStrategyTypeInfo(row).type === 'tier_assist') {
+      const key = getStrategyNameKey(row?.strategyName);
+      if (!key || key === '未命名') {
+        primaries.push(row);
+        continue;
+      }
+      if (!assistsByKey.has(key)) assistsByKey.set(key, []);
+      assistsByKey.get(key).push(row);
+      continue;
+    }
+    primaries.push(row);
+  }
+  const result = [];
+  const usedKeys = new Set();
+  for (const row of primaries) {
+    result.push(row);
+    if (getAdminStrategyTypeInfo(row).type !== 'trend') continue;
+    const key = getStrategyNameKey(row?.strategyName);
+    if (!key || key === '未命名' || !assistsByKey.has(key)) continue;
+    result.push(...assistsByKey.get(key));
+    usedKeys.add(key);
+  }
+  for (const [key, assists] of assistsByKey) {
+    if (!usedKeys.has(key)) result.push(...assists);
+  }
+  return result;
 }
 
 async function setAdminStrategyViewMode(strategyId, row, nextViewMode, extra = {}) {
   const id = String(strategyId ?? '').trim();
   const nextMode = coerceSupportedViewMode(nextViewMode);
   if (!id || updatingAdminViewModeIds.has(id)) return false;
-  if (normalizeStrategyViewMode(nextViewMode) === STRATEGY_VIEW_MODE_FISH
-    || normalizeStrategyViewMode(nextViewMode) === STRATEGY_VIEW_MODE_TIER_ASSIST) {
+  if (normalizeStrategyViewMode(nextViewMode) === STRATEGY_VIEW_MODE_TIER_ASSIST) {
     return false;
   }
   if (nextMode === STRATEGY_VIEW_MODE_COUNTER && !canShowCounterTrend(row)) {
@@ -1318,7 +1470,6 @@ const METHODOLOGY_SECTIONS = [
       '有利润随意出，浮亏扛到底。',
       '时间和空间指标重合是信号。',
       '不要定不切实际的目标。目标越大，难度越大。目标越小，赚的越快。',
-      '趋势建仓是主线，吃鱼助手是过程学习和娱乐。',
       '4小时/8小时关键时间必须停下一切专注行情。',
     ],
   },
@@ -1680,11 +1831,15 @@ async function handleLoginSubmit(event) {
 
 async function enterAuthenticatedApp() {
   showApp();
+  loadDeveloperMode();
+  loadCachedKellyRatioFallback();
+  syncDeveloperModeUI();
   try {
     await fetchAppSettings();
   } catch {
     cachedUnitCostInput = ADMIN_TOTAL_CAPITAL_DEFAULT;
-    restoreUnitCostInput();
+    loadCachedKellyRatioFallback();
+    restoreConfigForm();
   }
   setPage('admin');
 }
@@ -1822,14 +1977,6 @@ function toDbRecord(record) {
   const expiresAt = parseDateValue(record.expiresAt);
   const openCostTotal = Number(record.openCostTotal) || getOpenCostTotal(record.openCostMultiplier);
   const openCostMultiplier = clampOpenCostMultiplier(record.openCostMultiplier ?? openCostTotal / OPEN_COST_BASE);
-  const isFish = isAssistConcessionSet(record.concessions) && isFishTakeProfitMultiple(record.takeProfitRMultiple);
-  const fishTime = isFish ? buildFishTimeRange(startAt || new Date()) : null;
-  const resolvedStart = isFish
-    ? parseDateValue(fishTime.startAt)
-    : startAt;
-  const resolvedExpires = isFish
-    ? parseDateValue(fishTime.expiresAt)
-    : expiresAt;
   return {
     strategy_name: record.strategyName,
     description: String(record.description ?? '').trim(),
@@ -1850,14 +1997,12 @@ function toDbRecord(record) {
       ? normalizeConcessions(record.concessions)
       : [],
     take_profit_r_multiple: Number(record.takeProfitRMultiple),
-    timeframe: isFish ? fishTime.timeframe : normalizeTimeframeMode(record.timeframe),
-    timeframe_minutes: isFish
-      ? fishTime.timeframeMinutes
-      : (Number(record.timeframeMinutes) || getTimeframeMinutes(record.timeframe)),
-    valid_periods: isFish ? fishTime.validPeriods : Number(record.validPeriods),
-    duration_minutes: isFish ? fishTime.durationMinutes : Number(record.durationMinutes),
-    start_at: resolvedStart ? resolvedStart.toISOString() : null,
-    expires_at: resolvedExpires ? resolvedExpires.toISOString() : null,
+    timeframe: normalizeTimeframeMode(record.timeframe),
+    timeframe_minutes: Number(record.timeframeMinutes) || getTimeframeMinutes(record.timeframe),
+    valid_periods: Number(record.validPeriods),
+    duration_minutes: Number(record.durationMinutes),
+    start_at: startAt ? startAt.toISOString() : null,
+    expires_at: expiresAt ? expiresAt.toISOString() : null,
     outcome_status: normalizeOutcomeStatus(record.outcomeStatus),
     outcome_remark: String(record.outcomeRemark ?? '').trim(),
     view_mode: normalizeStrategyViewMode(record.viewMode),
@@ -2280,7 +2425,6 @@ function syncPinButtonUI() {
 function updateSaveButtonLabels() {
   const trendBtn = document.getElementById('btn-copy-strategy');
   const assistBtn = document.getElementById('btn-save-assist');
-  const fishBtn = document.getElementById('btn-save-fish');
   const isEditing = Boolean(editingStrategyId);
   if (trendBtn) {
     const label = isEditing && isFrontTrendMode() ? '保存修改' : '保存';
@@ -2291,11 +2435,6 @@ function updateSaveButtonLabels() {
     const label = isEditing && isFrontAssistMode() ? '保存修改' : '保存';
     assistBtn.textContent = label;
     assistBtn.dataset.defaultLabel = label;
-  }
-  if (fishBtn) {
-    const label = isEditing && isFrontFishMode() ? '保存修改' : '保存';
-    fishBtn.textContent = label;
-    fishBtn.dataset.defaultLabel = label;
   }
   syncFrontModeSwitchLock();
   syncPinButtonUI();
@@ -2310,7 +2449,7 @@ function getStartSlotValueFromRow(row) {
 }
 
 function getStrategyDescription(scope = getFrontFormScope()) {
-  const normalized = scope === 'fish' || scope === 'assist' ? scope : 'trend';
+  const normalized = scope === 'assist' ? scope : 'trend';
   if (normalized === 'trend') {
     const remarkEl = document.getElementById('remark-input');
     if (remarkEl) return String(remarkEl.value ?? '').trim();
@@ -2351,27 +2490,7 @@ function populateAssistFormFromRow(row) {
   rebuildStartTimeOptions(startSlot, { ensurePreferredSlot: true, scope: 'assist' });
 }
 
-function populateFishFormFromRow(row) {
-  const nameEl = document.getElementById('fish-name-input');
-  const fromEl = document.getElementById('fish-from-input');
-  const toEl = document.getElementById('fish-to-input');
-  if (nameEl) nameEl.value = String(row?.strategyName ?? '').trim();
-  if (fromEl) fromEl.value = String(row?.inputPrice ?? '').trim();
-  if (toEl) toEl.value = String(row?.inputStopLoss ?? '').trim();
-}
-
 function readFrontFormDraft(scope) {
-  if (scope === 'fish') {
-    return {
-      name: String(document.getElementById('fish-name-input')?.value ?? ''),
-      remark: '',
-      timeframe: '',
-      startTime: '',
-      startTimePicked: false,
-      priceA: String(document.getElementById('fish-from-input')?.value ?? ''),
-      priceB: String(document.getElementById('fish-to-input')?.value ?? ''),
-    };
-  }
   const isAssist = scope === 'assist';
   const { sel } = getStartTimeFieldEls(isAssist ? 'assist' : 'trend');
   return {
@@ -2386,15 +2505,6 @@ function readFrontFormDraft(scope) {
 }
 
 function applyFrontFormDraft(draft, scope) {
-  if (scope === 'fish') {
-    const nameEl = document.getElementById('fish-name-input');
-    const priceAEl = document.getElementById('fish-from-input');
-    const priceBEl = document.getElementById('fish-to-input');
-    if (nameEl) nameEl.value = draft.name ?? '';
-    if (priceAEl) priceAEl.value = draft.priceA ?? '';
-    if (priceBEl) priceBEl.value = draft.priceB ?? '';
-    return;
-  }
   const isAssist = scope === 'assist';
   const nameEl = document.getElementById(isAssist ? 'assist-name-input' : 'name-input');
   const priceAEl = document.getElementById(isAssist ? 'assist-from-input' : 'open-price-input');
@@ -2422,26 +2532,18 @@ function startEditStrategy(row, { focusId = '' } = {}) {
   if (!id) return;
 
   const strategyType = getAdminStrategyTypeInfo(target);
-  if (strategyType.type !== 'trend' && strategyType.type !== 'fish') {
-    showToast('仅支持修改趋势立项或吃鱼助手单据');
+  if (strategyType.type !== 'trend') {
+    showToast('仅支持修改趋势立项单据');
     return;
   }
   pendingAdminFocusId = String(focusId || row?.id || id).trim();
 
-  const isFish = strategyType.type === 'fish';
-  if (isFish) {
-    resetFrontPage();
-    resetAssistPage();
-    populateFishFormFromRow(target);
-  } else {
-    resetAssistPage();
-    resetFishPage();
-    populateTrendFormFromRow(target);
-  }
+  resetAssistPage();
+  populateTrendFormFromRow(target);
 
   setPage('front', {
     preserveFrontForm: true,
-    frontMode: isFish ? FRONT_MODE_FISH : FRONT_MODE_TREND,
+    frontMode: FRONT_MODE_TREND,
     forceFrontMode: true,
   });
 
@@ -2454,18 +2556,13 @@ function startEditStrategy(row, { focusId = '' } = {}) {
     description: target?.description,
   };
 
-  if (isFish) generateFish();
-  else generate();
+  generate();
 
   updateSaveButtonLabels();
   updateHeaderClearButton();
   syncPinButtonUI();
-  showToast(isFish ? '已进入修改模式（吃鱼助手）' : '已进入修改模式（趋势立项）');
+  showToast('已进入修改模式（趋势立项）');
   window.scrollTo(0, 0);
-}
-
-function startCreateFishFromTrend(_row) {
-  showToast('吃鱼助手请在前台单独开单');
 }
 
 function clearStrategyState() {
@@ -2541,22 +2638,6 @@ function buildStrategyCopyText({ name, price, quantity, takeProfit, stopLoss, de
 
 function enrichStrategyRecordForSubmit(record) {
   if (!record) return null;
-  if (frontMode === FRONT_MODE_FISH || isFishStrategyRow(record)) {
-    const fishTime = buildFishTimeRange();
-    const next = {
-      ...record,
-      description: getStrategyDescription('fish'),
-      ...fishTime,
-      takeProfitRMultiple: FISH_TAKE_PROFIT_MULTIPLE,
-    };
-    if (editingStrategyId && editingStrategyPreserve) {
-      next.outcomeStatus = editingStrategyPreserve.outcomeStatus ?? next.outcomeStatus;
-      next.outcomeRemark = editingStrategyPreserve.outcomeRemark ?? '';
-      next.viewMode = editingStrategyPreserve.viewMode ?? next.viewMode;
-      next.viewState = editingStrategyPreserve.viewState ?? next.viewState;
-    }
-    return next;
-  }
   const timeframe = getTimeframeMode();
   const timeframeMinutes = getTimeframeMinutes(timeframe);
   const validPeriods = Number(record.validPeriods) || STRATEGY_DURATION_PERIODS;
@@ -2816,9 +2897,7 @@ function withBestConcessionLabel(label, rate) {
   if (
     text.includes('（best三选一）')
     || text.includes('（best）')
-    || text.includes('（鱼头）')
-    || text.includes('（鱼头三选一）')
-    || text.includes('（鱼尾）')
+    || text.includes('（三选一）')
   ) return text;
   return `${text}（best三选一）`;
 }
@@ -2908,7 +2987,10 @@ function isCounterTrendRatesExpanded(strategyId) {
 function filterCounterTrendConcessionItems(items, expanded) {
   if (!Array.isArray(items)) return [];
   if (expanded) return items;
-  return items.filter((item) => !isCounterTrendHighRate(item?.rate));
+  return items.filter((item) => {
+    if (item?.isMidpoint) return false;
+    return !isCounterTrendHighRate(item?.rate);
+  });
 }
 
 function renderCounterTrendFoldLinkHtml(strategyId) {
@@ -2917,11 +2999,25 @@ function renderCounterTrendFoldLinkHtml(strategyId) {
   const expanded = isCounterTrendRatesExpanded(strategyId);
   const label = expanded ? '收起' : '展开';
   const action = expanded ? 'collapse' : 'expand';
-  return `<button type="button" class="admin-concession__fold-link" data-counter-fold="${action}" data-id="${id}" aria-expanded="${expanded ? 'true' : 'false'}" aria-label="${expanded ? '收起至50R' : '展开至100R'}">${label}<span class="admin-concession__fold-caret" aria-hidden="true">${expanded ? '▴' : '▾'}</span></button>`;
+  return `<button type="button" class="admin-concession__fold-link" data-counter-fold="${action}" data-id="${id}" aria-expanded="${expanded ? 'true' : 'false'}" aria-label="${expanded ? '收起中间值与高倍数' : '展开中间值与高倍数'}">${label}<span class="admin-concession__fold-caret" aria-hidden="true">${expanded ? '▴' : '▾'}</span></button>`;
 }
 
-function renderCounterTrendSideActionsHtml() {
-  return '<span class="admin-concession__actions"></span>';
+function renderCounterTrendSideActionsHtml(strategyId, item) {
+  const id = escapeHtml(String(strategyId ?? '').trim());
+  const rateNum = Number(item?.rate);
+  const rateLabel = String(item?.rateLabel ?? '').trim().toUpperCase();
+  const isSRow = rateLabel === 'S' || rateLabel === 'R' || Math.abs(rateNum - 1) < 1e-9;
+  if (!id || isSRow) {
+    return '<span class="admin-concession__actions"></span>';
+  }
+  const rate = escapeHtml(String(Number.isFinite(rateNum) ? rateNum : '').trim());
+  const price = escapeHtml(String(item?.price ?? '').trim());
+  return [
+    '<span class="admin-concession__actions">',
+    `<button type="button" class="admin-concession__side-btn admin-concession__side-btn--long" data-counter-side-action="long" data-id="${id}" data-rate="${rate}" data-price="${price}">做多</button>`,
+    `<button type="button" class="admin-concession__side-btn admin-concession__side-btn--short" data-counter-side-action="short" data-id="${id}" data-rate="${rate}" data-price="${price}">做空</button>`,
+    '</span>',
+  ].join('');
 }
 
 function getCounterTrendDisplayItems(row) {
@@ -2929,25 +3025,80 @@ function getCounterTrendDisplayItems(row) {
   return getDisplayConcessionItems(items).slice().reverse();
 }
 
-function findCounterTrendNeighborPrices(row, rate, price) {
-  const displayItems = getCounterTrendDisplayItems(row).filter((item) => !item?.isMidpoint);
-  if (!displayItems.length) return null;
+function findCounterTrendItemIndex(items, rate, price) {
   const rateNum = Number(rate);
   const priceNum = toNumber(price);
-  let index = displayItems.findIndex((item) => (
+  let index = (Array.isArray(items) ? items : []).findIndex((item) => (
     Number.isFinite(rateNum) && Math.abs(Number(item.rate) - rateNum) < 1e-9
   ));
   if (index < 0 && priceNum != null) {
-    index = displayItems.findIndex((item) => toNumber(item.price) === priceNum);
+    index = items.findIndex((item) => toNumber(item.price) === priceNum);
   }
+  return index;
+}
+
+/**
+ * 开仓=当前档或半档；止损=半个整档；止盈=1 个整档。
+ * 相邻整档按非中间值行计算。
+ */
+function findCounterTrendNeighborPrices(row, rate, price) {
+  const displayItems = getCounterTrendDisplayItems(row);
+  if (!displayItems.length) return null;
+  const index = findCounterTrendItemIndex(displayItems, rate, price);
   if (index < 0) return null;
   const current = displayItems[index];
-  const above = index > 0 ? displayItems[index - 1] : null;
-  const below = index < displayItems.length - 1 ? displayItems[index + 1] : null;
+  const entryPrice = toNumber(current?.price);
+  if (entryPrice == null) return null;
+
+  let aboveFull = null;
+  let belowFull = null;
+  for (let i = index - 1; i >= 0; i -= 1) {
+    if (!displayItems[i]?.isMidpoint) {
+      aboveFull = displayItems[i];
+      break;
+    }
+  }
+  for (let i = index + 1; i < displayItems.length; i += 1) {
+    if (!displayItems[i]?.isMidpoint) {
+      belowFull = displayItems[i];
+      break;
+    }
+  }
+  const abovePrice = toNumber(aboveFull?.price);
+  const belowPrice = toNumber(belowFull?.price);
+  const isMidpoint = Boolean(current?.isMidpoint);
+  let stopLong = null;
+  let takeProfitLong = null;
+  let stopShort = null;
+  let takeProfitShort = null;
+
+  if (isMidpoint) {
+    if (abovePrice == null || belowPrice == null) return null;
+    const tierSize = Math.abs(abovePrice - belowPrice);
+    if (!(tierSize > 0)) return null;
+    // 半档开仓：止损半档落到相邻整档，止盈 1 整档
+    stopLong = belowPrice;
+    takeProfitLong = entryPrice + Math.sign(abovePrice - belowPrice) * tierSize;
+    stopShort = abovePrice;
+    takeProfitShort = entryPrice - Math.sign(abovePrice - belowPrice) * tierSize;
+  } else {
+    if (abovePrice == null || belowPrice == null) return null;
+    // 整档开仓：止损=与止损向邻档中点（半档），止盈=止盈向邻档（1 档）
+    stopLong = (entryPrice + belowPrice) / 2;
+    takeProfitLong = abovePrice;
+    stopShort = (entryPrice + abovePrice) / 2;
+    takeProfitShort = belowPrice;
+  }
+
   return {
-    currentPrice: toNumber(current?.price),
-    abovePrice: toNumber(above?.price),
-    belowPrice: toNumber(below?.price),
+    currentPrice: entryPrice,
+    abovePrice,
+    belowPrice,
+    stopLong,
+    takeProfitLong,
+    stopShort,
+    takeProfitShort,
+    isMidpoint,
     currentRate: Number(current?.rate),
     decimalPlaces: getAdminPriceDecimalPlacesFromRow(row),
   };
@@ -2979,7 +3130,10 @@ function buildTierAssistRecord({
   const stopLabel = formatTrimmedFixedDecimals(stopLoss, decimalPlaces);
   const tpLabel = formatTrimmedFixedDecimals(takeProfit, decimalPlaces);
   const sideLabel = side === 'short' ? '做空' : '做多';
-  const rateLabel = Number.isFinite(Number(rate)) ? `${Math.round(Number(rate))}R` : '';
+  const rateNum = Number(rate);
+  const rateLabel = Number.isFinite(rateNum)
+    ? formatCounterTrendRate(rateNum).replace(/—/g, '')
+    : '';
   const timeRange = getCounterTrendTimeRange(parentRow);
   const timeframe = normalizeTimeframeMode(parentRow?.timeframe);
   const timeframeMinutes = Number(parentRow?.timeframeMinutes) > 0
@@ -2988,7 +3142,7 @@ function buildTierAssistRecord({
   const validPeriods = STRATEGY_DURATION_PERIODS;
   const durationMinutes = timeframeMinutes * validPeriods;
   const description = [
-    `挡位辅助·${sideLabel}`,
+    `趋势辅助·${sideLabel}`,
     rateLabel ? `来源 ${rateLabel}` : '',
     String(parentRow?.description ?? '').trim(),
   ].filter(Boolean).join('；');
@@ -3073,22 +3227,19 @@ async function deleteExistingTierAssistsForName(strategyName) {
 
 async function createTierAssistFromCounterAction(parentRow, side, rate, price) {
   if (isCreatingTierAssist) return;
-  const parentId = String(parentRow?.id ?? '').trim();
-  if (!parentId) return;
+  if (getAdminStrategyTypeInfo(parentRow).type !== 'trend') return;
   const neighbors = findCounterTrendNeighborPrices(parentRow, rate, price);
   if (!neighbors || neighbors.currentPrice == null) {
-    showToast('无法定位当前挡位');
+    showToast('无法定位当前档位');
     return;
   }
   const entryPrice = neighbors.currentPrice;
-  const neighborForStop = side === 'long' ? neighbors.belowPrice : neighbors.abovePrice;
-  const takeProfit = side === 'long' ? neighbors.abovePrice : neighbors.belowPrice;
-  if (neighborForStop == null || takeProfit == null) {
-    showToast('缺少相邻挡位价格，无法切换');
+  const stopLoss = side === 'long' ? neighbors.stopLong : neighbors.stopShort;
+  const takeProfit = side === 'long' ? neighbors.takeProfitLong : neighbors.takeProfitShort;
+  if (stopLoss == null || takeProfit == null) {
+    showToast('缺少相邻档位价格，无法创建');
     return;
   }
-  // 做多：止损 = 本行与下方行 50%；做空：止损 = 本行与上方行 50%
-  const stopLoss = (entryPrice + neighborForStop) / 2;
   if (side === 'long') {
     if (!(entryPrice > stopLoss) || !(takeProfit > entryPrice)) {
       showToast('做多需满足：止损 < 开仓 < 止盈');
@@ -3099,27 +3250,40 @@ async function createTierAssistFromCounterAction(parentRow, side, rate, price) {
     return;
   }
 
-  const decimalPlaces = Math.max(3, neighbors.decimalPlaces || 0);
-  const nextViewState = {
-    ...normalizeViewState(parentRow?.viewState),
-    tierAssist: {
-      side,
-      rate: neighbors.currentRate ?? rate,
-      entryPrice: formatTrimmedFixedDecimals(entryPrice, decimalPlaces),
-      stopLoss: formatTrimmedFixedDecimals(stopLoss, decimalPlaces),
-      takeProfit: formatTrimmedFixedDecimals(takeProfit, decimalPlaces),
-    },
-  };
+  const record = buildTierAssistRecord({
+    parentRow,
+    side,
+    entryPrice,
+    stopLoss,
+    takeProfit,
+    rate: neighbors.currentRate ?? rate,
+    decimalPlaces: Math.max(3, neighbors.decimalPlaces || 0),
+  });
+  if (!record) {
+    showToast('无法生成趋势辅助档位');
+    return;
+  }
+  if (!record.startAt || !record.expiresAt) {
+    const fallbackTime = buildFallbackTimeRange();
+    record.startAt = fallbackTime.startAt;
+    record.expiresAt = fallbackTime.expiresAt;
+    record.timeframe = fallbackTime.timeframe;
+    record.timeframeMinutes = fallbackTime.timeframeMinutes;
+    record.timeframeLabel = fallbackTime.timeframeLabel;
+    record.validPeriods = fallbackTime.validPeriods;
+    record.durationMinutes = fallbackTime.durationMinutes;
+  }
 
   isCreatingTierAssist = true;
   try {
-    const ok = await setAdminStrategyViewMode(parentId, parentRow, STRATEGY_VIEW_MODE_TIER_ASSIST, {
-      viewState: nextViewState,
-    });
-    if (ok) {
-      const sideLabel = side === 'long' ? '做多' : '做空';
-      showToast(`已切换挡位辅助（${sideLabel}）`);
-    }
+    await deleteExistingTierAssistsForName(parentRow?.strategyName);
+    await createStrategy(record);
+    showToast(side === 'long' ? '已创建趋势辅助（做多）' : '已创建趋势辅助（做空）');
+    await renderAdminList();
+  } catch (err) {
+    console.error('[tier-assist-create]', err);
+    const detail = String(err?.message || '').trim();
+    showToast(detail && detail.length < 80 ? `创建失败：${detail}` : '创建趋势辅助失败');
   } finally {
     isCreatingTierAssist = false;
   }
@@ -3253,7 +3417,7 @@ function renderConcessionsHtml({
       copyableNumbers: prefix === 'admin',
       extraClass,
       sideActionsHtml: useSideActions && prefix === 'admin'
-        ? renderCounterTrendSideActionsHtml()
+        ? renderCounterTrendSideActionsHtml(sideActionsStrategyId, item)
         : '',
       selectable,
       strategyId: selectId,
@@ -3586,26 +3750,6 @@ function resetAssistPage() {
   clearAssistState();
 }
 
-let currentFishCopyText = '';
-let currentFishRecord = null;
-
-function clearFishState() {
-  currentFishCopyText = '';
-  currentFishRecord = null;
-}
-
-function resetFishPage() {
-  const nameEl = document.getElementById('fish-name-input');
-  const fromEl = document.getElementById('fish-from-input');
-  const toEl = document.getElementById('fish-to-input');
-  const errEl = document.getElementById('fish-error');
-  if (nameEl) nameEl.value = '';
-  if (fromEl) fromEl.value = '';
-  if (toEl) toEl.value = '';
-  if (errEl) errEl.textContent = '';
-  clearFishState();
-}
-
 function buildAssistStrategy(from, to, openCostTotal, priceDecimalPlaces) {
   const nameEl = document.getElementById('assist-name-input');
   const name = String(nameEl?.value ?? '').trim() || 'test';
@@ -3737,128 +3881,6 @@ function autoGenerateAssistIfReady() {
   clearAssistState();
 }
 
-function buildFishStrategy(from, to, openCostTotal, priceDecimalPlaces) {
-  const nameEl = document.getElementById('fish-name-input');
-  const name = String(nameEl?.value ?? '').trim() || 'test';
-  const side = to > from ? 'long' : 'short';
-  const stop = calcFishStopPrice(from, to, priceDecimalPlaces);
-  const takeProfit = calcAssistTakeProfitPrice(from, to, FISH_TAKE_PROFIT_MULTIPLE);
-  if (stop == null || takeProfit == null) return null;
-  const stopLabel = formatTrimmedFixedDecimals(stop, priceDecimalPlaces);
-  const tpLabel = formatTrimmedFixedDecimals(takeProfit, priceDecimalPlaces);
-  const concessionItems = buildAssistConcessionItems(
-    from,
-    to,
-    openCostTotal,
-    priceDecimalPlaces,
-    FISH_TIER_OPEN_COST,
-    stop,
-  );
-  if (!concessionItems.length) return null;
-  const primaryItem = concessionItems[0];
-  const openCostMultiplier = OPEN_COST_MULTIPLIER_DEFAULT;
-  const openCost = FISH_TIER_OPEN_COST;
-  const description = getStrategyDescription('fish');
-  const fishTime = buildFishTimeRange();
-  const copyText = [
-    formatFishStrategyTitle(name),
-    ...concessionItems.map((item) => {
-      const label = withBestConcessionLabel(getAssistTierLabel(item.rate), item.rate);
-      return shouldHideAssistQuantity(item.rate)
-        ? `${label}：${item.price}`
-        : `${label}：${item.price} / ${item.quantity}`;
-    }),
-    `止盈价格：${tpLabel}`,
-    `止损价格：${stopLabel}`,
-    ...(description ? [`描述：${description}`] : []),
-  ].join('\n');
-
-  const record = {
-    strategyName: name,
-    description,
-    positionSide: side,
-    inputPrice: formatTrimmedFixedDecimals(from, priceDecimalPlaces),
-    inputStopLoss: formatTrimmedFixedDecimals(to, priceDecimalPlaces),
-    entryPrice: primaryItem.price,
-    quantity: primaryItem.quantity,
-    takeProfitPrice: tpLabel,
-    stopLossPrice: stopLabel,
-    openCost,
-    openCostMultiplier,
-    openCostTotal,
-    tierCount: DEFAULT_TIER_COUNT,
-    tradeMode: TRADE_MODE_NORMAL,
-    grade: getStrategyGradeFromOpenCost(openCost, openCostTotal, DEFAULT_TIER_COUNT),
-    priceAdjustmentRate: 0,
-    priceAdjustment: '0',
-    concessions: concessionItems,
-    takeProfitRMultiple: FISH_TAKE_PROFIT_MULTIPLE,
-    ...fishTime,
-    outcomeStatus: 'pending',
-    viewMode: STRATEGY_VIEW_MODE_TREND,
-  };
-
-  return { copyText, record };
-}
-
-function generateFish() {
-  const fromEl = document.getElementById('fish-from-input');
-  const toEl = document.getElementById('fish-to-input');
-  const errEl = document.getElementById('fish-error');
-  const from = toNumber(fromEl && 'value' in fromEl ? fromEl.value : '');
-  const to = toNumber(toEl && 'value' in toEl ? toEl.value : '');
-  const openCostTotal = getOpenCostTotal();
-
-  if (errEl) errEl.textContent = '';
-
-  if (from == null || to == null) {
-    if (errEl) errEl.textContent = '请输入有效的 from 与 to（数字）。';
-    clearFishState();
-    return;
-  }
-  if (!(from > 0) || !(to > 0)) {
-    if (errEl) errEl.textContent = 'from 和 to 须为大于 0 的数字。';
-    clearFishState();
-    return;
-  }
-  if (from === to) {
-    if (errEl) errEl.textContent = 'from 与 to 不能相同。';
-    clearFishState();
-    return;
-  }
-
-  const priceDecimals = Math.max(3, getPriceDecimalPlacesFromValues(fromEl?.value, toEl?.value));
-  const strategy = buildFishStrategy(from, to, openCostTotal, priceDecimals);
-  if (!strategy) {
-    if (errEl) errEl.textContent = '无法生成吃鱼助手档位，请检查 from / to。';
-    clearFishState();
-    return;
-  }
-
-  currentFishCopyText = strategy.copyText;
-  currentFishRecord = strategy.record;
-}
-
-function autoGenerateFishIfReady() {
-  if (!isFrontFishMode()) return;
-  const fromEl = document.getElementById('fish-from-input');
-  const toEl = document.getElementById('fish-to-input');
-  const fromVal = String(fromEl?.value ?? '').trim();
-  const toVal = String(toEl?.value ?? '').trim();
-  if (fromVal && toVal) {
-    generateFish();
-    return;
-  }
-  const errEl = document.getElementById('fish-error');
-  if (errEl) errEl.textContent = '';
-  clearFishState();
-}
-
-/**
- * 开始时间默认值是基于「当前时间」算出来的。页面长时间不刷新时，
- * new Date() 不会重新读取，默认值就会停在过期的时间格上。
- * 这里在用户尚未手动选择时，定时 + 切回标签页时重新对齐到当前时间格。
- */
 function syncStartTimeToNow() {
   const picker = document.getElementById('start-time-picker');
   if (picker && !picker.hidden) return;
@@ -4180,7 +4202,6 @@ const ADMIN_TIME_FILTER_LABELS = {
   all: '全部',
   pinned: '关注',
   dueToday: '今日到期',
-  fish: '吃鱼助手',
 };
 
 const DEFAULT_ADMIN_TIME_FILTER = 'all';
@@ -4212,20 +4233,63 @@ function rowMatchesAdminNameFilter(row) {
   return getAdminRowNameFilterKey(row) === adminNameFilter;
 }
 
+/** 筛选后补回关联的趋势辅助（随原订单一起显示） */
+function includeLinkedTierAssists(filteredRows, poolRows) {
+  const filtered = Array.isArray(filteredRows) ? filteredRows.slice() : [];
+  const pool = Array.isArray(poolRows) ? poolRows : filtered;
+  if (!filtered.length) return filtered;
+
+  const ids = new Set(
+    filtered.map((row) => String(row?.id ?? '').trim()).filter(Boolean),
+  );
+
+  for (const row of filtered) {
+    if (getAdminStrategyTypeInfo(row).type !== 'trend') continue;
+    const key = getStrategyNameKey(row?.strategyName);
+    if (!key || key === '未命名') continue;
+    for (const item of pool) {
+      if (getAdminStrategyTypeInfo(item).type !== 'tier_assist') continue;
+      if (getStrategyNameKey(item?.strategyName) !== key) continue;
+      const id = String(item?.id ?? '').trim();
+      if (!id || ids.has(id)) continue;
+      filtered.push(item);
+      ids.add(id);
+    }
+  }
+  return filtered;
+}
+
+function isStrategyDueToday(row) {
+  const endAt = getStrategyEndAt(row);
+  if (!endAt) return false;
+  const { start, end } = getLocalDayRange();
+  const ts = endAt.getTime();
+  if (!(ts >= start.getTime() && ts < end.getTime())) return false;
+  const status = String(row?.outcomeStatus ?? '').trim() || 'pending';
+  return status === 'pending';
+}
+
 function filterRowsByAdminTimeFilter(rows) {
   const list = Array.isArray(rows) ? rows : [];
   const filter = normalizeAdminTimeFilter(adminTimeFilter);
   if (filter === 'pinned') return list.filter(isStrategyPinned);
-  if (filter === 'fish') {
-    return list.filter((row) => getAdminStrategyTypeInfo(row).type === 'fish');
+  if (filter === 'dueToday') {
+    // 趋势辅助本身不按到期筛，随后由 includeLinkedTierAssists 随原单带出
+    return list.filter((row) => {
+      if (getAdminStrategyTypeInfo(row).type === 'tier_assist') return false;
+      return isStrategyDueToday(row);
+    });
   }
   return list;
 }
 
 function getFilteredAdminRows(rows = latestAdminRows) {
-  const visible = filterRowsByAdminTimeFilter(getAdminVisibleRows(rows));
-  if (!adminNameFilter) return visible;
-  return visible.filter(rowMatchesAdminNameFilter);
+  const allVisible = getAdminVisibleRows(rows);
+  let filtered = filterRowsByAdminTimeFilter(allVisible);
+  if (adminNameFilter) {
+    filtered = filtered.filter(rowMatchesAdminNameFilter);
+  }
+  return includeLinkedTierAssists(filtered, allVisible);
 }
 
 function compareAdminRowsByExpiresAsc(a, b) {
@@ -4241,12 +4305,14 @@ function compareAdminRowsByExpiresAsc(a, b) {
 
 function getDisplayAdminRows(rows = latestAdminRows) {
   const filtered = getFilteredAdminRows(rows);
-  if (!adminSortByExpiresAsc) return filtered;
-  return filtered.slice().sort(compareAdminRowsByExpiresAsc);
+  const ordered = adminSortByExpiresAsc
+    ? filtered.slice().sort(compareAdminRowsByExpiresAsc)
+    : filtered;
+  return arrangeLinkedTierAssistRows(ordered);
 }
 
 function getPinnedAdminRowsForUnpin(rows = latestAdminRows) {
-  return getFilteredAdminRows(rows).filter(isStrategyPinned);
+  return getAdminVisibleRows(rows).filter(isStrategyPinned);
 }
 
 function disarmUnpinAll() {
@@ -4258,6 +4324,25 @@ function disarmUnpinAll() {
   unpinAllArmedAt = 0;
 }
 
+function updateConfigUnpinButton() {
+  const btn = document.getElementById('config-unpin-all');
+  if (!btn) return;
+  const pinnedCount = getPinnedAdminRowsForUnpin().length;
+  const canUnpin = !isDeletingStrategies && (pinnedCount > 0 || isUnpinningAll || isUnpinAllArmed);
+  btn.disabled = !canUnpin || isUnpinningAll;
+  btn.classList.toggle('is-busy', isUnpinningAll);
+  btn.classList.toggle('is-armed', isUnpinAllArmed && !isUnpinningAll);
+  btn.setAttribute('aria-busy', isUnpinningAll ? 'true' : 'false');
+  btn.setAttribute('aria-pressed', isUnpinAllArmed ? 'true' : 'false');
+  if (isUnpinningAll) {
+    btn.textContent = '取关中';
+  } else if (isUnpinAllArmed) {
+    btn.textContent = `确认取关 ${pinnedCount}`;
+  } else {
+    btn.textContent = pinnedCount > 0 ? `一键取关全部（${pinnedCount}）` : '一键取关全部';
+  }
+}
+
 function armUnpinAll() {
   isUnpinAllArmed = true;
   unpinAllArmedAt = Date.now();
@@ -4266,17 +4351,18 @@ function armUnpinAll() {
     unpinAllArmTimer = 0;
     isUnpinAllArmed = false;
     unpinAllArmedAt = 0;
-    renderAdminActiveNames();
+    updateConfigUnpinButton();
   }, UNPIN_ALL_ARM_MS);
-  renderAdminActiveNames();
+  updateConfigUnpinButton();
 }
 
 function requestUnpinDisplayedAdminStrategies() {
-  if (isUnpinningAll || isDeletingStrategies || isAdminSelectionMode) return;
+  if (isUnpinningAll || isDeletingStrategies) return;
   const pinnedCount = getPinnedAdminRowsForUnpin().length;
   if (!pinnedCount) {
     disarmUnpinAll();
-    renderAdminActiveNames();
+    updateConfigUnpinButton();
+    showToast('当前没有关注中的单据');
     return;
   }
   if (!isUnpinAllArmed) {
@@ -4288,11 +4374,23 @@ function requestUnpinDisplayedAdminStrategies() {
 }
 
 async function unpinDisplayedAdminStrategies() {
-  if (isUnpinningAll || isDeletingStrategies || isAdminSelectionMode) return;
+  if (isUnpinningAll || isDeletingStrategies) return;
   disarmUnpinAll();
-  const targets = getPinnedAdminRowsForUnpin();
+  let sourceRows = latestAdminRows;
+  if (!Array.isArray(sourceRows) || !sourceRows.length) {
+    try {
+      sourceRows = await fetchStrategies('all');
+      latestAdminRows = sourceRows;
+    } catch (err) {
+      showToast(String(err?.message || '加载单据失败'));
+      updateConfigUnpinButton();
+      return;
+    }
+  }
+  const targets = getPinnedAdminRowsForUnpin(sourceRows);
   if (!targets.length) {
-    renderAdminActiveNames();
+    updateConfigUnpinButton();
+    showToast('当前没有关注中的单据');
     return;
   }
   const snapshots = targets.map((row) => {
@@ -4305,7 +4403,7 @@ async function unpinDisplayedAdminStrategies() {
     };
   }).filter((item) => item.id);
   if (!snapshots.length) {
-    renderAdminActiveNames();
+    updateConfigUnpinButton();
     return;
   }
 
@@ -4318,9 +4416,12 @@ async function unpinDisplayedAdminStrategies() {
     if (!nextById.has(id)) return item;
     return { ...item, viewState: nextById.get(id) };
   });
-  renderAdminListItems();
-  renderAdminActiveNames();
-  updateAdminSelectionControls();
+  if (currentPage === 'admin') {
+    renderAdminListItems();
+    renderAdminActiveNames();
+    updateAdminSelectionControls();
+  }
+  updateConfigUnpinButton();
 
   try {
     const results = await Promise.allSettled(snapshots.map((item) => (
@@ -4342,12 +4443,18 @@ async function unpinDisplayedAdminStrategies() {
         if (!failedIds.has(id)) return item;
         return { ...item, viewState: prevById.get(id) };
       });
+      showToast(`${failedIds.size} 条取关失败`);
+    } else {
+      showToast(`已取消关注 ${snapshots.length} 条`);
     }
   } finally {
     isUnpinningAll = false;
-    renderAdminListItems();
-    renderAdminActiveNames();
-    updateAdminSelectionControls();
+    if (currentPage === 'admin') {
+      renderAdminListItems();
+      renderAdminActiveNames();
+      updateAdminSelectionControls();
+    }
+    updateConfigUnpinButton();
   }
 }
 
@@ -4431,29 +4538,6 @@ function renderAdminActiveNames(rows = latestAdminRows) {
     `排序 ${uniqueTotal}`,
     '</button>',
   ].join('');
-  const pinnedCount = getPinnedAdminRowsForUnpin(rows).length;
-  if (isUnpinAllArmed && pinnedCount === 0 && !isUnpinningAll) disarmUnpinAll();
-  const canUnpin = !isAdminSelectionMode && !isDeletingStrategies && (pinnedCount > 0 || isUnpinningAll || isUnpinAllArmed);
-  const unpinStateClass = isUnpinningAll ? ' is-busy' : (isUnpinAllArmed ? ' is-armed' : '');
-  const unpinLabel = isUnpinningAll
-    ? '取关中'
-    : (isUnpinAllArmed ? `确认取关 ${pinnedCount}` : '一键取关');
-  const unpinAria = isUnpinningAll
-    ? '正在取消关注'
-    : (isUnpinAllArmed
-      ? `再点一次确认取消关注当前 ${pinnedCount} 条，4 秒内未确认将取消`
-      : `一键取消关注当前 ${pinnedCount} 条，需再确认一次`);
-  const unpinHtml = canUnpin
-    ? [
-      `<button type="button" class="admin-active-names__unpin${unpinStateClass}" data-admin-unpin-all`,
-      isUnpinningAll ? ' disabled' : '',
-      ` aria-busy="${isUnpinningAll ? 'true' : 'false'}"`,
-      ` aria-pressed="${isUnpinAllArmed ? 'true' : 'false'}"`,
-      ` aria-label="${unpinAria}">`,
-      unpinLabel,
-      '</button>',
-    ].join('')
-    : '';
   const activeKey = adminNameFilter;
   const namesHtml = nameCounts.map(({ name, count, mode }) => {
     const chipClass = getAdminModeChipClass(mode);
@@ -4468,7 +4552,7 @@ function renderAdminActiveNames(rows = latestAdminRows) {
       '</button>',
     ].join('');
   }).join('');
-  el.innerHTML = `${sortHtml}${unpinHtml}${namesHtml}`;
+  el.innerHTML = `${sortHtml}${namesHtml}`;
 }
 
 function renderAdminControls() {
@@ -4562,6 +4646,13 @@ function updateHeaderClearButton() {
   if (!btnClear) return;
 
   if (currentPage === 'admin') {
+    if (!isDeveloperMode) {
+      btnClear.hidden = true;
+      btnClear.textContent = '删除';
+      btnClear.disabled = true;
+      btnClear.setAttribute('aria-busy', 'false');
+      return;
+    }
     btnClear.hidden = false;
     const visibleCount = getVisibleAdminStrategyIds().length;
     const selectedCount = selectedStrategyIds.size;
@@ -4574,6 +4665,13 @@ function updateHeaderClearButton() {
   }
 
   if (currentPage === 'observations') {
+    if (!isDeveloperMode) {
+      btnClear.hidden = true;
+      btnClear.textContent = '删除';
+      btnClear.disabled = true;
+      btnClear.setAttribute('aria-busy', 'false');
+      return;
+    }
     btnClear.hidden = false;
     const visibleCount = getVisibleObservationIds().length;
     const selectedCount = selectedObservationIds.size;
@@ -4787,8 +4885,8 @@ async function renderAdminList() {
   }
   let rows = [];
   try {
-    // 关注、吃鱼助手在展示层过滤；关注还需全量以便关联单据查找
-    const fetchFilter = adminTimeFilter === 'pinned' || adminTimeFilter === 'fish'
+    // 关注 / 今日到期在展示层过滤，拉取全量以便关联趋势辅助能找到
+    const fetchFilter = (adminTimeFilter === 'pinned' || adminTimeFilter === 'dueToday')
       ? 'all'
       : adminTimeFilter;
     rows = await fetchStrategies(fetchFilter);
@@ -4810,8 +4908,8 @@ async function renderAdminList() {
 function getAdminCurrentModeTagHtml(row) {
   const rawId = String(row?.id ?? '').trim();
   const type = getAdminStrategyTypeInfo(row).type;
-  if (type === 'fish') {
-    return '<span class="admin-fish-tag" aria-label="吃鱼助手">吃鱼助手</span>';
+  if (type === 'tier_assist') {
+    return '<span class="admin-tier-assist-tag" aria-label="趋势辅助">趋势辅助</span>';
   }
   if (!rawId || type !== 'trend') return '';
   const syncing = updatingAdminViewModeIds.has(rawId);
@@ -4845,29 +4943,22 @@ function buildAdminListItemHtml(row) {
   const nameRaw = String(row?.strategyName ?? '').trim();
   const showCounterTrend = Boolean(rawId && isAdminCounterTrendView(row));
   const showTierAssistView = Boolean(rawId && isAdminTierAssistView(row));
-  const showFishView = Boolean(rawId && isAdminFishView(row));
-  const relatedFish = showFishView ? findRelatedFishRow(row) : null;
   const linkedTier = showTierAssistView ? buildLinkedTierAssistDisplay(row) : null;
   const baseSideMod = getPositionSideMod(sideRaw);
-  const sideMod = showFishView && relatedFish
-    ? getPositionSideMod(relatedFish.positionSide)
-    : (linkedTier ? getPositionSideMod(linkedTier.side) : baseSideMod);
+  const sideMod = linkedTier ? getPositionSideMod(linkedTier.side) : baseSideMod;
   const strategyType = getAdminStrategyTypeInfo(row);
   const isAssistStrategy = strategyType.type === 'assist';
-  const isFishStrategy = strategyType.type === 'fish';
   const isTierAssistStrategy = strategyType.type === 'tier_assist';
-  const isAssistLikeStrategy = isAssistStrategy || isFishStrategy || showFishView;
+  const isAssistLikeStrategy = isAssistStrategy;
   const hasTimeRange = Boolean(getStrategyStartAt(row) && getStrategyEndAt(row));
-  const showTimeMeta = strategyType.type === 'trend' && !showFishView && hasTimeRange;
+  const showTimeMeta = strategyType.type === 'trend' && hasTimeRange;
   const title = escapeHtml(formatStrategyCardTitle(nameRaw));
   const titleLabel = escapeHtml(
     isTierAssistStrategy
       ? `${formatTierAssistStrategyTitle(nameRaw)}${String(row?.outcomeRemark ?? '').trim() ? `，备注：${String(row.outcomeRemark).trim()}` : ''}`
-      : isFishStrategy
-        ? `${formatFishStrategyTitle(nameRaw)}${String(row?.outcomeRemark ?? '').trim() ? `，备注：${String(row.outcomeRemark).trim()}` : ''}`
-        : isAssistStrategy
-          ? `${formatAssistStrategyTitle(nameRaw)}${String(row?.outcomeRemark ?? '').trim() ? `，备注：${String(row.outcomeRemark).trim()}` : ''}`
-          : formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark),
+      : isAssistStrategy
+        ? `${formatAssistStrategyTitle(nameRaw)}${String(row?.outcomeRemark ?? '').trim() ? `，备注：${String(row.outcomeRemark).trim()}` : ''}`
+        : formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark),
   );
   const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
   const priceDecimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
@@ -4887,18 +4978,6 @@ function buildAdminListItemHtml(row) {
     concessions = linkedTier?.concessions || [];
     takeProfitLabel = linkedTier?.takeProfitLabel || '—';
     stopLabel = linkedTier?.stopLabel || '—';
-  } else if (showFishView && relatedFish) {
-    concessions = buildAdminAssistConcessionsForDisplay(relatedFish);
-    const assistFrom = toNumber(relatedFish?.inputPrice ?? relatedFish?.stopLossPrice);
-    const assistTo = toNumber(relatedFish?.inputStopLoss);
-    const assistTp = calcAssistTakeProfitPrice(assistFrom, assistTo, FISH_TAKE_PROFIT_MULTIPLE);
-    takeProfitLabel = assistTp != null
-      ? formatTrimmedFixedDecimals(assistTp, priceDecimalPlaces)
-      : (formatAdminPriceFromValue(relatedFish?.takeProfitPrice, priceDecimalPlaces) || '—');
-    const fishStop = calcFishStopPrice(assistFrom, assistTo, priceDecimalPlaces);
-    stopLabel = fishStop != null
-      ? formatTrimmedFixedDecimals(fishStop, priceDecimalPlaces)
-      : (formatAdminPriceFromValue(relatedFish?.inputPrice ?? relatedFish?.stopLossPrice, priceDecimalPlaces) || '—');
   } else if (isTierAssistStrategy) {
     const saved = hasConcessions(row?.concessions) ? row.concessions : [];
     const stopLoss = toNumber(row?.stopLossPrice);
@@ -4910,20 +4989,14 @@ function buildAdminListItemHtml(row) {
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
   } else if (isAssistLikeStrategy) {
     concessions = buildAdminAssistConcessionsForDisplay(row);
-    // 顺势而为：2 倍，止损=from；吃鱼助手：1 倍，止损=from→to 的 -20%
+    // 顺势而为：2 倍，止损=from
     const assistFrom = toNumber(row?.inputPrice ?? row?.stopLossPrice);
     const assistTo = toNumber(row?.inputStopLoss);
-    const tpMultiple = isFishStrategy ? FISH_TAKE_PROFIT_MULTIPLE : ASSIST_TAKE_PROFIT_MULTIPLE;
-    const assistTp = calcAssistTakeProfitPrice(assistFrom, assistTo, tpMultiple);
+    const assistTp = calcAssistTakeProfitPrice(assistFrom, assistTo, ASSIST_TAKE_PROFIT_MULTIPLE);
     takeProfitLabel = assistTp != null
       ? formatTrimmedFixedDecimals(assistTp, priceDecimalPlaces)
       : (formatAdminPriceFromValue(row?.takeProfitPrice, priceDecimalPlaces) || '—');
-    const fishStop = isFishStrategy
-      ? calcFishStopPrice(toNumber(row?.inputPrice), assistTo, priceDecimalPlaces)
-      : null;
-    stopLabel = fishStop != null
-      ? formatTrimmedFixedDecimals(fishStop, priceDecimalPlaces)
-      : (formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—');
+    stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
   } else {
     concessions = buildAdminDisplayConcessions(row);
     // 趋势立项：止盈=5R 最佳点位（区分多空），止损=原止损
@@ -4942,7 +5015,7 @@ function buildAdminListItemHtml(row) {
     priceDecimalPlaces,
     assistLabels: isAssistLikeStrategy,
     hideStopColumn: true,
-    selectableStrategyId: rawId,
+    selectableStrategyId: showCounterTrend ? '' : rawId,
     isCurrentItem: (item) => isAdminConcessionCurrentItem(item, row),
     ...(showCounterTrend
       ? {
@@ -4994,7 +5067,7 @@ function buildAdminListItemHtml(row) {
   const pinTagHtml = isStrategyPinned(row)
     ? '<span class="admin-pin-tag" aria-label="已关注" title="已关注">♥</span>'
     : '';
-  const timeframeTagHtml = (strategyType.type === 'trend' && !showFishView)
+  const timeframeTagHtml = strategyType.type === 'trend'
     ? getTimeframeTagHtml(row?.timeframe)
     : '';
   const titleGroupHtml = [
@@ -5010,7 +5083,7 @@ function buildAdminListItemHtml(row) {
     ? `<div class="admin-item__head-right">${timeBadgeHtml}</div>`
     : '';
   return [
-    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}${isFishStrategy || showFishView ? ' admin-item--fish' : ''}${showTierAssistView || isTierAssistStrategy ? ' admin-item--tier-assist' : ''}${isStrategyPinned(row) ? ' admin-item--pinned' : ''}" data-id="${id}">`,
+    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}${showTierAssistView || isTierAssistStrategy ? ' admin-item--tier-assist' : ''}${isStrategyPinned(row) ? ' admin-item--pinned' : ''}" data-id="${id}">`,
     '<header class="admin-item__head">',
     selectHtml,
     '<div class="admin-item__head-main">',
@@ -5101,69 +5174,15 @@ document.addEventListener('visibilitychange', () => {
   syncAdminCountdownTimer();
 });
 
-async function renderStatsPage() {
-  const statsEl = document.getElementById('stats-recent-10');
-  if (!statsEl) return;
-
-  statsEl.innerHTML = '<div class="stats-loading">加载中...</div>';
-
+async function renderConfigPage() {
+  restoreConfigForm();
   try {
-    // 获取全部数据的统计和近10单统计
-    const [allStats, recent10Stats] = await Promise.all([
-      fetchStrategyStats('all', { ignoreAdminFilters: true }),
-      fetchRecent10Stats(),
-    ]);
-
-    // 渲染全部数据统计（使用已有的函数）
-    renderAdminStats(allStats);
-
-    // 渲染近10单统计
-    if (recent10Stats.totalCount === 0) {
-      statsEl.innerHTML = '<div class="stats-empty">暂无数据</div>';
-      return;
-    }
-
-    const html = [
-      '<div class="stats-summary">',
-      `<div class="stats-summary__item">`,
-      `<span class="stats-summary__label">总数</span>`,
-      `<span class="stats-summary__value">${recent10Stats.totalCount}单</span>`,
-      '</div>',
-      `<div class="stats-summary__item stats-summary__item--profit">`,
-      `<span class="stats-summary__label">盈利</span>`,
-      `<span class="stats-summary__value">${recent10Stats.profitCount}单</span>`,
-      '</div>',
-      `<div class="stats-summary__item stats-summary__item--loss">`,
-      `<span class="stats-summary__label">亏损</span>`,
-      `<span class="stats-summary__value">${recent10Stats.lossCount}单</span>`,
-      '</div>',
-      `<div class="stats-summary__item">`,
-      `<span class="stats-summary__label">未成交</span>`,
-      `<span class="stats-summary__value">${recent10Stats.notFilledCount}单</span>`,
-      '</div>',
-      `<div class="stats-summary__item">`,
-      `<span class="stats-summary__label">待定</span>`,
-      `<span class="stats-summary__value">${recent10Stats.pendingCount}单</span>`,
-      '</div>',
-      '</div>',
-      '<div class="stats-rates">',
-      `<div class="stats-rate">`,
-      `<span class="stats-rate__label">胜率</span>`,
-      `<span class="stats-rate__value stats-rate__value--highlight">${recent10Stats.winRate}%</span>`,
-      `<span class="stats-rate__note">盈利单数 / (盈利+亏损)</span>`,
-      '</div>',
-      `<div class="stats-rate">`,
-      `<span class="stats-rate__label">成交率</span>`,
-      `<span class="stats-rate__value stats-rate__value--highlight">${recent10Stats.openRate}%</span>`,
-      `<span class="stats-rate__note">(盈利+亏损) / 总单数</span>`,
-      '</div>',
-      '</div>',
-    ].join('');
-
-    statsEl.innerHTML = html;
-  } catch (err) {
-    statsEl.innerHTML = `<div class="stats-error">加载失败：${escapeHtml(String(err?.message || '未知错误'))}</div>`;
+    const rows = await fetchStrategies('all');
+    latestAdminRows = rows;
+  } catch {
+    // 配置页不阻断；取关时再提示
   }
+  updateConfigUnpinButton();
 }
 
 const CASES_DIR = './cases/';
@@ -6171,16 +6190,13 @@ function setFrontMode(mode, options = {}) {
   if (editingStrategyId && !options.force && next !== frontMode) return;
   frontMode = next;
   const trendPanel = document.getElementById('front-trend-panel');
-  const fishPanel = document.getElementById('front-fish-panel');
   if (trendPanel) trendPanel.hidden = frontMode !== FRONT_MODE_TREND;
-  if (fishPanel) fishPanel.hidden = frontMode !== FRONT_MODE_FISH;
   syncFrontModeSwitchUI();
   if (!isFrontPage()) return;
   updateSaveButtonLabels();
   updateHeaderClearButton();
   updateTradeModeAppearance();
-  if (frontMode === FRONT_MODE_FISH) autoGenerateFishIfReady();
-  else autoGenerateIfReady();
+  autoGenerateIfReady();
 }
 
 function setPage(mode, options = {}) {
@@ -6203,18 +6219,12 @@ function setPage(mode, options = {}) {
   const btnObservations = document.getElementById('btn-tab-observations');
   if (!front || !admin || !stats || !methodology || !cases || !observations || !btnFront || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations) return;
 
-  // 兼容旧入口：trend / assist / fish 都归入前台
+  // 兼容旧入口：trend / assist 都归入前台
   let requestedMode = mode;
   let requestedFrontMode = options.frontMode ?? null;
-  if (mode === 'trend') {
+  if (mode === 'trend' || mode === 'assist') {
     requestedMode = 'front';
     requestedFrontMode = FRONT_MODE_TREND;
-  } else if (mode === 'assist') {
-    requestedMode = 'front';
-    requestedFrontMode = FRONT_MODE_TREND;
-  } else if (mode === 'fish') {
-    requestedMode = 'front';
-    requestedFrontMode = FRONT_MODE_FISH;
   }
 
   const allowedPages = ['admin', 'stats', 'methodology', 'cases', 'observations', 'front'];
@@ -6262,11 +6272,10 @@ function setPage(mode, options = {}) {
     const keepAdminState = Boolean(restoreId) || wasEditing;
     resetFrontPage();
     resetAssistPage();
-    resetFishPage();
     if (keepAdminState) closeOutcomeStatusPicker();
     else resetAdminPageState();
     pendingAdminFocusId = '';
-    restoreUnitCostInput();
+    restoreConfigForm();
     renderAdminList()
       .then(() => {
         if (restoreId) scrollAdminItemIntoView(restoreId);
@@ -6276,28 +6285,24 @@ function setPage(mode, options = {}) {
     pendingAdminFocusId = '';
     resetFrontPage();
     resetAssistPage();
-    resetFishPage();
     resetAdminPageState();
-    renderStatsPage().catch(() => {});
+    renderConfigPage().catch(() => {});
   } else if (toMethodology) {
     pendingAdminFocusId = '';
     resetFrontPage();
     resetAssistPage();
-    resetFishPage();
     resetAdminPageState();
     renderMethodologyPage();
   } else if (toCases) {
     pendingAdminFocusId = '';
     resetFrontPage();
     resetAssistPage();
-    resetFishPage();
     resetAdminPageState();
     renderCasesPage().catch(() => {});
   } else if (toObservations) {
     pendingAdminFocusId = '';
     resetFrontPage();
     resetAssistPage();
-    resetFishPage();
     resetAdminPageState();
     resetObsPageState();
     renderObservationsPage().catch(() => {});
@@ -6308,7 +6313,6 @@ function setPage(mode, options = {}) {
       if (!preserveFrontForm) {
         resetFrontPage();
         resetAssistPage();
-        resetFishPage();
         frontMode = FRONT_MODE_TREND;
       }
     }
@@ -6519,82 +6523,6 @@ if (btnSaveAssist) btnSaveAssist.addEventListener('click', () => {
   saveAssistOutput().catch(() => {});
 });
 
-let isSavingFish = false;
-
-async function saveFishOutput() {
-  const btn = document.getElementById('btn-save-fish');
-  const errEl = document.getElementById('fish-error');
-  const nameEl = document.getElementById('fish-name-input');
-  const name = String(nameEl?.value ?? '').trim();
-  if (!name) {
-    if (errEl) errEl.textContent = '保存前请填写名称。';
-    flashCopyStrategyBtn(btn, '请填名称');
-    return;
-  }
-  if (errEl) errEl.textContent = '';
-  if (!currentFishCopyText || !currentFishRecord) {
-    flashCopyStrategyBtn(btn, '无内容');
-    return;
-  }
-  if (isSavingFish) return;
-  isSavingFish = true;
-  if (btn) {
-    if (!btn.dataset.defaultLabel) btn.dataset.defaultLabel = btn.textContent;
-    if (btn._flashTimer) {
-      clearTimeout(btn._flashTimer);
-      btn._flashTimer = null;
-    }
-    btn.disabled = true;
-    btn.setAttribute('aria-busy', 'true');
-    btn.textContent = '保存中';
-  }
-
-  let saved = false;
-  const isEditing = Boolean(editingStrategyId);
-  try {
-    const record = enrichStrategyRecordForSubmit({
-      ...currentFishRecord,
-      strategyName: name,
-    });
-    if (isEditing) {
-      await updateStrategy(editingStrategyId, record);
-    } else {
-      await createStrategy(record);
-    }
-    saved = true;
-    clearEditingStrategy();
-    setPage('admin');
-    flashCopyStrategyBtn(btn, isEditing ? '已修改' : '已保存');
-  } catch (err) {
-    logSave('error', '吃鱼助手保存失败', {
-      message: err?.message || String(err),
-    });
-    if (errEl) errEl.textContent = formatStrategySaveError(err);
-    flashCopyStrategyBtn(btn, '保存失败');
-  } finally {
-    isSavingFish = false;
-    if (btn) {
-      btn.disabled = false;
-      btn.removeAttribute('aria-busy');
-      if (!saved && !btn._flashTimer) {
-        btn.textContent = btn.dataset.defaultLabel || '保存';
-      }
-    }
-  }
-}
-
-const btnSaveFish = document.getElementById('btn-save-fish');
-if (btnSaveFish) btnSaveFish.addEventListener('click', () => {
-  saveFishOutput().catch(() => {});
-});
-
-const fishNameInput = document.getElementById('fish-name-input');
-const fishFromInput = document.getElementById('fish-from-input');
-const fishToInput = document.getElementById('fish-to-input');
-if (fishNameInput) fishNameInput.addEventListener('input', autoGenerateFishIfReady);
-if (fishFromInput) fishFromInput.addEventListener('input', autoGenerateFishIfReady);
-if (fishToInput) fishToInput.addEventListener('input', autoGenerateFishIfReady);
-
 const assistNameInput = document.getElementById('assist-name-input');
 const assistFromInput = document.getElementById('assist-from-input');
 const assistToInput = document.getElementById('assist-to-input');
@@ -6607,6 +6535,7 @@ const clearAll = () => {
     setPage('admin');
     return;
   }
+  if (!isDeveloperMode) return;
   if (currentPage === 'admin') {
     if (!isAdminSelectionMode) {
       enterAdminSelectionMode();
@@ -6653,6 +6582,32 @@ if (unitCostInput) {
     }
   });
 }
+const btnKellyRatioSave = document.getElementById('kelly-ratio-save');
+if (btnKellyRatioSave) btnKellyRatioSave.addEventListener('click', () => {
+  handleKellyRatioSave().catch(() => {});
+});
+const kellyRatioInput = document.getElementById('kelly-denom-input');
+if (kellyRatioInput) {
+  kellyRatioInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleKellyRatioSave().catch(() => {});
+    }
+  });
+}
+const developerModeToggle = document.getElementById('developer-mode-toggle');
+if (developerModeToggle) {
+  developerModeToggle.addEventListener('click', () => {
+    setDeveloperMode(!isDeveloperMode);
+    showToast(isDeveloperMode ? '开发者模式已开启' : '开发者模式已关闭');
+  });
+}
+const configUnpinAllBtn = document.getElementById('config-unpin-all');
+if (configUnpinAllBtn) {
+  configUnpinAllBtn.addEventListener('click', () => {
+    requestUnpinDisplayedAdminStrategies();
+  });
+}
 const btnTabMethodology = document.getElementById('btn-tab-methodology');
 if (btnTabMethodology) btnTabMethodology.addEventListener('click', () => setPage('methodology'));
 const btnTabCases = document.getElementById('btn-tab-cases');
@@ -6668,8 +6623,6 @@ document.querySelectorAll('[data-timeframe]').forEach((btn) => {
 
 const btnFrontModeTrend = document.getElementById('btn-front-mode-trend');
 if (btnFrontModeTrend) btnFrontModeTrend.addEventListener('click', () => setFrontMode(FRONT_MODE_TREND));
-const btnFrontModeFish = document.getElementById('btn-front-mode-fish');
-if (btnFrontModeFish) btnFrontModeFish.addEventListener('click', () => setFrontMode(FRONT_MODE_FISH));
 
 function isAdminMoreMenuOpen() {
   const menu = document.getElementById('admin-more-menu');
@@ -6718,7 +6671,7 @@ document.addEventListener('keydown', (e) => {
   if (isAdminMoreMenuOpen()) closeAdminMoreMenu();
   if (isUnpinAllArmed) {
     disarmUnpinAll();
-    renderAdminActiveNames();
+    updateConfigUnpinButton();
   }
 });
 
@@ -6830,10 +6783,6 @@ if (adminActiveNamesEl) {
       toggleAdminSortByExpires();
       return;
     }
-    if (target.closest('[data-admin-unpin-all]')) {
-      requestUnpinDisplayedAdminStrategies();
-      return;
-    }
     const nameTarget = target.closest('[data-admin-name-filter]');
     if (!nameTarget) return;
     const name = nameTarget.getAttribute('data-admin-name-filter');
@@ -6926,6 +6875,22 @@ if (adminListEl) {
       if (expandedCounterTrendIds.has(id)) expandedCounterTrendIds.delete(id);
       else expandedCounterTrendIds.add(id);
       renderAdminListItems();
+      return;
+    }
+
+    const counterSideBtn = target.closest('[data-counter-side-action]');
+    if (counterSideBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isCreatingTierAssist || isAdminSelectionMode || isDeletingStrategies) return;
+      const id = String(counterSideBtn.getAttribute('data-id') ?? '').trim();
+      const side = String(counterSideBtn.getAttribute('data-counter-side-action') ?? '').trim();
+      const rate = Number(counterSideBtn.getAttribute('data-rate'));
+      const price = counterSideBtn.getAttribute('data-price');
+      if (!id || (side !== 'long' && side !== 'short')) return;
+      const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
+      if (!row) return;
+      createTierAssistFromCounterAction(row, side, rate, price).catch(() => {});
       return;
     }
 

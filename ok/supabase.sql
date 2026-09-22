@@ -601,29 +601,44 @@ check (
 );
 
 -- ------------------------------------------------------------
--- 6. 应用设置（unit_cost：总资金，后台管理页可改；每档本金 = 总资金 / 3，1/3 凯利）
+-- 6. 应用设置（unit_cost：欢乐豆总数；kelly_ratio：凯利系数 0.1–0.5；每档本金 = 总数 × 凯利）
 -- ------------------------------------------------------------
 
 create table if not exists public.app_settings (
   id text primary key default 'default',
   unit_cost numeric not null default 100,
+  kelly_ratio numeric not null default 0.3333,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint app_settings_unit_cost_positive_check check (unit_cost > 0)
+  constraint app_settings_unit_cost_positive_check check (unit_cost > 0),
+  constraint app_settings_kelly_ratio_check check (kelly_ratio >= 0.1 and kelly_ratio <= 0.5)
 );
 
 alter table public.app_settings
 add column if not exists unit_cost numeric;
 
+alter table public.app_settings
+add column if not exists kelly_ratio numeric;
+
 update public.app_settings
 set unit_cost = 100
 where unit_cost is null or unit_cost <= 0;
+
+update public.app_settings
+set kelly_ratio = 0.3333
+where kelly_ratio is null or kelly_ratio < 0.1 or kelly_ratio > 0.5;
 
 alter table public.app_settings
 alter column unit_cost set default 100;
 
 alter table public.app_settings
+alter column kelly_ratio set default 0.3333;
+
+alter table public.app_settings
 alter column unit_cost set not null;
+
+alter table public.app_settings
+alter column kelly_ratio set not null;
 
 alter table public.app_settings
 drop constraint if exists app_settings_unit_cost_positive_check;
@@ -632,8 +647,15 @@ alter table public.app_settings
 add constraint app_settings_unit_cost_positive_check
 check (unit_cost > 0);
 
-insert into public.app_settings (id, unit_cost)
-values ('default', 100)
+alter table public.app_settings
+drop constraint if exists app_settings_kelly_ratio_check;
+
+alter table public.app_settings
+add constraint app_settings_kelly_ratio_check
+check (kelly_ratio >= 0.1 and kelly_ratio <= 0.5);
+
+insert into public.app_settings (id, unit_cost, kelly_ratio)
+values ('default', 100, 0.3333)
 on conflict (id) do nothing;
 
 drop trigger if exists app_settings_set_updated_at on public.app_settings;

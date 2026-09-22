@@ -44,7 +44,7 @@
             <button id="admin-more-toggle" type="button" class="admin-more__toggle" aria-label="更多" aria-haspopup="menu" aria-expanded="false" aria-controls="admin-more-menu">···</button>
             <div id="admin-more-menu" class="admin-more__menu" role="menu" hidden>
               <button id="btn-tab-methodology" type="button" class="admin-more__item" role="menuitem">方法论</button>
-              <button id="btn-tab-stats" type="button" class="admin-more__item" role="menuitem">数据统计</button>
+              <button id="btn-tab-stats" type="button" class="admin-more__item" role="menuitem">配置菜单</button>
               <button id="btn-tab-cases" type="button" class="admin-more__item" role="menuitem">典型案例</button>
             </div>
           </div>
@@ -53,10 +53,6 @@
     </header>
 
     <section id="front-page" hidden>
-    <div class="front-mode-switch" role="tablist" aria-label="前台模式">
-      <button id="btn-front-mode-trend" type="button" class="front-mode-switch__btn is-active" role="tab" aria-selected="true" data-front-mode="trend">趋势立项</button>
-      <button id="btn-front-mode-fish" type="button" class="front-mode-switch__btn" role="tab" aria-selected="false" data-front-mode="fish">吃鱼助手</button>
-    </div>
     <div id="front-trend-panel">
     <section class="panel" aria-label="参数输入">
       <div class="field">
@@ -100,31 +96,9 @@
     </section>
     <button id="btn-copy-strategy" type="button" class="btn-save-strategy" aria-label="保存策略">保存</button>
     </div>
-    <div id="front-fish-panel" hidden>
-    <section class="panel" aria-label="吃鱼助手参数">
-      <label class="field">
-        <span class="field-label">名称</span>
-        <input id="fish-name-input" class="field-input" autocomplete="off" />
-      </label>
-      <label class="field field--spaced">
-        <span class="field-label">from</span>
-        <input id="fish-from-input" class="field-input" inputmode="decimal" autocomplete="off" />
-      </label>
-      <label class="field field--spaced">
-        <span class="field-label">to</span>
-        <input id="fish-to-input" class="field-input" inputmode="decimal" autocomplete="off" />
-      </label>
-      <p id="fish-error" class="error" role="alert" aria-live="polite"></p>
-    </section>
-    <button id="btn-save-fish" type="button" class="btn-save-strategy" aria-label="保存策略">保存</button>
-    </div>
     </section>
 
     <section id="admin-page" class="panel admin-page" aria-label="后台管理">
-      <div class="admin-unit-cost">
-        <input id="unit-cost-input" class="admin-unit-cost__input" type="text" inputmode="decimal" autocomplete="off" placeholder="100" />
-        <button id="unit-cost-save" type="button" class="admin-unit-cost__save">保存</button>
-      </div>
       <div id="admin-filter-tabs" class="admin-filter-tabs" role="tablist" aria-label="时间状态筛选"></div>
       <div id="admin-active-names" class="admin-active-names" hidden aria-label="当前筛选策略名称"></div>
       <div id="admin-selection" class="admin-selection" hidden>
@@ -138,14 +112,40 @@
       <div id="admin-list" class="admin-list"></div>
     </section>
 
-    <section id="stats-page" class="panel stats-page" aria-label="数据统计" hidden>
-      <h2 class="stats-page__title">数据统计</h2>
-      <h3 class="stats-section-title">全部数据统计</h3>
-      <div id="admin-stats" class="admin-stats"></div>
-      <h3 class="stats-section-title">近10单统计</h3>
-      <div id="stats-recent-10" class="stats-recent-10">
-        <div class="stats-loading">加载中...</div>
+    <section id="stats-page" class="panel stats-page config-page" aria-label="配置菜单" hidden>
+      <h2 class="stats-page__title">配置菜单</h2>
+      <div class="config-list">
+        <label class="config-row" for="unit-cost-input">
+          <span class="config-row__label">欢乐豆总数</span>
+          <span class="config-row__control">
+            <input id="unit-cost-input" class="config-row__input" type="text" inputmode="decimal" autocomplete="off" placeholder="100" />
+            <button id="unit-cost-save" type="button" class="config-row__save">保存</button>
+          </span>
+        </label>
+        <label class="config-row" for="kelly-denom-input">
+          <span class="config-row__label">凯利系数</span>
+          <span class="config-row__control">
+            <span class="config-kelly" aria-hidden="true">1 /</span>
+            <input id="kelly-denom-input" class="config-row__input config-row__input--kelly" type="number" inputmode="numeric" min="2" max="10" step="1" autocomplete="off" placeholder="3" />
+            <button id="kelly-ratio-save" type="button" class="config-row__save">保存</button>
+          </span>
+        </label>
+        <div class="config-row">
+          <span class="config-row__label">开发者模式</span>
+          <span class="config-row__control">
+            <button id="developer-mode-toggle" type="button" class="config-switch" role="switch" aria-checked="false" aria-label="开发者模式">
+              <span class="config-switch__track" aria-hidden="true"></span>
+            </button>
+          </span>
+        </div>
+        <div class="config-row">
+          <span class="config-row__label">取消关注</span>
+          <span class="config-row__control">
+            <button id="config-unpin-all" type="button" class="config-row__action">一键取关全部</button>
+          </span>
+        </div>
       </div>
+      <p id="config-hint" class="config-hint" aria-live="polite"></p>
     </section>
 
     <section id="methodology-page" class="panel methodology-page" aria-label="方法论" hidden>
