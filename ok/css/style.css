@@ -1020,33 +1020,6 @@ body.login-mode {
   --admin-tier-pad-x: 8px;
 }
 
-.admin-item:has(.admin-item__remark-stamp) {
-  padding-bottom: 16px;
-}
-
-.admin-item__remark-stamp {
-  position: relative;
-  z-index: 1;
-  display: block;
-  width: fit-content;
-  max-width: min(74%, 240px);
-  margin: 10px auto 10px;
-  padding: 7px 14px;
-  border: 2px solid #94a3b8;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
-  color: #64748b;
-  font-size: 16px;
-  font-weight: 800;
-  line-height: 1.35;
-  letter-spacing: 0.2px;
-  text-align: center;
-  transform: rotate(-8deg);
-  transform-origin: center center;
-  pointer-events: none;
-  word-break: break-word;
-}
-
 .admin-item::before {
   content: "";
   position: absolute;
@@ -1080,37 +1053,6 @@ body.login-mode {
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.admin-item__desc {
-  margin: 0;
-  padding: 8px var(--admin-tier-pad-x, 8px) 9px;
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 0;
-  border-top: 1px solid var(--border-soft);
-}
-
-.admin-item__desc-label {
-  flex: none;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--muted);
-  line-height: 1.45;
-  white-space: nowrap;
-}
-
-.admin-item__desc-text {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.45;
-  word-break: break-word;
-  white-space: pre-wrap;
 }
 
 .admin-item__sub {
@@ -3178,44 +3120,6 @@ body.login-mode {
   pointer-events: none;
 }
 
-.status-picker__remark {
-  display: grid;
-  gap: 5px;
-  margin-top: 10px;
-}
-
-.status-picker__remark-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.status-picker__remark-input {
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 9px 10px;
-  font-size: 14px;
-  line-height: 1.4;
-  font-family: inherit;
-  color: var(--text);
-  background: #fff;
-  resize: vertical;
-  min-height: 64px;
-  outline: none;
-}
-
-.status-picker__remark-input:focus {
-  border-color: #4ade80;
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
-}
-
-.status-picker__remark-input:disabled {
-  opacity: 0.58;
-  cursor: not-allowed;
-  background: #f8fafc;
-}
-
 .status-picker__option-title {
   display: block;
   font-size: 15px;
@@ -3696,11 +3600,6 @@ body.login-mode {
     font-size: 17px;
   }
 
-  .admin-item__desc-label,
-  .admin-item__desc-text {
-    font-size: 12px;
-  }
-
   .admin-time-status {
     flex: none;
     margin-left: 0;
@@ -3738,14 +3637,6 @@ body.login-mode {
   .admin-item__table {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-  }
-
-  .admin-item__remark-stamp {
-    max-width: min(78%, 200px);
-    margin: 8px auto 8px;
-    padding: 5px 10px;
-    font-size: 14px;
-    transform: rotate(-6deg);
   }
 
   .admin-concession {
@@ -3990,6 +3881,18 @@ body.login-mode {
   gap: 8px;
   min-width: 0;
   flex: 1;
+}
+
+.config-timeframe-switch {
+  width: 100%;
+  max-width: 240px;
+  padding: 3px;
+  gap: 4px;
+}
+
+.config-timeframe-switch .timeframe-switch__btn {
+  padding: 6px 4px;
+  font-size: 12px;
 }
 
 .config-row__input {

@@ -164,7 +164,10 @@ as $$
         coalesce(p_time_filter, 'all') = 'all'
         or (
           p_time_filter = 'active'
-          and (expires_at is null or expires_at > coalesce(p_now, now()))
+          and start_at is not null
+          and expires_at is not null
+          and start_at <= coalesce(p_now, now())
+          and expires_at > coalesce(p_now, now())
           and (p_outcome_status is not null and p_outcome_status <> 'all' or outcome_status = 'pending')
         )
         or (

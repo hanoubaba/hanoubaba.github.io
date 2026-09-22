@@ -196,9 +196,12 @@ function getCurrentTimeSlot(stepMinutes) {
 }
 
 const START_TIME_SLOT_COUNT = 5;
-const DEFAULT_TIMEFRAME = '4h';
+const BUILTIN_DEFAULT_TIMEFRAME = '4h';
+const DEFAULT_TIMEFRAME_OPTIONS = ['1h', '4h', '8h', '1d'];
+const DEFAULT_TIMEFRAME_STORAGE_KEY = 'ok_default_timeframe';
+let DEFAULT_TIMEFRAME = BUILTIN_DEFAULT_TIMEFRAME;
 const DEFAULT_ASSIST_TIMEFRAME = '8h';
-const FRONT_TREND_TIMEFRAMES = ['4h', '8h', '1d'];
+const FRONT_TREND_TIMEFRAMES = ['1h', '4h', '8h', '1d'];
 const FRONT_PAGES = ['front'];
 const FRONT_MODE_TREND = 'trend';
 const FRONT_MODE_ASSIST = 'assist';
@@ -226,6 +229,53 @@ function normalizeTimeframeMode(mode) {
 function normalizeFrontTrendTimeframe(mode) {
   const value = String(mode ?? '').trim();
   return FRONT_TREND_TIMEFRAMES.includes(value) ? value : DEFAULT_TIMEFRAME;
+}
+
+function normalizeDefaultTimeframe(mode) {
+  const value = String(mode ?? '').trim();
+  return DEFAULT_TIMEFRAME_OPTIONS.includes(value) ? value : BUILTIN_DEFAULT_TIMEFRAME;
+}
+
+/** 前台时间维度默认值：始终取自配置菜单 */
+function getConfiguredDefaultTimeframe() {
+  return normalizeDefaultTimeframe(DEFAULT_TIMEFRAME);
+}
+
+function loadDefaultTimeframe() {
+  try {
+    DEFAULT_TIMEFRAME = normalizeDefaultTimeframe(localStorage.getItem(DEFAULT_TIMEFRAME_STORAGE_KEY));
+  } catch {
+    DEFAULT_TIMEFRAME = BUILTIN_DEFAULT_TIMEFRAME;
+  }
+  trendTimeframeMode = getConfiguredDefaultTimeframe();
+  syncDefaultTimeframeUI();
+  syncFrontTimeframeSwitch('trend');
+  return DEFAULT_TIMEFRAME;
+}
+
+function syncDefaultTimeframeUI() {
+  document.querySelectorAll('[data-default-timeframe]').forEach((btn) => {
+    const active = btn.getAttribute('data-default-timeframe') === getConfiguredDefaultTimeframe();
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
+function setDefaultTimeframe(mode) {
+  const next = normalizeDefaultTimeframe(mode);
+  const changed = next !== DEFAULT_TIMEFRAME;
+  DEFAULT_TIMEFRAME = next;
+  try {
+    localStorage.setItem(DEFAULT_TIMEFRAME_STORAGE_KEY, next);
+  } catch {
+    // ignore
+  }
+  syncDefaultTimeframeUI();
+  // 配置变更后同步前台默认选中项（编辑中不打断当前表单）
+  if (!editingStrategyId) {
+    setFrontTimeframeMode(next, { refresh: isFrontPage(), scope: 'trend' });
+  }
+  return changed;
 }
 
 let trendTimeframeMode = DEFAULT_TIMEFRAME;
@@ -531,6 +581,7 @@ function restoreConfigForm() {
   restoreUnitCostInput();
   restoreKellyRatioInput();
   syncDeveloperModeUI();
+  syncDefaultTimeframeUI();
   updateConfigUnpinButton();
 }
 
@@ -1571,6 +1622,12 @@ const METHODOLOGY_SECTIONS = [
       '恐惧和贪婪只靠规则约束。谨慎会少赚一点，但这是活着的代价。',
     ],
   },
+  {
+    title: '10、回归基本功',
+    items: [
+      '趋势跟随是唯一答案，寻找第二形态是路线错误。',
+    ],
+  },
 ];
 
 let authSession = null;
@@ -1841,8 +1898,10 @@ async function handleLoginSubmit(event) {
 async function enterAuthenticatedApp() {
   showApp();
   loadDeveloperMode();
+  loadDefaultTimeframe();
   loadCachedKellyRatioFallback();
   syncDeveloperModeUI();
+  syncDefaultTimeframeUI();
   try {
     await fetchAppSettings();
   } catch {
@@ -2459,10 +2518,7 @@ function getStartSlotValueFromRow(row) {
 
 function getStrategyDescription(scope = getFrontFormScope()) {
   const normalized = scope === 'assist' ? scope : 'trend';
-  if (normalized === 'trend') {
-    const remarkEl = document.getElementById('remark-input');
-    if (remarkEl) return String(remarkEl.value ?? '').trim();
-  }
+  if (normalized === 'trend') return '';
   if (editingStrategyId && editingStrategyPreserve) {
     return String(editingStrategyPreserve.description ?? '').trim();
   }
@@ -2473,12 +2529,10 @@ function populateTrendFormFromRow(row) {
   const nameEl = document.getElementById('name-input');
   const openEl = document.getElementById('open-price-input');
   const stopEl = document.getElementById('stop-price-input');
-  const remarkEl = document.getElementById('remark-input');
   if (nameEl) nameEl.value = String(row?.strategyName ?? '').trim();
   if (openEl) openEl.value = String(row?.inputPrice ?? '').trim();
   if (stopEl) stopEl.value = String(row?.inputStopLoss ?? '').trim();
-  if (remarkEl) remarkEl.value = String(row?.description ?? '').trim();
-  setFrontTimeframeMode(row?.timeframe || DEFAULT_TIMEFRAME, { refresh: false, scope: 'trend' });
+  setFrontTimeframeMode(row?.timeframe || getConfiguredDefaultTimeframe(), { refresh: false, scope: 'trend' });
   const startSlot = getStartSlotValueFromRow(row);
   setStartTimeUserPicked(true, 'trend');
   rebuildStartTimeOptions(startSlot, { ensurePreferredSlot: true, scope: 'trend' });
@@ -2504,7 +2558,6 @@ function readFrontFormDraft(scope) {
   const { sel } = getStartTimeFieldEls(isAssist ? 'assist' : 'trend');
   return {
     name: String(document.getElementById(isAssist ? 'assist-name-input' : 'name-input')?.value ?? ''),
-    remark: isAssist ? '' : String(document.getElementById('remark-input')?.value ?? ''),
     timeframe: getTimeframeMode(isAssist ? 'assist' : 'trend'),
     startTime: String(sel?.value ?? '').trim(),
     startTimePicked: isStartTimeUserPicked(isAssist ? 'assist' : 'trend'),
@@ -2518,13 +2571,11 @@ function applyFrontFormDraft(draft, scope) {
   const nameEl = document.getElementById(isAssist ? 'assist-name-input' : 'name-input');
   const priceAEl = document.getElementById(isAssist ? 'assist-from-input' : 'open-price-input');
   const priceBEl = document.getElementById(isAssist ? 'assist-to-input' : 'stop-price-input');
-  const remarkEl = isAssist ? null : document.getElementById('remark-input');
   if (nameEl) nameEl.value = draft.name ?? '';
   if (priceAEl) priceAEl.value = draft.priceA ?? '';
   if (priceBEl) priceBEl.value = draft.priceB ?? '';
-  if (remarkEl) remarkEl.value = draft.remark ?? '';
   setFrontTimeframeMode(
-    draft.timeframe || (isAssist ? DEFAULT_ASSIST_TIMEFRAME : DEFAULT_TIMEFRAME),
+    draft.timeframe || (isAssist ? DEFAULT_ASSIST_TIMEFRAME : getConfiguredDefaultTimeframe()),
     { refresh: false, scope: isAssist ? 'assist' : 'trend' },
   );
   const startTime = String(draft.startTime ?? '').trim();
@@ -2610,39 +2661,18 @@ function formatStrategyCardTitle(name) {
   return /[A-Z]/.test(base) ? base.toLowerCase() : base;
 }
 
-function formatAdminCardTitlePlain(name, remark) {
-  const title = formatStrategyCardTitle(name);
-  const note = String(remark ?? '').trim();
-  return note ? `${title}，备注：${note}` : title;
+function formatAdminCardTitlePlain(name) {
+  return formatStrategyCardTitle(name);
 }
 
-function renderAdminDescriptionHtml(description) {
-  const text = String(description ?? '').trim();
-  if (!text) return '';
+function buildStrategyCopyText({ name, price, quantity, takeProfit, stopLoss }) {
   return [
-    `<div class="admin-item__desc" aria-label="备注：${escapeHtml(text)}">`,
-    `<p class="admin-item__desc-text">${escapeHtml(text)}</p>`,
-    '</div>',
-  ].join('');
-}
-
-function renderAdminRemarkStampHtml(remark) {
-  const note = String(remark ?? '').trim();
-  if (!note) return '';
-  return `<div class="admin-item__remark-stamp" aria-label="备注：${escapeHtml(note)}">${escapeHtml(note)}</div>`;
-}
-
-function buildStrategyCopyText({ name, price, quantity, takeProfit, stopLoss, description }) {
-  const lines = [
     formatStrategyCardTitle(name),
     `开始价格：${String(price ?? '').trim()}`,
     `数量：${String(quantity ?? '').trim()}`,
     `止盈：${String(takeProfit ?? '').trim()}`,
     `止损价格：${String(stopLoss ?? '').trim()}`,
-  ];
-  const note = String(description ?? '').trim();
-  if (note) lines.push(`备注：${note}`);
-  return lines.join('\n');
+  ].join('\n');
 }
 
 function enrichStrategyRecordForSubmit(record) {
@@ -3570,11 +3600,10 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
     quantity: qty,
     takeProfit: tpLabel,
     stopLoss: stopLabel,
-    description: getStrategyDescription('trend'),
   });
   const record = {
     strategyName: alarmName,
-    description: getStrategyDescription('trend'),
+    description: '',
     positionSide: side,
     inputPrice: formatPrice(open),
     inputStopLoss: formatPrice(stop),
@@ -3718,13 +3747,11 @@ function resetFrontPage() {
   closeMobileTimePicker();
   setStartTimeUserPicked(false, 'trend');
   clearEditingStrategy();
-  setFrontTimeframeMode(DEFAULT_TIMEFRAME, { refresh: false, scope: 'trend' });
+  setFrontTimeframeMode(getConfiguredDefaultTimeframe(), { refresh: false, scope: 'trend' });
   rebuildStartTimeOptions(null, { scope: 'trend' });
   if (openInput) openInput.value = '';
   if (stopInput) stopInput.value = '';
   if (nameInput) nameInput.value = '';
-  const remarkEl = document.getElementById('remark-input');
-  if (remarkEl) remarkEl.value = '';
   const errEl = document.getElementById('error');
   if (errEl) errEl.textContent = '';
   clearStrategyState();
@@ -3926,7 +3953,10 @@ function buildStrategiesQuery(filterValue = 'all') {
     params.push(`strategy_name=ilike.${encodeURIComponent(`*${nameSearch}*`)}`);
   }
   if (filter === 'active') {
-    params.push(`or=(expires_at.gt.${encodeURIComponent(new Date().toISOString())},expires_at.is.null)`);
+    const nowIso = encodeURIComponent(new Date().toISOString());
+    // 进行中：当前时间落在 [start_at, expires_at) 内（须有明确时间范围）
+    params.push(`start_at=lte.${nowIso}`);
+    params.push(`expires_at=gt.${nowIso}`);
     params.push('outcome_status=eq.pending');
   } else if (filter === 'dueToday') {
     const { start, end } = getLocalDayRange();
@@ -4099,14 +4129,14 @@ async function deleteStrategies(ids) {
   if (!res.ok) throw new Error(await res.text());
 }
 
-async function updateStrategyOutcomeStatus(id, outcomeStatus, remark) {
+async function updateStrategyOutcomeStatus(id, outcomeStatus) {
   const encodedId = encodeURIComponent(id);
   const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
     method: 'PATCH',
     headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
     body: JSON.stringify({
       outcome_status: outcomeStatus,
-      outcome_remark: String(remark ?? '').trim(),
+      outcome_remark: '',
     }),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -4203,10 +4233,11 @@ function getTimeRangeStatusByEndAt(endAt) {
 const ADMIN_TIME_FILTER_LABELS = {
   all: '全部',
   pinned: '关注',
+  active: '进行中',
   dueToday: '今日到期',
 };
 
-const DEFAULT_ADMIN_TIME_FILTER = 'all';
+const DEFAULT_ADMIN_TIME_FILTER = 'active';
 
 let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
 let adminNameSearch = '';
@@ -4271,10 +4302,27 @@ function isStrategyDueToday(row) {
   return status === 'pending';
 }
 
+/** 进行中：当前时刻落在策略时间范围内 */
+function isStrategyInProgress(row) {
+  const startAt = getStrategyStartAt(row);
+  const endAt = getStrategyEndAt(row);
+  if (!startAt || !endAt) return false;
+  const status = String(row?.outcomeStatus ?? '').trim() || 'pending';
+  if (status !== 'pending') return false;
+  const nowTs = Date.now();
+  return nowTs >= startAt.getTime() && nowTs < endAt.getTime();
+}
+
 function filterRowsByAdminTimeFilter(rows) {
   const list = Array.isArray(rows) ? rows : [];
   const filter = normalizeAdminTimeFilter(adminTimeFilter);
   if (filter === 'pinned') return list.filter(isStrategyPinned);
+  if (filter === 'active') {
+    return list.filter((row) => {
+      if (getAdminStrategyTypeInfo(row).type === 'tier_assist') return false;
+      return isStrategyInProgress(row);
+    });
+  }
   if (filter === 'dueToday') {
     // 趋势辅助本身不按到期筛，随后由 includeLinkedTierAssists 随原单带出
     return list.filter((row) => {
@@ -4774,8 +4822,6 @@ function setOutcomeStatusPickerLoading(loading) {
   document.querySelectorAll('#status-picker button').forEach((btn) => {
     btn.disabled = loading;
   });
-  const remarkEl = document.getElementById('status-picker-remark');
-  if (remarkEl) remarkEl.disabled = loading;
 }
 
 function setOutcomeStatusPickerError(message) {
@@ -4785,8 +4831,6 @@ function setOutcomeStatusPickerError(message) {
 
 function resetOutcomeStatusPickerForm() {
   pendingOutcomeStatusSelection = '';
-  const remarkEl = document.getElementById('status-picker-remark');
-  if (remarkEl) remarkEl.value = '';
   document.querySelectorAll('#status-picker [data-outcome-status]').forEach((btn) => {
     btn.classList.remove('is-selected');
     btn.setAttribute('aria-pressed', 'false');
@@ -4804,7 +4848,7 @@ function selectOutcomeStatusInPicker(outcomeStatus) {
   });
 }
 
-function openOutcomeStatusPicker(id, currentStatus, currentRemark) {
+function openOutcomeStatusPicker(id, currentStatus) {
   const picker = document.getElementById('status-picker');
   if (!picker || !id) return;
   pendingOutcomeStatusRecordId = id;
@@ -4816,8 +4860,6 @@ function openOutcomeStatusPicker(id, currentStatus, currentRemark) {
   if (isOutcomeStatusChoice(normalized)) {
     selectOutcomeStatusInPicker(normalized);
   }
-  const remarkEl = document.getElementById('status-picker-remark');
-  if (remarkEl) remarkEl.value = String(currentRemark ?? '');
 
   picker.hidden = false;
   document.body.style.overflow = 'hidden';
@@ -4848,12 +4890,10 @@ async function submitOutcomeStatusFromPicker() {
     setOutcomeStatusPickerError('请先选择盈利状态。');
     return;
   }
-  const remarkEl = document.getElementById('status-picker-remark');
-  const remark = String(remarkEl?.value ?? '').trim();
   setOutcomeStatusPickerLoading(true);
   setOutcomeStatusPickerError('');
   try {
-    await updateStrategyOutcomeStatus(id, nextOutcomeStatus, remark);
+    await updateStrategyOutcomeStatus(id, nextOutcomeStatus);
     closeOutcomeStatusPicker();
     await renderAdminList();
   } catch {
@@ -4887,8 +4927,8 @@ async function renderAdminList() {
   }
   let rows = [];
   try {
-    // 关注 / 今日到期在展示层过滤，拉取全量以便关联趋势辅助能找到
-    const fetchFilter = (adminTimeFilter === 'pinned' || adminTimeFilter === 'dueToday')
+    // 关注 / 进行中 / 今日到期在展示层过滤，拉取全量以便关联趋势辅助能找到
+    const fetchFilter = (adminTimeFilter === 'pinned' || adminTimeFilter === 'active' || adminTimeFilter === 'dueToday')
       ? 'all'
       : adminTimeFilter;
     rows = await fetchStrategies(fetchFilter);
@@ -4957,12 +4997,11 @@ function buildAdminListItemHtml(row) {
   const title = escapeHtml(formatStrategyCardTitle(nameRaw));
   const titleLabel = escapeHtml(
     isTierAssistStrategy
-      ? `${formatTierAssistStrategyTitle(nameRaw)}${String(row?.outcomeRemark ?? '').trim() ? `，备注：${String(row.outcomeRemark).trim()}` : ''}`
+      ? formatTierAssistStrategyTitle(nameRaw)
       : isAssistStrategy
-        ? `${formatAssistStrategyTitle(nameRaw)}${String(row?.outcomeRemark ?? '').trim() ? `，备注：${String(row.outcomeRemark).trim()}` : ''}`
-        : formatAdminCardTitlePlain(nameRaw, row?.outcomeRemark),
+        ? formatAssistStrategyTitle(nameRaw)
+        : formatAdminCardTitlePlain(nameRaw),
   );
-  const remarkStampHtml = renderAdminRemarkStampHtml(row?.outcomeRemark);
   const priceDecimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
   let concessions;
   let stopLabel;
@@ -5107,12 +5146,6 @@ function buildAdminListItemHtml(row) {
         '</div>',
       ].join(''),
     '</div>',
-    renderAdminDescriptionHtml(
-      isTierAssistStrategy
-        ? stripTierAssistMetaDescription(row?.description)
-        : row?.description,
-    ),
-    remarkStampHtml,
     '</article>',
   ].join('');
 }
@@ -6258,14 +6291,14 @@ function setPage(mode, options = {}) {
   btnAdmin.classList.toggle('is-active', toAdmin);
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   btnStats.classList.toggle('is-active', toStats);
+  btnStats.setAttribute('aria-selected', toStats ? 'true' : 'false');
   btnMethodology.classList.toggle('is-active', toMethodology);
   btnCases.classList.toggle('is-active', toCases);
   btnObservations.classList.toggle('is-active', toObservations);
-  btnObservations.setAttribute('aria-selected', toObservations ? 'true' : 'false');
 
   const moreToggle = document.getElementById('admin-more-toggle');
   if (moreToggle) {
-    moreToggle.classList.toggle('is-active', toStats || toMethodology || toCases);
+    moreToggle.classList.toggle('is-active', toObservations || toMethodology || toCases);
   }
   closeAdminMoreMenu();
 
@@ -6330,6 +6363,7 @@ function setPage(mode, options = {}) {
       updateSaveButtonLabels();
       updateHeaderClearButton();
     }
+    syncFrontTimeframeSwitch('trend');
     syncPinButtonUI();
   }
 
@@ -6608,6 +6642,13 @@ if (developerModeToggle) {
     showToast(isDeveloperMode ? '开发者模式已开启' : '开发者模式已关闭');
   });
 }
+document.querySelectorAll('[data-default-timeframe]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const next = btn.getAttribute('data-default-timeframe');
+    const changed = setDefaultTimeframe(next);
+    if (changed) showToast(`前台默认时间维度已设为 ${normalizeDefaultTimeframe(next)}`);
+  });
+});
 const configUnpinAllBtn = document.getElementById('config-unpin-all');
 if (configUnpinAllBtn) {
   configUnpinAllBtn.addEventListener('click', () => {
@@ -6931,7 +6972,6 @@ if (adminListEl) {
       openOutcomeStatusPicker(
         id,
         outcomeStatusActionBtn.getAttribute('data-outcome-status'),
-        outcomeStatusActionBtn.getAttribute('data-outcome-remark') ?? '',
       );
     }
   });

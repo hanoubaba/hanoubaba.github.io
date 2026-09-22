@@ -38,13 +38,13 @@
           <div class="page-switch" role="tablist" aria-label="页面切换">
           <button id="btn-tab-front" type="button" class="page-switch__btn" role="tab" aria-selected="false">前台</button>
           <button id="btn-tab-admin" type="button" class="page-switch__btn is-active" role="tab" aria-selected="true">后台管理</button>
-          <button id="btn-tab-observations" type="button" class="page-switch__btn" role="tab" aria-selected="false">机会排行榜</button>
+          <button id="btn-tab-stats" type="button" class="page-switch__btn" role="tab" aria-selected="false">配置菜单</button>
           </div>
           <div class="admin-more">
             <button id="admin-more-toggle" type="button" class="admin-more__toggle" aria-label="更多" aria-haspopup="menu" aria-expanded="false" aria-controls="admin-more-menu">···</button>
             <div id="admin-more-menu" class="admin-more__menu" role="menu" hidden>
               <button id="btn-tab-methodology" type="button" class="admin-more__item" role="menuitem">方法论</button>
-              <button id="btn-tab-stats" type="button" class="admin-more__item" role="menuitem">配置菜单</button>
+              <button id="btn-tab-observations" type="button" class="admin-more__item" role="menuitem">机会排行榜</button>
               <button id="btn-tab-cases" type="button" class="admin-more__item" role="menuitem">典型案例</button>
             </div>
           </div>
@@ -58,7 +58,8 @@
       <div class="field">
         <span class="field-label" id="timeframe-label">时间维度</span>
         <div class="timeframe-switch" role="tablist" aria-labelledby="timeframe-label">
-          <button id="btn-timeframe-4h" type="button" class="timeframe-switch__btn is-active" role="tab" aria-selected="true" data-timeframe="4h">4h</button>
+          <button id="btn-timeframe-1h" type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-timeframe="1h">1h</button>
+          <button id="btn-timeframe-4h" type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-timeframe="4h">4h</button>
           <button id="btn-timeframe-8h" type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-timeframe="8h">8h</button>
           <button id="btn-timeframe-1d" type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-timeframe="1d">1d</button>
         </div>
@@ -85,11 +86,6 @@
       <label class="field field--spaced">
         <span id="stop-price-label" class="field-label">止损价格</span>
         <input id="stop-price-input" class="field-input" inputmode="decimal" autocomplete="off" />
-      </label>
-
-      <label class="field field--spaced">
-        <span class="field-label">备注</span>
-        <textarea id="remark-input" class="field-input field-input--textarea" rows="2" autocomplete="off"></textarea>
       </label>
 
       <p id="error" class="error" role="alert" aria-live="polite"></p>
@@ -130,6 +126,17 @@
             <button id="kelly-ratio-save" type="button" class="config-row__save">保存</button>
           </span>
         </label>
+        <div class="config-row">
+          <span class="config-row__label" id="default-timeframe-label">时间维度默认</span>
+          <span class="config-row__control">
+            <div class="timeframe-switch config-timeframe-switch" role="tablist" aria-labelledby="default-timeframe-label">
+              <button type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-default-timeframe="1h">1h</button>
+              <button type="button" class="timeframe-switch__btn is-active" role="tab" aria-selected="true" data-default-timeframe="4h">4h</button>
+              <button type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-default-timeframe="8h">8h</button>
+              <button type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-default-timeframe="1d">1d</button>
+            </div>
+          </span>
+        </div>
         <div class="config-row">
           <span class="config-row__label">开发者模式</span>
           <span class="config-row__control">
@@ -194,7 +201,7 @@
       <div class="status-picker__grabber" aria-hidden="true"></div>
       <div class="status-picker__header">
         <h2 id="status-picker-title" class="status-picker__title">盈利状态</h2>
-        <p id="status-picker-desc" class="status-picker__desc">选择状态并填写备注，点击提交后生效。</p>
+        <p id="status-picker-desc" class="status-picker__desc">选择状态后点击提交生效。</p>
       </div>
       <div class="status-picker__options">
         <button id="status-picker-profit" type="button" class="status-picker__option status-picker__option--profit" data-outcome-status="profit" aria-pressed="false">
@@ -210,10 +217,6 @@
           <span class="status-picker__option-note">本单未成交或放弃</span>
         </button>
       </div>
-      <label class="status-picker__remark">
-        <span class="status-picker__remark-label">备注</span>
-        <textarea id="status-picker-remark" class="status-picker__remark-input" rows="2"></textarea>
-      </label>
       <p id="status-picker-error" class="status-picker__error" role="alert" aria-live="polite"></p>
       <div class="status-picker__actions">
         <button id="status-picker-cancel" type="button" class="status-picker__cancel">取消</button>
