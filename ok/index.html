@@ -31,7 +31,6 @@
       <div class="header-bar">
         <div class="header-leading">
           <button id="btn-clear" type="button" class="header-action" hidden>清空</button>
-          <button id="btn-toggle-pin" type="button" class="header-action header-action--pin" hidden>关注</button>
         </div>
         <h1 class="title"></h1>
         <div class="header-actions">
@@ -111,21 +110,21 @@
     <section id="stats-page" class="panel stats-page config-page" aria-label="配置菜单" hidden>
       <h2 class="stats-page__title">配置菜单</h2>
       <div class="config-list">
-        <label class="config-row" for="unit-cost-input">
-          <span class="config-row__label">欢乐豆总数</span>
+        <div class="config-row">
+          <span class="config-row__label" id="unit-cost-label">欢乐豆总数</span>
           <span class="config-row__control">
-            <input id="unit-cost-input" class="config-row__input" type="text" inputmode="decimal" autocomplete="off" placeholder="100" />
+            <input id="unit-cost-input" class="config-row__input" type="text" inputmode="decimal" autocomplete="off" placeholder="100" aria-labelledby="unit-cost-label" />
             <button id="unit-cost-save" type="button" class="config-row__save">保存</button>
           </span>
-        </label>
-        <label class="config-row" for="kelly-denom-input">
-          <span class="config-row__label">凯利系数</span>
+        </div>
+        <div class="config-row">
+          <span class="config-row__label" id="kelly-denom-label">凯利系数</span>
           <span class="config-row__control">
             <span class="config-kelly" aria-hidden="true">1 /</span>
-            <input id="kelly-denom-input" class="config-row__input config-row__input--kelly" type="number" inputmode="numeric" min="2" max="10" step="1" autocomplete="off" placeholder="3" />
+            <input id="kelly-denom-input" class="config-row__input config-row__input--kelly" type="text" inputmode="numeric" autocomplete="off" placeholder="3" aria-labelledby="kelly-denom-label" />
             <button id="kelly-ratio-save" type="button" class="config-row__save">保存</button>
           </span>
-        </label>
+        </div>
         <div class="config-row">
           <span class="config-row__label" id="default-timeframe-label">时间维度默认</span>
           <span class="config-row__control">
@@ -143,12 +142,6 @@
             <button id="developer-mode-toggle" type="button" class="config-switch" role="switch" aria-checked="false" aria-label="开发者模式">
               <span class="config-switch__track" aria-hidden="true"></span>
             </button>
-          </span>
-        </div>
-        <div class="config-row">
-          <span class="config-row__label">取消关注</span>
-          <span class="config-row__control">
-            <button id="config-unpin-all" type="button" class="config-row__action">一键取关全部</button>
           </span>
         </div>
       </div>

@@ -582,7 +582,6 @@ function restoreConfigForm() {
   restoreKellyRatioInput();
   syncDeveloperModeUI();
   syncDefaultTimeframeUI();
-  updateConfigUnpinButton();
 }
 
 function isMissingKellyRatioColumnError(errorText) {
@@ -667,30 +666,42 @@ async function saveAppSettings(patch = {}) {
   return { unit_cost: cachedUnitCostInput, kelly_ratio: cachedKellyRatio };
 }
 
+function setConfigSaveBusy(btn, busy) {
+  if (!btn) return;
+  btn.disabled = Boolean(busy);
+  btn.setAttribute('aria-busy', busy ? 'true' : 'false');
+  btn.classList.toggle('is-loading', Boolean(busy));
+  btn.textContent = busy ? '保存中' : '保存';
+}
+
+async function runConfigSave(btn, task) {
+  setConfigSaveBusy(btn, true);
+  const started = Date.now();
+  try {
+    await task();
+  } finally {
+    const wait = Math.max(0, 320 - (Date.now() - started));
+    if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+    setConfigSaveBusy(btn, false);
+  }
+}
+
 async function handleUnitCostSave() {
   const input = document.getElementById('unit-cost-input');
   const btn = document.getElementById('unit-cost-save');
+  if (btn?.disabled) return;
   const inputValue = normalizeUnitCost(getUnitCostInputValue());
   if (inputValue == null) {
-    showToast('请输入大于 0 的数字');
     input?.focus();
     return;
   }
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = '保存中';
-  }
   try {
-    await saveAppSettings({ unit_cost: inputValue });
-    showToast('欢乐豆总数已保存');
-    if (currentPage === 'admin') renderAdminListItems();
-  } catch (err) {
-    showToast(String(err?.message || '保存失败'));
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = '保存';
-    }
+    await runConfigSave(btn, async () => {
+      await saveAppSettings({ unit_cost: inputValue });
+      if (currentPage === 'admin') renderAdminListItems();
+    });
+  } catch {
+    // 仅按钮 Loading，不弹提示
   }
 }
 
@@ -702,29 +713,21 @@ function getKellyDenominatorInputValue() {
 async function handleKellyRatioSave() {
   const input = document.getElementById('kelly-denom-input');
   const btn = document.getElementById('kelly-ratio-save');
+  if (btn?.disabled) return;
   const denom = normalizeKellyDenominator(getKellyDenominatorInputValue());
   const kelly = kellyRatioFromDenominator(denom);
   if (denom == null || kelly == null) {
-    showToast(`分母须为 ${KELLY_DENOM_MIN}–${KELLY_DENOM_MAX} 的整数`);
     input?.focus();
     return;
   }
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = '保存中';
-  }
   try {
-    await saveAppSettings({ kelly_ratio: kelly });
-    restoreKellyRatioInput();
-    showToast(kellyRatioColumnAvailable ? `凯利系数已保存为 1/${denom}` : `凯利系数已保存到本机：1/${denom}`);
-    if (currentPage === 'admin') renderAdminListItems();
-  } catch (err) {
-    showToast(String(err?.message || '保存失败'));
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = '保存';
-    }
+    await runConfigSave(btn, async () => {
+      await saveAppSettings({ kelly_ratio: kelly });
+      restoreKellyRatioInput();
+      if (currentPage === 'admin') renderAdminListItems();
+    });
+  } catch {
+    // 仅按钮 Loading，不弹提示
   }
 }
 
@@ -999,22 +1002,6 @@ function normalizeViewState(value) {
   }
   if (typeof value === 'object' && !Array.isArray(value)) return value;
   return {};
-}
-
-function isStrategyPinned(row) {
-  return Boolean(normalizeViewState(row?.viewState).pinned);
-}
-
-function setPinnedInViewState(viewState, pinned) {
-  const next = { ...normalizeViewState(viewState) };
-  if (pinned) {
-    next.pinned = true;
-    next.pinnedAt = new Date().toISOString();
-  } else {
-    delete next.pinned;
-    delete next.pinnedAt;
-  }
-  return next;
 }
 
 function getTierAssistViewState(row) {
@@ -2457,7 +2444,6 @@ function clearEditingStrategy() {
   editingStrategyPreserve = null;
   updateSaveButtonLabels();
   syncFrontModeSwitchLock();
-  syncPinButtonUI();
 }
 
 function syncFrontModeSwitchLock() {
@@ -2478,17 +2464,6 @@ function syncFrontModeSwitchUI() {
   syncFrontModeSwitchLock();
 }
 
-function syncPinButtonUI() {
-  const btn = document.getElementById('btn-toggle-pin');
-  if (!btn) return;
-  const isEditing = Boolean(editingStrategyId);
-  const pinned = isStrategyPinned({ viewState: editingStrategyPreserve?.viewState });
-  btn.hidden = !isEditing;
-  btn.textContent = pinned ? '取消关注' : '关注';
-  btn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
-  btn.classList.toggle('is-pinned', pinned);
-}
-
 function updateSaveButtonLabels() {
   const trendBtn = document.getElementById('btn-copy-strategy');
   const assistBtn = document.getElementById('btn-save-assist');
@@ -2504,7 +2479,6 @@ function updateSaveButtonLabels() {
     assistBtn.dataset.defaultLabel = label;
   }
   syncFrontModeSwitchLock();
-  syncPinButtonUI();
 }
 
 function getStartSlotValueFromRow(row) {
@@ -2619,7 +2593,7 @@ function startEditStrategy(row, { focusId = '' } = {}) {
 
   updateSaveButtonLabels();
   updateHeaderClearButton();
-  syncPinButtonUI();
+  syncFrontModeSwitchLock();
   showToast('已进入修改模式（趋势立项）');
   window.scrollTo(0, 0);
 }
@@ -3041,19 +3015,17 @@ function renderCounterTrendFoldLinkHtml(strategyId) {
 }
 
 function renderCounterTrendSideActionsHtml(strategyId, item) {
-  const id = escapeHtml(String(strategyId ?? '').trim());
+  const id = String(strategyId ?? '').trim();
   const rateNum = Number(item?.rate);
   const rateLabel = String(item?.rateLabel ?? '').trim().toUpperCase();
   const isSRow = rateLabel === 'S' || rateLabel === 'R' || Math.abs(rateNum - 1) < 1e-9;
   if (!id || isSRow) {
     return '<span class="admin-concession__actions"></span>';
   }
-  const rate = escapeHtml(String(Number.isFinite(rateNum) ? rateNum : '').trim());
-  const price = escapeHtml(String(item?.price ?? '').trim());
   return [
     '<span class="admin-concession__actions">',
-    `<button type="button" class="admin-concession__side-btn admin-concession__side-btn--long" data-counter-side-action="long" data-id="${id}" data-rate="${rate}" data-price="${price}">做多</button>`,
-    `<button type="button" class="admin-concession__side-btn admin-concession__side-btn--short" data-counter-side-action="short" data-id="${id}" data-rate="${rate}" data-price="${price}">做空</button>`,
+    '<button type="button" class="admin-concession__side-btn admin-concession__side-btn--long" disabled aria-disabled="true" title="暂不可用">做多</button>',
+    '<button type="button" class="admin-concession__side-btn admin-concession__side-btn--short" disabled aria-disabled="true" title="暂不可用">做空</button>',
     '</span>',
   ].join('');
 }
@@ -4231,7 +4203,6 @@ function getTimeRangeStatusByEndAt(endAt) {
 
 const ADMIN_TIME_FILTER_LABELS = {
   all: '全部',
-  pinned: '关注',
   active: '进行中',
   dueToday: '今日到期',
 };
@@ -4242,12 +4213,6 @@ let adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
 let adminNameSearch = '';
 let adminNameFilter = '';
 let adminSortByExpiresAsc = false;
-let isUnpinningAll = false;
-let isUnpinAllArmed = false;
-let unpinAllArmedAt = 0;
-let unpinAllArmTimer = 0;
-const UNPIN_ALL_ARM_MS = 4000;
-const UNPIN_ALL_CONFIRM_DELAY_MS = 700;
 function getAdminNameFilterKey(name) {
   const raw = String(name ?? '').trim();
   if (!raw) return '';
@@ -4315,7 +4280,6 @@ function isStrategyInProgress(row) {
 function filterRowsByAdminTimeFilter(rows) {
   const list = Array.isArray(rows) ? rows : [];
   const filter = normalizeAdminTimeFilter(adminTimeFilter);
-  if (filter === 'pinned') return list.filter(isStrategyPinned);
   if (filter === 'active') {
     return list.filter((row) => {
       if (getAdminStrategyTypeInfo(row).type === 'tier_assist') return false;
@@ -4360,164 +4324,15 @@ function getDisplayAdminRows(rows = latestAdminRows) {
   return arrangeLinkedTierAssistRows(ordered);
 }
 
-function getPinnedAdminRowsForUnpin(rows = latestAdminRows) {
-  return getAdminVisibleRows(rows).filter(isStrategyPinned);
-}
-
-function disarmUnpinAll() {
-  if (unpinAllArmTimer) {
-    window.clearTimeout(unpinAllArmTimer);
-    unpinAllArmTimer = 0;
-  }
-  isUnpinAllArmed = false;
-  unpinAllArmedAt = 0;
-}
-
-function updateConfigUnpinButton() {
-  const btn = document.getElementById('config-unpin-all');
-  if (!btn) return;
-  const pinnedCount = getPinnedAdminRowsForUnpin().length;
-  const canUnpin = !isDeletingStrategies && (pinnedCount > 0 || isUnpinningAll || isUnpinAllArmed);
-  btn.disabled = !canUnpin || isUnpinningAll;
-  btn.classList.toggle('is-busy', isUnpinningAll);
-  btn.classList.toggle('is-armed', isUnpinAllArmed && !isUnpinningAll);
-  btn.setAttribute('aria-busy', isUnpinningAll ? 'true' : 'false');
-  btn.setAttribute('aria-pressed', isUnpinAllArmed ? 'true' : 'false');
-  if (isUnpinningAll) {
-    btn.textContent = '取关中';
-  } else if (isUnpinAllArmed) {
-    btn.textContent = `确认取关 ${pinnedCount}`;
-  } else {
-    btn.textContent = pinnedCount > 0 ? `一键取关全部（${pinnedCount}）` : '一键取关全部';
-  }
-}
-
-function armUnpinAll() {
-  isUnpinAllArmed = true;
-  unpinAllArmedAt = Date.now();
-  if (unpinAllArmTimer) window.clearTimeout(unpinAllArmTimer);
-  unpinAllArmTimer = window.setTimeout(() => {
-    unpinAllArmTimer = 0;
-    isUnpinAllArmed = false;
-    unpinAllArmedAt = 0;
-    updateConfigUnpinButton();
-  }, UNPIN_ALL_ARM_MS);
-  updateConfigUnpinButton();
-}
-
-function requestUnpinDisplayedAdminStrategies() {
-  if (isUnpinningAll || isDeletingStrategies) return;
-  const pinnedCount = getPinnedAdminRowsForUnpin().length;
-  if (!pinnedCount) {
-    disarmUnpinAll();
-    updateConfigUnpinButton();
-    showToast('当前没有关注中的单据');
-    return;
-  }
-  if (!isUnpinAllArmed) {
-    armUnpinAll();
-    return;
-  }
-  if (Date.now() - unpinAllArmedAt < UNPIN_ALL_CONFIRM_DELAY_MS) return;
-  unpinDisplayedAdminStrategies().catch(() => {});
-}
-
-async function unpinDisplayedAdminStrategies() {
-  if (isUnpinningAll || isDeletingStrategies) return;
-  disarmUnpinAll();
-  let sourceRows = latestAdminRows;
-  if (!Array.isArray(sourceRows) || !sourceRows.length) {
-    try {
-      sourceRows = await fetchStrategies('all');
-      latestAdminRows = sourceRows;
-    } catch (err) {
-      showToast(String(err?.message || '加载单据失败'));
-      updateConfigUnpinButton();
-      return;
-    }
-  }
-  const targets = getPinnedAdminRowsForUnpin(sourceRows);
-  if (!targets.length) {
-    updateConfigUnpinButton();
-    showToast('当前没有关注中的单据');
-    return;
-  }
-  const snapshots = targets.map((row) => {
-    const id = String(row?.id ?? '').trim();
-    return {
-      id,
-      viewMode: row?.viewMode,
-      prevViewState: normalizeViewState(row?.viewState),
-      nextViewState: setPinnedInViewState(row?.viewState, false),
-    };
-  }).filter((item) => item.id);
-  if (!snapshots.length) {
-    updateConfigUnpinButton();
-    return;
-  }
-
-  const nextById = new Map(snapshots.map((item) => [item.id, item.nextViewState]));
-  const prevById = new Map(snapshots.map((item) => [item.id, item.prevViewState]));
-
-  isUnpinningAll = true;
-  latestAdminRows = latestAdminRows.map((item) => {
-    const id = String(item?.id ?? '').trim();
-    if (!nextById.has(id)) return item;
-    return { ...item, viewState: nextById.get(id) };
-  });
-  if (currentPage === 'admin') {
-    renderAdminListItems();
-    renderAdminActiveNames();
-    updateAdminSelectionControls();
-  }
-  updateConfigUnpinButton();
-
-  try {
-    const results = await Promise.allSettled(snapshots.map((item) => (
-      updateStrategyView(item.id, {
-        viewMode: item.viewMode,
-        viewState: item.nextViewState,
-      })
-    )));
-    const failedIds = new Set();
-    results.forEach((result, index) => {
-      if (result.status === 'rejected') {
-        failedIds.add(snapshots[index].id);
-        console.error('[admin-unpin-all]', snapshots[index].id, result.reason);
-      }
-    });
-    if (failedIds.size) {
-      latestAdminRows = latestAdminRows.map((item) => {
-        const id = String(item?.id ?? '').trim();
-        if (!failedIds.has(id)) return item;
-        return { ...item, viewState: prevById.get(id) };
-      });
-      showToast(`${failedIds.size} 条取关失败`);
-    } else {
-      showToast(`已取消关注 ${snapshots.length} 条`);
-    }
-  } finally {
-    isUnpinningAll = false;
-    if (currentPage === 'admin') {
-      renderAdminListItems();
-      renderAdminActiveNames();
-      updateAdminSelectionControls();
-    }
-    updateConfigUnpinButton();
-  }
-}
-
 function toggleAdminNameFilter(name) {
   const key = getAdminNameFilterKey(name);
   if (!key) return;
-  disarmUnpinAll();
   adminNameFilter = adminNameFilter === key ? '' : key;
   renderAdminListItems();
   renderAdminActiveNames();
 }
 
 function toggleAdminSortByExpires() {
-  disarmUnpinAll();
   adminSortByExpiresAsc = !adminSortByExpiresAsc;
   renderAdminListItems();
   renderAdminActiveNames();
@@ -4640,8 +4455,6 @@ function resetAdminPageState() {
   selectedStrategyIds.clear();
   visibleAdminStrategyIds = [];
   isDeletingStrategies = false;
-  isUnpinningAll = false;
-  disarmUnpinAll();
   updatingAdminViewModeIds.clear();
   renderAdminControls();
   updateAdminSelectionControls();
@@ -4747,7 +4560,6 @@ function updateHeaderClearButton() {
 }
 
 function enterAdminSelectionMode() {
-  disarmUnpinAll();
   isAdminSelectionMode = true;
   renderAdminList().catch(() => updateAdminSelectionControls());
 }
@@ -4926,8 +4738,8 @@ async function renderAdminList() {
   }
   let rows = [];
   try {
-    // 关注 / 进行中 / 今日到期在展示层过滤，拉取全量以便关联趋势辅助能找到
-    const fetchFilter = (adminTimeFilter === 'pinned' || adminTimeFilter === 'active' || adminTimeFilter === 'dueToday')
+    // 进行中 / 今日到期在展示层过滤，拉取全量以便关联趋势辅助能找到
+    const fetchFilter = (adminTimeFilter === 'active' || adminTimeFilter === 'dueToday')
       ? 'all'
       : adminTimeFilter;
     rows = await fetchStrategies(fetchFilter);
@@ -5104,9 +4916,6 @@ function buildAdminListItemHtml(row) {
     ].join('')
     : '';
   const currentModeTagHtml = getAdminCurrentModeTagHtml(row);
-  const pinTagHtml = isStrategyPinned(row)
-    ? '<span class="admin-pin-tag" aria-label="已关注" title="已关注">♥</span>'
-    : '';
   const timeframeTagHtml = strategyType.type === 'trend'
     ? getTimeframeTagHtml(row?.timeframe)
     : '';
@@ -5114,16 +4923,15 @@ function buildAdminListItemHtml(row) {
     '<div class="admin-item__title-wrap">',
     `<span class="admin-item__title">${title}</span>`,
     sideTagHtml,
-    currentModeTagHtml,
     timeframeTagHtml,
-    pinTagHtml,
+    currentModeTagHtml,
     '</div>',
   ].join('');
   const headRightHtml = timeBadgeHtml
     ? `<div class="admin-item__head-right">${timeBadgeHtml}</div>`
     : '';
   return [
-    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}${showTierAssistView || isTierAssistStrategy ? ' admin-item--tier-assist' : ''}${isStrategyPinned(row) ? ' admin-item--pinned' : ''}" data-id="${id}">`,
+    `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}${showTierAssistView || isTierAssistStrategy ? ' admin-item--tier-assist' : ''}" data-id="${id}">`,
     '<header class="admin-item__head">',
     selectHtml,
     '<div class="admin-item__head-main">',
@@ -5218,9 +5026,8 @@ async function renderConfigPage() {
     const rows = await fetchStrategies('all');
     latestAdminRows = rows;
   } catch {
-    // 配置页不阻断；取关时再提示
+    // 配置页不阻断
   }
-  updateConfigUnpinButton();
 }
 
 const CASES_DIR = './cases/';
@@ -6363,30 +6170,32 @@ function setPage(mode, options = {}) {
       updateHeaderClearButton();
     }
     syncFrontTimeframeSwitch('trend');
-    syncPinButtonUI();
   }
 
   syncAdminCountdownTimer();
 }
 
-function showToast() {
+function showToast(message, duration = 1500) {
   const toast = document.getElementById('app-toast');
   if (!toast) return;
-  if (toast._toastTimer) {
-    clearTimeout(toast._toastTimer);
+  if (toast._toastTimer) clearTimeout(toast._toastTimer);
+  toast.textContent = message;
+  toast.hidden = false;
+  toast._toastTimer = setTimeout(() => {
+    toast.hidden = true;
     toast._toastTimer = null;
-  }
-  toast.hidden = true;
-  toast.textContent = '';
+  }, duration);
 }
 
-function flashCopyStrategyBtn(btn) {
+function flashCopyStrategyBtn(btn, label, duration = 1200) {
   if (!btn) return;
-  if (btn._flashTimer) {
-    clearTimeout(btn._flashTimer);
+  if (!btn.dataset.defaultLabel) btn.dataset.defaultLabel = btn.textContent;
+  if (btn._flashTimer) clearTimeout(btn._flashTimer);
+  btn.textContent = label;
+  btn._flashTimer = setTimeout(() => {
+    btn.textContent = btn.dataset.defaultLabel || '保存';
     btn._flashTimer = null;
-  }
-  btn.textContent = btn.dataset.defaultLabel || '保存';
+  }, duration);
 }
 
 let isSavingStrategy = false;
@@ -6479,19 +6288,6 @@ async function copyStrategyOutput() {
 
 const btnCopyStrategy = document.getElementById('btn-copy-strategy');
 if (btnCopyStrategy) btnCopyStrategy.addEventListener('click', copyStrategyOutput);
-
-function togglePinDraft() {
-  if (!editingStrategyId || !editingStrategyPreserve) return;
-  const nextPinned = !isStrategyPinned({ viewState: editingStrategyPreserve.viewState });
-  editingStrategyPreserve.viewState = setPinnedInViewState(
-    editingStrategyPreserve.viewState,
-    nextPinned,
-  );
-  syncPinButtonUI();
-}
-
-const btnTogglePin = document.getElementById('btn-toggle-pin');
-if (btnTogglePin) btnTogglePin.addEventListener('click', togglePinDraft);
 
 let isSavingAssist = false;
 
@@ -6648,12 +6444,6 @@ document.querySelectorAll('[data-default-timeframe]').forEach((btn) => {
     if (changed) showToast(`前台默认时间维度已设为 ${normalizeDefaultTimeframe(next)}`);
   });
 });
-const configUnpinAllBtn = document.getElementById('config-unpin-all');
-if (configUnpinAllBtn) {
-  configUnpinAllBtn.addEventListener('click', () => {
-    requestUnpinDisplayedAdminStrategies();
-  });
-}
 const btnTabMethodology = document.getElementById('btn-tab-methodology');
 if (btnTabMethodology) btnTabMethodology.addEventListener('click', () => setPage('methodology'));
 const btnTabCases = document.getElementById('btn-tab-cases');
@@ -6715,10 +6505,6 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (isAdminMoreMenuOpen()) closeAdminMoreMenu();
-  if (isUnpinAllArmed) {
-    disarmUnpinAll();
-    updateConfigUnpinButton();
-  }
 });
 
 const obsAddBtn = document.getElementById('obs-add-btn');
@@ -6800,7 +6586,6 @@ if (adminFilterTabsEl) {
     if (!target) return;
     const nextFilter = normalizeAdminTimeFilter(target.getAttribute('data-admin-time-filter'));
     if (adminTimeFilter === nextFilter) return;
-    disarmUnpinAll();
     adminTimeFilter = nextFilter;
     adminNameFilter = '';
     adminSortByExpiresAsc = false;
@@ -6921,22 +6706,6 @@ if (adminListEl) {
       if (expandedCounterTrendIds.has(id)) expandedCounterTrendIds.delete(id);
       else expandedCounterTrendIds.add(id);
       renderAdminListItems();
-      return;
-    }
-
-    const counterSideBtn = target.closest('[data-counter-side-action]');
-    if (counterSideBtn) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (isCreatingTierAssist || isAdminSelectionMode || isDeletingStrategies) return;
-      const id = String(counterSideBtn.getAttribute('data-id') ?? '').trim();
-      const side = String(counterSideBtn.getAttribute('data-counter-side-action') ?? '').trim();
-      const rate = Number(counterSideBtn.getAttribute('data-rate'));
-      const price = counterSideBtn.getAttribute('data-price');
-      if (!id || (side !== 'long' && side !== 'short')) return;
-      const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
-      if (!row) return;
-      createTierAssistFromCounterAction(row, side, rate, price).catch(() => {});
       return;
     }
 
