@@ -285,12 +285,21 @@ let assistStartTimeUserPicked = false;
 let mobileTimePickerScope = 'trend';
 
 const PRICE_ADJUSTMENT_RATE = 0;
+/** 做多让利档位：00% / 10% / 20% / 50% / 80% */
 const CONCESSION_RATES = [
   { rate: 0, display: true, reuseMinTierCost: true },
   { rate: 0.1, display: true, reuseMinTierCost: true },
   { rate: 0.2, costShare: 1 / 3 },
   { rate: 0.5, costShare: 1 / 3 },
   { rate: 0.8, costShare: 1 / 3 },
+];
+/** 做空让利档位：-80% / -50% / 00% / 10% / 20% */
+const CONCESSION_RATES_SHORT = [
+  { rate: -0.8, costShare: 1 / 3 },
+  { rate: -0.5, costShare: 1 / 3 },
+  { rate: 0, display: true, reuseMinTierCost: true },
+  { rate: 0.1, display: true, reuseMinTierCost: true },
+  { rate: 0.2, costShare: 1 / 3 },
 ];
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
@@ -333,7 +342,7 @@ function persistKellyRatioFallback(kelly) {
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R = 3;
-const BEST_TAKE_PROFIT_R = 5;
+const BEST_TAKE_PROFIT_R = 4.5;
 const STRATEGY_DURATION_PERIODS = 10;
 const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
@@ -752,8 +761,20 @@ function applyAdminFixedTierQuantities(concessions, stopLoss, { isAssist: _isAss
   return applyDatasetQuantityFormat(concessions.map((item) => ({ ...item })), rawQtys);
 }
 
-function getConcessionRates() {
-  return CONCESSION_RATES;
+function getTrendPositionSide(rowOrSide) {
+  if (rowOrSide === 'short' || rowOrSide === 'long') return rowOrSide;
+  const side = String(rowOrSide?.positionSide ?? '').trim();
+  if (side === 'short' || side === 'long') return side;
+  const entry = toNumber(rowOrSide?.entryPrice ?? rowOrSide?.inputPrice);
+  const stop = toNumber(rowOrSide?.stopLossPrice ?? rowOrSide?.inputStopLoss);
+  if (entry != null && stop != null && entry !== stop) {
+    return entry > stop ? 'long' : 'short';
+  }
+  return 'long';
+}
+
+function getConcessionRates(side = 'long') {
+  return getTrendPositionSide(side) === 'short' ? CONCESSION_RATES_SHORT : CONCESSION_RATES;
 }
 
 function isKnownTierCount(tierCount) {
@@ -820,12 +841,13 @@ function buildUnifiedConcessionsForRow(row) {
   );
   const currentConcessions = buildAdminConcessionsForRow(row);
   const reverse = inferReverseFromConcessions(entryPrice, stopLoss, currentConcessions, decimalPlaces);
+  const side = getTrendPositionSide(row);
   return buildConcessionItems(
     entryPrice,
     stopLoss,
     null,
     decimalPlaces,
-    getConcessionRates(),
+    getConcessionRates(side),
     reverse,
     { fixedTierOpenCost: getAdminTierFixedOpenCost() },
   );
@@ -851,9 +873,19 @@ function getConfiguredDisplayRates(rateConfigs) {
     .sort((a, b) => a - b);
 }
 
-function isCurrentTrendConcessionSet(concessions) {
+function isCurrentTrendConcessionSet(concessions, side = null) {
   const rates = getSortedDisplayRates(concessions);
-  return ratesMatch(rates, [0, 0.1, 0.2, 0.5, 0.8])
+  const resolvedSide = side == null ? null : getTrendPositionSide(side);
+  if (resolvedSide === 'short') {
+    return ratesMatch(rates, getConfiguredDisplayRates(CONCESSION_RATES_SHORT));
+  }
+  if (resolvedSide === 'long') {
+    return ratesMatch(rates, getConfiguredDisplayRates(CONCESSION_RATES))
+      || ratesMatch(rates, [0.2, 0.5, 0.8])
+      || ratesMatch(rates, [0, 0.3, 0.8]);
+  }
+  return ratesMatch(rates, getConfiguredDisplayRates(CONCESSION_RATES))
+    || ratesMatch(rates, getConfiguredDisplayRates(CONCESSION_RATES_SHORT))
     || ratesMatch(rates, [0.2, 0.5, 0.8])
     || ratesMatch(rates, [0, 0.3, 0.8]);
 }
@@ -940,12 +972,13 @@ function getAdminStrategyTypeInfo(row) {
 function buildAdminDisplayConcessions(row) {
   const savedConcessions = buildAdminConcessionsForRow(row);
   const stopLoss = toNumber(row?.stopLossPrice);
-  if (isCurrentTrendConcessionSet(savedConcessions)) {
+  const side = getTrendPositionSide(row);
+  if (isCurrentTrendConcessionSet(savedConcessions, side)) {
     return applyAdminFixedTierQuantities(savedConcessions, stopLoss);
   }
   const rebuilt = buildUnifiedConcessionsForRow(row);
   if (rebuilt) return rebuilt;
-  if (hasConcessions(savedConcessions)) {
+  if (hasConcessions(savedConcessions) && side !== 'short') {
     return applyAdminFixedTierQuantities(savedConcessions, stopLoss);
   }
   return buildTrendAdminConcessions(row);
@@ -969,12 +1002,13 @@ function buildTrendAdminConcessions(row) {
   const decimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
   const savedConcessions = buildAdminConcessionsForRow(row);
   const reverse = inferReverseFromConcessions(entryPrice, stopLoss, savedConcessions, decimalPlaces);
+  const side = getTrendPositionSide(row);
   return buildConcessionItems(
     entryPrice,
     stopLoss,
     null,
     decimalPlaces,
-    getConcessionRates(),
+    getConcessionRates(side),
     reverse,
     { fixedTierOpenCost: getAdminTierFixedOpenCost() },
   );
@@ -1613,6 +1647,8 @@ const METHODOLOGY_SECTIONS = [
     title: '10、回归基本功',
     items: [
       '趋势跟随是唯一答案，寻找第二形态是路线错误。',
+      '主4h副8h看1d',
+      '严守规则，不符合的找机会离场避险。',
     ],
   },
 ];
@@ -2758,7 +2794,7 @@ function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces 
   return formatTrimmedFixedDecimals(normalized, decimals);
 }
 
-/** 趋势立项最佳止盈点位：5R，方向随多空（开>止为多，开<止为空） */
+/** 趋势立项最佳止盈点位：4.5R，方向随多空（开>止为多，开<止为空） */
 function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
@@ -2884,6 +2920,7 @@ function resolveTierOpenCost(openCostTotal, costShare, fixedTierOpenCost = null)
 function formatConcessionPercent(rate) {
   const pct = Math.round(Number(rate) * 100);
   if (!Number.isFinite(pct)) return '—';
+  if (pct < 0) return `-${String(Math.abs(pct)).padStart(2, '0')}%`;
   return `${String(pct).padStart(2, '0')}%`;
 }
 
@@ -2895,12 +2932,12 @@ function formatCounterTrendRate(rate) {
   return `${String(Number(n.toFixed(2)))}R`;
 }
 
-/** 0% / 10% / 20% / 30% 统一标记为 best三选一 */
+/** 0% / 10% / 20% / 30% 统一标记为 best三选一（不含负档） */
 const BEST_CONCESSION_RATE_MAX = 0.3;
 
 function isBestConcessionRate(rate) {
   const n = Number(rate);
-  return Number.isFinite(n) && n <= BEST_CONCESSION_RATE_MAX + 1e-9;
+  return Number.isFinite(n) && n >= -1e-9 && n <= BEST_CONCESSION_RATE_MAX + 1e-9;
 }
 
 function withBestConcessionLabel(label, rate) {
@@ -3560,7 +3597,7 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
   const priceLabel = formatTrimmedFixedDecimals(adjustedOpen, priceDecimalPlaces);
   const tpLabel = formatTrimmedFixedDecimals(tp, tpDecimals);
   const stopLabel = formatPrice(stop);
-  const concessionRates = getConcessionRates();
+  const concessionRates = getConcessionRates(side);
   const concessionItems = buildConcessionItems(adjustedOpen, stop, openCostTotal, priceDecimalPlaces, concessionRates, reverse);
   const primaryItem = concessionItems.find((item) => Math.abs(Number(item.rate) - PRICE_ADJUSTMENT_RATE) < 1e-9);
   const qty = primaryItem?.quantity ?? formatQuantity(quantity);
@@ -4851,7 +4888,7 @@ function buildAdminListItemHtml(row) {
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
   } else {
     concessions = buildAdminDisplayConcessions(row);
-    // 趋势立项：止盈=5R 最佳点位（区分多空），止损=原止损
+    // 趋势立项：止盈=4.5R 最佳点位（区分多空），止损=原止损
     takeProfitLabel = buildAdminBestTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
   }
