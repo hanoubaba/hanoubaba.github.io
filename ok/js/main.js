@@ -299,14 +299,14 @@ let assistStartTimeUserPicked = false;
 let mobileTimePickerScope = 'trend';
 
 const PRICE_ADJUSTMENT_RATE = 0;
-/** 趋势立项让利档位（多空统一）：-80% / -50% / -20% / 00% / 20% / 50% */
+/** 趋势立项让利档位（多空统一，展示由高到低）：50% / 20% / 00% / -20% / -50% / -80% */
 const CONCESSION_RATES = [
-  { rate: -0.8, costShare: 1 / 3 },
-  { rate: -0.5, costShare: 1 / 3 },
-  { rate: -0.2, display: true, reuseMinTierCost: true },
-  { rate: 0, display: true, reuseMinTierCost: true },
-  { rate: 0.2, display: true, reuseMinTierCost: true },
   { rate: 0.5, costShare: 1 / 3 },
+  { rate: 0.2, display: true, reuseMinTierCost: true },
+  { rate: 0, display: true, reuseMinTierCost: true },
+  { rate: -0.2, display: true, reuseMinTierCost: true },
+  { rate: -0.5, costShare: 1 / 3 },
+  { rate: -0.8, costShare: 1 / 3 },
 ];
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
@@ -1746,6 +1746,10 @@ const METHODOLOGY_SECTIONS = [
       '严守规则，不符合的找机会离场避险。',
       '已完成的不再关注，寻找新的机会',
       '4h的直接上级是8h,而不是1d',
+      '不完美才是完美。',
+      '多赚钱的核心是：多挂单，多浪费。',
+      '大力出奇迹，只有最好的仓位才能重仓赚钱。',
+      '信号的上下级别维度都具有参考价值。上级维度决定方向，下级维度决定避险。',
     ],
   },
   {
@@ -5005,6 +5009,8 @@ function buildAdminListItemHtml(row) {
     hideStopColumn: true,
     selectableStrategyId: showCounterTrend ? '' : rawId,
     isCurrentItem: (item) => isAdminConcessionCurrentItem(item, row),
+    // 趋势立项档位由高到低：50% → -80%；趋势力预测保持倍数由高到低
+    reverseOrder: showCounterTrend || strategyType.type === 'trend',
     ...(showCounterTrend
       ? {
         formatRate: formatCounterTrendRate,
@@ -5013,7 +5019,6 @@ function buildAdminListItemHtml(row) {
         sideActionsMode: true,
         sideActionsStrategyId: rawId,
         actionsHeaderHtml: renderCounterTrendFoldLinkHtml(rawId),
-        reverseOrder: true,
       }
       : {}),
   });
