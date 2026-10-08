@@ -1996,6 +1996,25 @@ body.login-mode {
   font-weight: 600;
 }
 
+.admin-concession--strike,
+.strategy-concession--strike {
+  color: var(--muted);
+}
+
+.admin-concession--strike .admin-concession__rate,
+.admin-concession--strike .admin-concession__price,
+.admin-concession--strike .admin-concession__qty,
+.admin-concession--strike .admin-concession__stop,
+.admin-concession--strike .admin-copy-value,
+.strategy-concession--strike .strategy-concession__rate,
+.strategy-concession--strike .strategy-concession__price,
+.strategy-concession--strike .strategy-concession__qty,
+.strategy-concession--strike .strategy-concession__stop {
+  text-decoration: line-through;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .admin-concession--head .admin-concession__rate,
 .admin-concession--head .admin-concession__price,
 .admin-concession--head .admin-concession__qty,

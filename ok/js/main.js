@@ -1020,6 +1020,11 @@ function shouldHideAssistQuantity(rate) {
   return Math.abs(Number(rate) - 0.8) < 1e-9;
 }
 
+/** 趋势立项 -80% 档：仅展示参考，中划线样式 */
+function shouldStrikeTrendConcessionRate(rate) {
+  return Math.abs(Number(rate) - (-0.8)) < 1e-9;
+}
+
 function formatAssistStrategyTitle(name) {
   return `${formatStrategyCardTitle(name)}${ASSIST_TITLE_SUFFIX}`;
 }
@@ -3534,9 +3539,11 @@ function renderConcessionsHtml({
       ? Boolean(isCurrentItem(item))
       : false;
     const selectable = Boolean(prefix === 'admin' && selectId && !item?.isMidpoint);
+    const strikeTrendRow = !assistLabels && shouldStrikeTrendConcessionRate(item.rate);
     const extraClass = [
       isCurrent ? `${rowClass}--current is-current` : '',
       item?.isMidpoint ? `${rowClass}--mid` : '',
+      strikeTrendRow ? `${rowClass}--strike` : '',
     ].filter(Boolean).join(' ');
     return renderConcessionRowHtml({
       rowClass,
@@ -3547,7 +3554,7 @@ function renderConcessionsHtml({
         || useSideActions
         || (assistLabels && prefix !== 'admin' && shouldHideAssistQuantity(item.rate)),
       hideStop: hideStopColumn,
-      strikeRate: assistLabels && shouldHideAssistQuantity(item.rate),
+      strikeRate: (assistLabels && shouldHideAssistQuantity(item.rate)) || strikeTrendRow,
       copyableNumbers: prefix === 'admin',
       extraClass,
       sideActionsHtml: useSideActions && prefix === 'admin'
