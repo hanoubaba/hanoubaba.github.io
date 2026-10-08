@@ -1896,8 +1896,8 @@ body.login-mode {
   background: rgba(37, 99, 235, 0.08);
 }
 
-.admin-concession--selectable:hover:not(.is-current),
-.admin-concession.is-selectable:hover:not(.is-current) {
+.admin-concession--selectable:hover:not(.is-current):not(.admin-concession--rate-pos):not(.admin-concession--rate-neg):not(.admin-concession--rate-zero),
+.admin-concession.is-selectable:hover:not(.is-current):not(.admin-concession--rate-pos):not(.admin-concession--rate-neg):not(.admin-concession--rate-zero) {
   background: transparent;
 }
 
@@ -1936,21 +1936,52 @@ body.login-mode {
 }
 
 .admin-concession-best-group {
+  background: transparent;
+  box-shadow: none;
+}
+
+.admin-concession--rate-pos,
+.admin-concession--rate-zero {
+  background: transparent;
+}
+
+.admin-concession--rate-neg {
   background: linear-gradient(180deg, #fffbeb 0%, #fef9c3 100%);
-  box-shadow: inset 3px 0 0 #eab308;
 }
 
-.admin-concession-best-group .admin-concession + .admin-concession {
-  border-top-color: rgba(202, 138, 4, 0.22);
+/* 正数档 / 00% / 负数档 去掉分界线 */
+.admin-concession--rate-pos,
+.admin-concession--rate-zero,
+.admin-concession--rate-neg,
+.admin-concession--rate-pos + .admin-concession--rate-pos,
+.admin-concession--rate-pos + .admin-concession--rate-zero,
+.admin-concession--rate-zero + .admin-concession--rate-pos,
+.admin-concession--rate-zero + .admin-concession--rate-zero,
+.admin-concession--rate-neg + .admin-concession--rate-neg,
+.admin-concession--rate-pos + .admin-concession--rate-neg,
+.admin-concession--rate-zero + .admin-concession--rate-neg,
+.admin-concession-best-group .admin-concession--rate-pos,
+.admin-concession-best-group .admin-concession--rate-zero,
+.admin-concession-best-group .admin-concession--rate-neg,
+.admin-concession-best-group .admin-concession--rate-pos + .admin-concession--rate-pos,
+.admin-concession-best-group .admin-concession--rate-pos + .admin-concession--rate-zero,
+.admin-concession-best-group .admin-concession--rate-pos + .admin-concession--rate-neg,
+.admin-concession-best-group .admin-concession--rate-zero + .admin-concession--rate-pos,
+.admin-concession-best-group .admin-concession--rate-zero + .admin-concession--rate-zero,
+.admin-concession-best-group .admin-concession--rate-zero + .admin-concession--rate-neg,
+.admin-concession-best-group .admin-concession--rate-neg + .admin-concession--rate-neg,
+.admin-concession-best-group + .admin-concession--rate-neg,
+.admin-concession--rate-pos + .admin-concession-best-group > .admin-concession:first-child {
+  border-top: none;
 }
 
-.admin-concession-best-group .admin-concession__rate,
-.admin-concession-best-group .admin-concession__price,
-.admin-concession-best-group .admin-concession__qty,
-.admin-concession-best-group .admin-concession__price.admin-copy-value,
-.admin-concession-best-group .admin-concession__qty.admin-copy-value {
-  color: #a16207;
-  font-weight: 700;
+.admin-concession--rate-pos.admin-concession--current,
+.admin-concession--rate-pos.is-current,
+.admin-concession--rate-neg.admin-concession--current,
+.admin-concession--rate-neg.is-current,
+.admin-concession--rate-zero.admin-concession--current,
+.admin-concession--rate-zero.is-current {
+  background: rgba(56, 189, 248, 0.12);
 }
 
 .strategy-concession-best-group {

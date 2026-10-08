@@ -1025,6 +1025,14 @@ function shouldStrikeTrendConcessionRate(rate) {
   return Math.abs(Number(rate) - (-0.8)) < 1e-9;
 }
 
+/** 趋势立项档位背景：正数 / 负数 / 00% */
+function getConcessionRateSignMod(rate) {
+  const n = Number(rate);
+  if (!Number.isFinite(n)) return '';
+  if (Math.abs(n) < 1e-9) return 'rate-zero';
+  return n > 0 ? 'rate-pos' : 'rate-neg';
+}
+
 function formatAssistStrategyTitle(name) {
   return `${formatStrategyCardTitle(name)}${ASSIST_TITLE_SUFFIX}`;
 }
@@ -1751,10 +1759,11 @@ const METHODOLOGY_SECTIONS = [
       '严守规则，不符合的找机会离场避险。',
       '已完成的不再关注，寻找新的机会',
       '4h的直接上级是8h,而不是1d',
-      '不完美才是完美。',
+      '不完美才是完美，见好就收是大智慧。',
       '多赚钱的核心是：多挂单，多浪费。',
       '大力出奇迹，只有最好的仓位才能重仓赚钱。',
       '信号的上下级别维度都具有参考价值。上级维度决定方向，下级维度决定避险。',
+      '找到最佳机会（最确定的和热度最高的），挂单和主动出击并行操作（挂的上就挂，挂不上就追）。基于确定性选择操作。',
     ],
   },
   {
@@ -3540,10 +3549,14 @@ function renderConcessionsHtml({
       : false;
     const selectable = Boolean(prefix === 'admin' && selectId && !item?.isMidpoint);
     const strikeTrendRow = !assistLabels && shouldStrikeTrendConcessionRate(item.rate);
+    const rateSignMod = (!assistLabels && !sideActionsMode && !item?.isMidpoint)
+      ? getConcessionRateSignMod(item.rate)
+      : '';
     const extraClass = [
       isCurrent ? `${rowClass}--current is-current` : '',
       item?.isMidpoint ? `${rowClass}--mid` : '',
       strikeTrendRow ? `${rowClass}--strike` : '',
+      rateSignMod ? `${rowClass}--${rateSignMod}` : '',
     ].filter(Boolean).join(' ');
     return renderConcessionRowHtml({
       rowClass,
