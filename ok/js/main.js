@@ -241,15 +241,35 @@ function getConfiguredDefaultTimeframe() {
   return normalizeDefaultTimeframe(DEFAULT_TIMEFRAME);
 }
 
-function loadDefaultTimeframe() {
+function persistDefaultTimeframeFallback(value) {
   try {
-    DEFAULT_TIMEFRAME = normalizeDefaultTimeframe(localStorage.getItem(DEFAULT_TIMEFRAME_STORAGE_KEY));
+    localStorage.setItem(DEFAULT_TIMEFRAME_STORAGE_KEY, normalizeDefaultTimeframe(value));
   } catch {
-    DEFAULT_TIMEFRAME = BUILTIN_DEFAULT_TIMEFRAME;
+    // ignore
   }
+}
+
+function applyDefaultTimeframeLocal(mode, { syncFront = true } = {}) {
+  const next = normalizeDefaultTimeframe(mode);
+  const changed = next !== DEFAULT_TIMEFRAME;
+  DEFAULT_TIMEFRAME = next;
+  persistDefaultTimeframeFallback(next);
   trendTimeframeMode = getConfiguredDefaultTimeframe();
   syncDefaultTimeframeUI();
   syncFrontTimeframeSwitch('trend');
+  // 配置变更后同步前台默认选中项（编辑中不打断当前表单）
+  if (syncFront && !editingStrategyId) {
+    setFrontTimeframeMode(next, { refresh: isFrontPage(), scope: 'trend' });
+  }
+  return changed;
+}
+
+function loadDefaultTimeframe() {
+  try {
+    applyDefaultTimeframeLocal(localStorage.getItem(DEFAULT_TIMEFRAME_STORAGE_KEY), { syncFront: false });
+  } catch {
+    applyDefaultTimeframeLocal(BUILTIN_DEFAULT_TIMEFRAME, { syncFront: false });
+  }
   return DEFAULT_TIMEFRAME;
 }
 
@@ -261,19 +281,13 @@ function syncDefaultTimeframeUI() {
   });
 }
 
-function setDefaultTimeframe(mode) {
+async function setDefaultTimeframe(mode) {
   const next = normalizeDefaultTimeframe(mode);
-  const changed = next !== DEFAULT_TIMEFRAME;
-  DEFAULT_TIMEFRAME = next;
+  const changed = applyDefaultTimeframeLocal(next);
   try {
-    localStorage.setItem(DEFAULT_TIMEFRAME_STORAGE_KEY, next);
+    await saveAppSettings({ default_timeframe: next });
   } catch {
-    // ignore
-  }
-  syncDefaultTimeframeUI();
-  // 配置变更后同步前台默认选中项（编辑中不打断当前表单）
-  if (!editingStrategyId) {
-    setFrontTimeframeMode(next, { refresh: isFrontPage(), scope: 'trend' });
+    // 本地已更新；后端失败时仍可本机使用
   }
   return changed;
 }
@@ -285,21 +299,14 @@ let assistStartTimeUserPicked = false;
 let mobileTimePickerScope = 'trend';
 
 const PRICE_ADJUSTMENT_RATE = 0;
-/** 做多让利档位：00% / 10% / 20% / 50% / 80% */
+/** 趋势立项让利档位（多空统一）：-80% / -50% / -20% / 00% / 20% / 50% */
 const CONCESSION_RATES = [
-  { rate: 0, display: true, reuseMinTierCost: true },
-  { rate: 0.1, display: true, reuseMinTierCost: true },
-  { rate: 0.2, costShare: 1 / 3 },
-  { rate: 0.5, costShare: 1 / 3 },
-  { rate: 0.8, costShare: 1 / 3 },
-];
-/** 做空让利档位：-80% / -50% / 00% / 10% / 20% */
-const CONCESSION_RATES_SHORT = [
   { rate: -0.8, costShare: 1 / 3 },
   { rate: -0.5, costShare: 1 / 3 },
+  { rate: -0.2, display: true, reuseMinTierCost: true },
   { rate: 0, display: true, reuseMinTierCost: true },
-  { rate: 0.1, display: true, reuseMinTierCost: true },
-  { rate: 0.2, costShare: 1 / 3 },
+  { rate: 0.2, display: true, reuseMinTierCost: true },
+  { rate: 0.5, costShare: 1 / 3 },
 ];
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
@@ -321,6 +328,8 @@ const DEVELOPER_MODE_STORAGE_KEY = 'ok_developer_mode';
 let cachedUnitCostInput = ADMIN_TOTAL_CAPITAL_DEFAULT;
 let cachedKellyRatio = KELLY_RATIO_DEFAULT;
 let kellyRatioColumnAvailable = true;
+let defaultTimeframeColumnAvailable = true;
+let developerModeColumnAvailable = true;
 let isDeveloperMode = false;
 
 function loadCachedKellyRatioFallback() {
@@ -538,22 +547,17 @@ function getAssistDisplayTierOpenCost(_row) {
   return getAdminTierFixedOpenCost();
 }
 
-function loadDeveloperMode() {
+function persistDeveloperModeFallback(enabled) {
   try {
-    isDeveloperMode = localStorage.getItem(DEVELOPER_MODE_STORAGE_KEY) === '1';
-  } catch {
-    isDeveloperMode = false;
-  }
-  return isDeveloperMode;
-}
-
-function setDeveloperMode(enabled) {
-  isDeveloperMode = Boolean(enabled);
-  try {
-    localStorage.setItem(DEVELOPER_MODE_STORAGE_KEY, isDeveloperMode ? '1' : '0');
+    localStorage.setItem(DEVELOPER_MODE_STORAGE_KEY, enabled ? '1' : '0');
   } catch {
     // ignore
   }
+}
+
+function applyDeveloperModeLocal(enabled) {
+  isDeveloperMode = Boolean(enabled);
+  persistDeveloperModeFallback(isDeveloperMode);
   syncDeveloperModeUI();
   if (!isDeveloperMode) {
     if (isAdminSelectionMode) exitAdminSelectionMode();
@@ -562,6 +566,27 @@ function setDeveloperMode(enabled) {
   updateHeaderClearButton();
   updateAdminSelectionControls();
   updateObsSelectionControls();
+  return isDeveloperMode;
+}
+
+function loadDeveloperMode() {
+  try {
+    applyDeveloperModeLocal(localStorage.getItem(DEVELOPER_MODE_STORAGE_KEY) === '1');
+  } catch {
+    applyDeveloperModeLocal(false);
+  }
+  return isDeveloperMode;
+}
+
+async function setDeveloperMode(enabled) {
+  const next = Boolean(enabled);
+  applyDeveloperModeLocal(next);
+  try {
+    await saveAppSettings({ developer_mode: next });
+  } catch {
+    // 本地已更新；后端失败时仍可本机使用
+  }
+  return isDeveloperMode;
 }
 
 function syncDeveloperModeUI() {
@@ -593,18 +618,56 @@ function restoreConfigForm() {
   syncDefaultTimeframeUI();
 }
 
+function isMissingSettingsColumnError(errorText, columnName) {
+  const text = String(errorText ?? '');
+  return new RegExp(columnName, 'i').test(text)
+    && /(column|schema cache|could not find|not found)/i.test(text);
+}
+
 function isMissingKellyRatioColumnError(errorText) {
-  return /kelly_ratio/i.test(String(errorText ?? ''))
-    && /(column|schema cache|could not find|not found)/i.test(String(errorText ?? ''));
+  return isMissingSettingsColumnError(errorText, 'kelly_ratio');
+}
+
+function getAppSettingsSnapshot() {
+  return {
+    unit_cost: cachedUnitCostInput,
+    kelly_ratio: cachedKellyRatio,
+    default_timeframe: getConfiguredDefaultTimeframe(),
+    developer_mode: Boolean(isDeveloperMode),
+  };
+}
+
+function buildAppSettingsSelectFields() {
+  const fields = ['unit_cost'];
+  if (kellyRatioColumnAvailable) fields.push('kelly_ratio');
+  if (defaultTimeframeColumnAvailable) fields.push('default_timeframe');
+  if (developerModeColumnAvailable) fields.push('developer_mode');
+  return fields.join(',');
+}
+
+function markMissingSettingsColumn(errorText) {
+  let changed = false;
+  if (kellyRatioColumnAvailable && isMissingKellyRatioColumnError(errorText)) {
+    kellyRatioColumnAvailable = false;
+    changed = true;
+  }
+  if (defaultTimeframeColumnAvailable && isMissingSettingsColumnError(errorText, 'default_timeframe')) {
+    defaultTimeframeColumnAvailable = false;
+    changed = true;
+  }
+  if (developerModeColumnAvailable && isMissingSettingsColumnError(errorText, 'developer_mode')) {
+    developerModeColumnAvailable = false;
+    changed = true;
+  }
+  return changed;
 }
 
 async function fetchAppSettings() {
-  const select = kellyRatioColumnAvailable ? 'unit_cost,kelly_ratio' : 'unit_cost';
+  const select = buildAppSettingsSelectFields();
   const res = await supabaseFetch(`${SETTINGS_ENDPOINT}?id=eq.${encodeURIComponent(APP_SETTINGS_ID)}&select=${select}`);
   if (!res.ok) {
     const errorText = await res.text();
-    if (kellyRatioColumnAvailable && isMissingKellyRatioColumnError(errorText)) {
-      kellyRatioColumnAvailable = false;
+    if (markMissingSettingsColumn(errorText)) {
       return fetchAppSettings();
     }
     throw new Error(errorText || `HTTP ${res.status}`);
@@ -613,21 +676,33 @@ async function fetchAppSettings() {
   const row = Array.isArray(rows) ? rows[0] : null;
   const inputValue = normalizeUnitCost(row?.unit_cost);
   if (inputValue != null) cachedUnitCostInput = inputValue;
-    if (kellyRatioColumnAvailable) {
-      const kelly = normalizeKellyRatio(row?.kelly_ratio);
-      if (kelly != null) {
-        cachedKellyRatio = kelly;
-        persistKellyRatioFallback(kelly);
-      }
-    } else {
-      loadCachedKellyRatioFallback();
+  if (kellyRatioColumnAvailable) {
+    const kelly = normalizeKellyRatio(row?.kelly_ratio);
+    if (kelly != null) {
+      cachedKellyRatio = kelly;
+      persistKellyRatioFallback(kelly);
     }
+  } else {
+    loadCachedKellyRatioFallback();
+  }
+  if (defaultTimeframeColumnAvailable && row?.default_timeframe != null) {
+    applyDefaultTimeframeLocal(row.default_timeframe, { syncFront: !editingStrategyId });
+  } else {
+    loadDefaultTimeframe();
+  }
+  if (developerModeColumnAvailable && row?.developer_mode != null) {
+    applyDeveloperModeLocal(Boolean(row.developer_mode));
+  } else {
+    loadDeveloperMode();
+  }
   restoreConfigForm();
   return getAdminTierFixedOpenCost();
 }
 
 async function saveAppSettings(patch = {}) {
   const payload = { id: APP_SETTINGS_ID };
+  let localOnlyApplied = false;
+
   if (Object.prototype.hasOwnProperty.call(patch, 'unit_cost')) {
     const cost = normalizeUnitCost(patch.unit_cost);
     if (cost == null) throw new Error('请输入大于 0 的数字');
@@ -640,10 +715,29 @@ async function saveAppSettings(patch = {}) {
     else {
       cachedKellyRatio = kelly;
       persistKellyRatioFallback(kelly);
-      return { unit_cost: cachedUnitCostInput, kelly_ratio: kelly };
+      localOnlyApplied = true;
     }
   }
-  if (Object.keys(payload).length <= 1) throw new Error('没有可保存的配置');
+  if (Object.prototype.hasOwnProperty.call(patch, 'default_timeframe')) {
+    const timeframe = normalizeDefaultTimeframe(patch.default_timeframe);
+    if (defaultTimeframeColumnAvailable) payload.default_timeframe = timeframe;
+    else {
+      applyDefaultTimeframeLocal(timeframe);
+      localOnlyApplied = true;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'developer_mode')) {
+    const enabled = Boolean(patch.developer_mode);
+    if (developerModeColumnAvailable) payload.developer_mode = enabled;
+    else {
+      applyDeveloperModeLocal(enabled);
+      localOnlyApplied = true;
+    }
+  }
+  if (Object.keys(payload).length <= 1) {
+    if (localOnlyApplied) return getAppSettingsSnapshot();
+    throw new Error('没有可保存的配置');
+  }
 
   const res = await supabaseFetch(`${SETTINGS_ENDPOINT}?on_conflict=id`, {
     method: 'POST',
@@ -654,16 +748,26 @@ async function saveAppSettings(patch = {}) {
   });
   if (!res.ok) {
     const errorText = await res.text();
-    if (kellyRatioColumnAvailable && payload.kelly_ratio != null && isMissingKellyRatioColumnError(errorText)) {
-      kellyRatioColumnAvailable = false;
+    if (markMissingSettingsColumn(errorText)) {
+      const retryPatch = {};
+      if (payload.unit_cost != null) retryPatch.unit_cost = payload.unit_cost;
       if (payload.kelly_ratio != null) {
-        cachedKellyRatio = payload.kelly_ratio;
-        persistKellyRatioFallback(payload.kelly_ratio);
+        if (kellyRatioColumnAvailable) retryPatch.kelly_ratio = payload.kelly_ratio;
+        else {
+          cachedKellyRatio = payload.kelly_ratio;
+          persistKellyRatioFallback(payload.kelly_ratio);
+        }
       }
-      if (payload.unit_cost != null) {
-        await saveAppSettings({ unit_cost: payload.unit_cost });
+      if (payload.default_timeframe != null) {
+        if (defaultTimeframeColumnAvailable) retryPatch.default_timeframe = payload.default_timeframe;
+        else applyDefaultTimeframeLocal(payload.default_timeframe);
       }
-      return { unit_cost: cachedUnitCostInput, kelly_ratio: cachedKellyRatio };
+      if (payload.developer_mode != null) {
+        if (developerModeColumnAvailable) retryPatch.developer_mode = payload.developer_mode;
+        else applyDeveloperModeLocal(payload.developer_mode);
+      }
+      if (Object.keys(retryPatch).length) await saveAppSettings(retryPatch);
+      return getAppSettingsSnapshot();
     }
     throw new Error(errorText || `HTTP ${res.status}`);
   }
@@ -672,7 +776,13 @@ async function saveAppSettings(patch = {}) {
     cachedKellyRatio = payload.kelly_ratio;
     persistKellyRatioFallback(payload.kelly_ratio);
   }
-  return { unit_cost: cachedUnitCostInput, kelly_ratio: cachedKellyRatio };
+  if (payload.default_timeframe != null) {
+    applyDefaultTimeframeLocal(payload.default_timeframe, { syncFront: !editingStrategyId });
+  }
+  if (payload.developer_mode != null) {
+    applyDeveloperModeLocal(payload.developer_mode);
+  }
+  return getAppSettingsSnapshot();
 }
 
 function setConfigSaveBusy(btn, busy) {
@@ -773,8 +883,8 @@ function getTrendPositionSide(rowOrSide) {
   return 'long';
 }
 
-function getConcessionRates(side = 'long') {
-  return getTrendPositionSide(side) === 'short' ? CONCESSION_RATES_SHORT : CONCESSION_RATES;
+function getConcessionRates() {
+  return CONCESSION_RATES;
 }
 
 function isKnownTierCount(tierCount) {
@@ -841,13 +951,12 @@ function buildUnifiedConcessionsForRow(row) {
   );
   const currentConcessions = buildAdminConcessionsForRow(row);
   const reverse = inferReverseFromConcessions(entryPrice, stopLoss, currentConcessions, decimalPlaces);
-  const side = getTrendPositionSide(row);
   return buildConcessionItems(
     entryPrice,
     stopLoss,
     null,
     decimalPlaces,
-    getConcessionRates(side),
+    getConcessionRates(),
     reverse,
     { fixedTierOpenCost: getAdminTierFixedOpenCost() },
   );
@@ -873,21 +982,9 @@ function getConfiguredDisplayRates(rateConfigs) {
     .sort((a, b) => a - b);
 }
 
-function isCurrentTrendConcessionSet(concessions, side = null) {
+function isCurrentTrendConcessionSet(concessions) {
   const rates = getSortedDisplayRates(concessions);
-  const resolvedSide = side == null ? null : getTrendPositionSide(side);
-  if (resolvedSide === 'short') {
-    return ratesMatch(rates, getConfiguredDisplayRates(CONCESSION_RATES_SHORT));
-  }
-  if (resolvedSide === 'long') {
-    return ratesMatch(rates, getConfiguredDisplayRates(CONCESSION_RATES))
-      || ratesMatch(rates, [0.2, 0.5, 0.8])
-      || ratesMatch(rates, [0, 0.3, 0.8]);
-  }
-  return ratesMatch(rates, getConfiguredDisplayRates(CONCESSION_RATES))
-    || ratesMatch(rates, getConfiguredDisplayRates(CONCESSION_RATES_SHORT))
-    || ratesMatch(rates, [0.2, 0.5, 0.8])
-    || ratesMatch(rates, [0, 0.3, 0.8]);
+  return ratesMatch(rates, getConfiguredDisplayRates(CONCESSION_RATES));
 }
 
 function isTierAssistConcessionSet(concessions) {
@@ -972,13 +1069,12 @@ function getAdminStrategyTypeInfo(row) {
 function buildAdminDisplayConcessions(row) {
   const savedConcessions = buildAdminConcessionsForRow(row);
   const stopLoss = toNumber(row?.stopLossPrice);
-  const side = getTrendPositionSide(row);
-  if (isCurrentTrendConcessionSet(savedConcessions, side)) {
+  if (isCurrentTrendConcessionSet(savedConcessions)) {
     return applyAdminFixedTierQuantities(savedConcessions, stopLoss);
   }
   const rebuilt = buildUnifiedConcessionsForRow(row);
   if (rebuilt) return rebuilt;
-  if (hasConcessions(savedConcessions) && side !== 'short') {
+  if (hasConcessions(savedConcessions)) {
     return applyAdminFixedTierQuantities(savedConcessions, stopLoss);
   }
   return buildTrendAdminConcessions(row);
@@ -1002,13 +1098,12 @@ function buildTrendAdminConcessions(row) {
   const decimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
   const savedConcessions = buildAdminConcessionsForRow(row);
   const reverse = inferReverseFromConcessions(entryPrice, stopLoss, savedConcessions, decimalPlaces);
-  const side = getTrendPositionSide(row);
   return buildConcessionItems(
     entryPrice,
     stopLoss,
     null,
     decimalPlaces,
-    getConcessionRates(side),
+    getConcessionRates(),
     reverse,
     { fixedTierOpenCost: getAdminTierFixedOpenCost() },
   );
@@ -2820,10 +2915,10 @@ function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) 
   return formatTrimmedFixedDecimals(normalized, decimals);
 }
 
-function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel, { name, endAt } = {}) {
-  const tpRaw = String(takeProfitLabel ?? '').trim() || '—';
+function renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLossLabel) {
+  const tpSmallRaw = String(takeProfitSmallLabel ?? '').trim() || '—';
+  const tpLargeRaw = String(takeProfitLargeLabel ?? '').trim() || '—';
   const slRaw = String(stopLossLabel ?? '').trim() || '—';
-  const alarmText = buildAlarmCopyText(name, endAt);
 
   const renderBlock = (modClass, label, value, ariaLabel, { copyable = true } = {}) => {
     const text = String(value ?? '').trim() || '—';
@@ -2836,31 +2931,13 @@ function renderAdminTakeProfitStopHtml(takeProfitLabel, stopLossLabel, { name, e
     return `<${tag} class="${className}"${copyAttrs}><span class="admin-item__tp-sl-label">${escapeHtml(label)}</span><span class="admin-item__tp-sl-value">${escapeHtml(text)}</span></${tag}>`;
   };
 
-  const copyHtml = alarmText
-    ? [
-      '<span class="admin-item__tp-sl-item admin-item__tp-sl-copy-wrap">',
-      '<button type="button" class="admin-edit-btn admin-copy-value"',
-      ` data-copy-text="${escapeHtml(alarmText)}"`,
-      ' title="点击复制闹钟指令"',
-      ' aria-label="复制闹钟指令">指令</button>',
-      '</span>',
-    ].join('')
-    : '<span class="admin-item__tp-sl-item admin-item__tp-sl-spacer" aria-hidden="true"></span>';
-
   return [
     '<div class="admin-item__tp-sl" aria-label="止盈止损">',
-    copyHtml,
-    renderBlock('admin-item__tp-sl-item--tp', '止盈', tpRaw, '止盈价格'),
+    renderBlock('admin-item__tp-sl-item--tp-small', '止盈小', tpSmallRaw, '止盈小价格'),
+    renderBlock('admin-item__tp-sl-item--tp', '止盈大', tpLargeRaw, '止盈大价格'),
     renderBlock('admin-item__tp-sl-item--sl', '止损', slRaw, '止损价格'),
     '</div>',
   ].join('');
-}
-
-function buildAlarmCopyText(name, endAt) {
-  const title = formatStrategyCardTitle(name);
-  const time = formatCompactDateTimeLabel(endAt);
-  if (!title || !time) return '';
-  return `请加一个${time}点的闹钟，名称为${title}`;
 }
 
 function calcAdjustedOpenPrice(open, stop, decimalPlaces) {
@@ -2945,12 +3022,12 @@ function formatCounterTrendRate(rate) {
   return `${String(Number(n.toFixed(2)))}R`;
 }
 
-/** 0% / 10% / 20% / 30% 统一标记为 best三选一（不含负档） */
-const BEST_CONCESSION_RATE_MAX = 0.3;
+/** -20% / 00% / 20% 统一标记为 best三选一 */
+const BEST_CONCESSION_RATE_MAX = 0.2;
 
 function isBestConcessionRate(rate) {
   const n = Number(rate);
-  return Number.isFinite(n) && n >= -1e-9 && n <= BEST_CONCESSION_RATE_MAX + 1e-9;
+  return Number.isFinite(n) && Math.abs(n) <= BEST_CONCESSION_RATE_MAX + 1e-9;
 }
 
 function withBestConcessionLabel(label, rate) {
@@ -3610,7 +3687,7 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
   const priceLabel = formatTrimmedFixedDecimals(adjustedOpen, priceDecimalPlaces);
   const tpLabel = formatTrimmedFixedDecimals(tp, tpDecimals);
   const stopLabel = formatPrice(stop);
-  const concessionRates = getConcessionRates(side);
+  const concessionRates = getConcessionRates();
   const concessionItems = buildConcessionItems(adjustedOpen, stop, openCostTotal, priceDecimalPlaces, concessionRates, reverse);
   const primaryItem = concessionItems.find((item) => Math.abs(Number(item.rate) - PRICE_ADJUSTMENT_RATE) < 1e-9);
   const qty = primaryItem?.quantity ?? formatQuantity(quantity);
@@ -4866,7 +4943,8 @@ function buildAdminListItemHtml(row) {
   const priceDecimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
   let concessions;
   let stopLabel;
-  let takeProfitLabel;
+  let takeProfitSmallLabel = '—';
+  let takeProfitLargeLabel = '—';
   if (showCounterTrend) {
     const counter = buildCounterTrendConcessions(row);
     concessions = filterCounterTrendConcessionItems(
@@ -4874,11 +4952,11 @@ function buildAdminListItemHtml(row) {
       isCounterTrendRatesExpanded(rawId),
     );
     // 趋势力预测：止盈=原开仓价，止损=10R（计算逻辑不变，仅改展示位置）
-    takeProfitLabel = counter.refTakeProfit || '—';
+    takeProfitLargeLabel = counter.refTakeProfit || '—';
     stopLabel = counter.stopLoss || '—';
   } else if (showTierAssistView) {
     concessions = linkedTier?.concessions || [];
-    takeProfitLabel = linkedTier?.takeProfitLabel || '—';
+    takeProfitLargeLabel = linkedTier?.takeProfitLabel || '—';
     stopLabel = linkedTier?.stopLabel || '—';
   } else if (isTierAssistStrategy) {
     const saved = hasConcessions(row?.concessions) ? row.concessions : [];
@@ -4887,7 +4965,7 @@ function buildAdminListItemHtml(row) {
     concessions = applyAdminFixedTierQuantities(saved, stopLoss).filter((item) => (
       allowedRates.some((rate) => Math.abs(Number(item.rate) - rate) < 1e-9)
     ));
-    takeProfitLabel = formatAdminPriceFromValue(row?.takeProfitPrice, priceDecimalPlaces) || '—';
+    takeProfitLargeLabel = formatAdminPriceFromValue(row?.takeProfitPrice, priceDecimalPlaces) || '—';
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
   } else if (isAssistLikeStrategy) {
     concessions = buildAdminAssistConcessionsForDisplay(row);
@@ -4895,20 +4973,28 @@ function buildAdminListItemHtml(row) {
     const assistFrom = toNumber(row?.inputPrice ?? row?.stopLossPrice);
     const assistTo = toNumber(row?.inputStopLoss);
     const assistTp = calcAssistTakeProfitPrice(assistFrom, assistTo, ASSIST_TAKE_PROFIT_MULTIPLE);
-    takeProfitLabel = assistTp != null
+    takeProfitLargeLabel = assistTp != null
       ? formatTrimmedFixedDecimals(assistTp, priceDecimalPlaces)
       : (formatAdminPriceFromValue(row?.takeProfitPrice, priceDecimalPlaces) || '—');
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
   } else {
     concessions = buildAdminDisplayConcessions(row);
-    // 趋势立项：止盈=4.5R 最佳点位（区分多空），止损=原止损
-    takeProfitLabel = buildAdminBestTakeProfitLabel(row?.entryPrice, row?.stopLossPrice, priceDecimalPlaces);
+    // 趋势立项：止盈小=3R，止盈大=4.5R，止损=原止损
+    takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
+      row?.entryPrice,
+      row?.stopLossPrice,
+      priceDecimalPlaces,
+    );
+    takeProfitLargeLabel = buildAdminBestTakeProfitLabel(
+      row?.entryPrice,
+      row?.stopLossPrice,
+      priceDecimalPlaces,
+    );
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
   }
-  const tpSlHtml = showCounterTrend ? '' : renderAdminTakeProfitStopHtml(takeProfitLabel, stopLabel, {
-    name: nameRaw,
-    endAt: getStrategyEndAt(row),
-  });
+  const tpSlHtml = showCounterTrend
+    ? ''
+    : renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLabel);
   const sideLabel = getPositionSideLabel(sideMod);
   const sideTagHtml = sideLabel
     ? `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
@@ -6483,15 +6569,22 @@ if (kellyRatioInput) {
 const developerModeToggle = document.getElementById('developer-mode-toggle');
 if (developerModeToggle) {
   developerModeToggle.addEventListener('click', () => {
-    setDeveloperMode(!isDeveloperMode);
-    showToast(isDeveloperMode ? '开发者模式已开启' : '开发者模式已关闭');
+    const next = !isDeveloperMode;
+    setDeveloperMode(next)
+      .then(() => {
+        showToast(next ? '开发者模式已开启' : '开发者模式已关闭');
+      })
+      .catch(() => {});
   });
 }
 document.querySelectorAll('[data-default-timeframe]').forEach((btn) => {
   btn.addEventListener('click', () => {
     const next = btn.getAttribute('data-default-timeframe');
-    const changed = setDefaultTimeframe(next);
-    if (changed) showToast(`前台默认时间维度已设为 ${normalizeDefaultTimeframe(next)}`);
+    setDefaultTimeframe(next)
+      .then((changed) => {
+        if (changed) showToast(`前台默认时间维度已设为 ${normalizeDefaultTimeframe(next)}`);
+      })
+      .catch(() => {});
   });
 });
 const btnTabMethodology = document.getElementById('btn-tab-methodology');
