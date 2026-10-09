@@ -970,7 +970,7 @@ body.login-mode {
 
 .admin-item__head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 7px;
   margin-bottom: 9px;
 }
@@ -1088,6 +1088,7 @@ body.login-mode {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
+  line-height: 1;
 }
 
 .admin-view-switch {
@@ -1166,7 +1167,7 @@ body.login-mode {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding-top: 1px;
+  padding-top: 0;
 }
 
 .admin-item__title {
@@ -1289,15 +1290,18 @@ button.admin-item__title--mode-cycle.is-syncing {
   display: flex;
   align-items: center;
   margin: 0;
+  line-height: 1;
 }
 
 .admin-time-status__tag {
   display: inline-flex;
   align-items: center;
   white-space: nowrap;
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 14px;
+  box-sizing: border-box;
+  height: calc(11px * 1.2 + 8px + 2px);
+  border-radius: 8px;
+  padding: 0 10px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1.2;
   background: #f0fdf4;
@@ -1305,13 +1309,13 @@ button.admin-item__title--mode-cycle.is-syncing {
   font-variant-numeric: tabular-nums;
   min-width: 4.5em;
   justify-content: center;
+  border: 1px solid transparent;
 }
 
 /* 倒计时可点击：仅重置 button 默认，颜色/圆角/动画仍走原 tag 样式 */
 button.admin-time-status__tag {
   appearance: none;
   margin: 0;
-  border: none;
   font: inherit;
   cursor: pointer;
 }
@@ -3594,8 +3598,9 @@ button.admin-time-status__tag:focus-visible {
   }
 
   .admin-time-status__tag {
-    padding: 3px 8px;
-    font-size: 13px;
+    height: calc(11px * 1.2 + 8px + 2px);
+    padding: 0 10px;
+    font-size: 11px;
   }
 
   .admin-item__head-right .admin-outcome-status__tag {
