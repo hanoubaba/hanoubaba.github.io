@@ -299,14 +299,13 @@ let assistStartTimeUserPicked = false;
 let mobileTimePickerScope = 'trend';
 
 const PRICE_ADJUSTMENT_RATE = 0;
-/** 趋势立项让利档位（多空统一，展示由高到低）：50% / 20% / 00% / -20% / -50% / -80% */
+/** 趋势立项让利档位（多空统一，展示由高到低）：50% / 20% / 00% / -20% / -50% */
 const CONCESSION_RATES = [
-  { rate: 0.5, costShare: 1 / 3 },
+  { rate: 0.5, costShare: 1 / 2 },
   { rate: 0.2, display: true, reuseMinTierCost: true },
   { rate: 0, display: true, reuseMinTierCost: true },
   { rate: -0.2, display: true, reuseMinTierCost: true },
-  { rate: -0.5, costShare: 1 / 3 },
-  { rate: -0.8, costShare: 1 / 3 },
+  { rate: -0.5, costShare: 1 / 2 },
 ];
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
@@ -1040,10 +1039,9 @@ function shouldHideAssistQuantity(rate) {
   return Math.abs(Number(rate) - 0.8) < 1e-9;
 }
 
-/** 趋势立项 50% / -80% 档：仅展示参考，中划线样式 */
+/** 趋势立项 50% 档：仅展示参考，中划线样式 */
 function shouldStrikeTrendConcessionRate(rate) {
-  const n = Number(rate);
-  return Math.abs(n - 0.5) < 1e-9 || Math.abs(n - (-0.8)) < 1e-9;
+  return Math.abs(Number(rate) - 0.5) < 1e-9;
 }
 
 /** 趋势立项档位背景：正数 / 负数 / 00% */
@@ -1794,10 +1792,9 @@ const METHODOLOGY_SECTIONS = [
       '多赚钱的核心是：多挂单，多浪费。',
       '大力出奇迹，只有最好的仓位才能重仓赚钱。',
       '信号的上下级别维度都具有参考价值。上级维度决定方向，下级维度决定避险。',
-      '找到最佳机会（最确定的和热度最高的），挂单和主动出击并行操作（挂的上就挂，挂不上就追）。基于确定性选择操作。',
       '方法论没有问题，不要再犯路线错误，要在当前正确的路线上进行开发调整。',
       '合约是平衡的艺术。时间与空间，动能与阻力，让利与插针，概率与确定性。',
-      '起步二三分流，挂单或追单。',
+      '起步二三分流，挂单或追一小单。',
       '向死而生，生前不想身后事。',
       '过度观测有害，这是人性的弱点，使用定时闹钟解决。',
     ],
@@ -5088,7 +5085,7 @@ function buildAdminListItemHtml(row) {
     hideStopColumn: true,
     selectableStrategyId: '',
     isCurrentItem: (item) => isAdminConcessionCurrentItem(item, row),
-    // 趋势立项档位由高到低：50% → -80%；趋势力预测保持倍数由高到低
+    // 趋势立项档位由高到低：50% → -50%；趋势力预测保持倍数由高到低
     reverseOrder: showCounterTrend || strategyType.type === 'trend',
     ...(showCounterTrend
       ? {
