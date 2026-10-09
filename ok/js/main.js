@@ -350,16 +350,13 @@ function persistKellyRatioFallback(kelly) {
 }
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
-/** 做多：止盈小 3R / 止盈大 4.5R；做空：止盈小 1R / 止盈大 3R */
 const REF_TAKE_PROFIT_R = 3;
 const BEST_TAKE_PROFIT_R = 4.5;
-const REF_TAKE_PROFIT_R_SHORT = 1;
-const BEST_TAKE_PROFIT_R_SHORT = 3;
 const STRATEGY_DURATION_PERIODS = 10;
 const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
-/** 反趋势：挂单档位 = 原策略 1/3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R–100R 价格（无数量） */
-const COUNTER_TREND_ENTRY_MULTIPLES = [1, 3, 5];
+/** 反趋势：挂单档位 = 原策略 1/2/3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R–100R 价格（无数量） */
+const COUNTER_TREND_ENTRY_MULTIPLES = [1, 2, 3, 5];
 const COUNTER_TREND_PRICE_ONLY_MULTIPLES = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 const COUNTER_TREND_BASE_MULTIPLES = [
   ...COUNTER_TREND_ENTRY_MULTIPLES,
@@ -1215,7 +1212,7 @@ function getCounterTrendRateRows() {
     const rate = COUNTER_TREND_BASE_MULTIPLES[i];
     if (i > 0) {
       const prev = COUNTER_TREND_BASE_MULTIPLES[i - 1];
-      // 1R / 3R / 5R 之间不插中间值
+      // 1R / 2R / 3R / 5R 之间不插中间值
       const skipMid = entrySet.has(prev) && entrySet.has(rate);
       if (!skipMid) {
         rows.push({ rate: (prev + rate) / 2, isMidpoint: true });
@@ -1228,7 +1225,7 @@ function getCounterTrendRateRows() {
 
 /**
  * 反趋势策略：以原策略 R 倍数推算挂单价。
- * 档位 1/3/5R 与 10–100R 仅展示价格；除 1R–5R 外相邻档插入中间值（默认折叠，展开可见）；末行 S = 原开仓价。
+ * 档位 1/2/3/5R 与 10–100R 仅展示价格；除 1R–5R 外相邻档插入中间值（默认折叠，展开可见）；末行 S = 原开仓价。
  * 时间范围接在原策略结束后再排 10 个周期。
  */
 function buildCounterTrendConcessions(row) {
@@ -1772,6 +1769,7 @@ const METHODOLOGY_SECTIONS = [
       '合约是平衡的艺术。时间与空间，动能与阻力，让利与插针，概率与确定性。',
       '起步二三分流，挂单或追单。',
       '向死而生，生前不想身后事。',
+      '过度观测有害，这是人性的弱点，使用定时闹钟解决。',
     ],
   },
   {
@@ -2925,20 +2923,11 @@ function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces) {
   return formatTrimmedFixedDecimals(normalized, decimals);
 }
 
-function getAdminTakeProfitSmallR(side) {
-  return getPositionSideMod(side) === 'short' ? REF_TAKE_PROFIT_R_SHORT : REF_TAKE_PROFIT_R;
-}
-
-function getAdminTakeProfitLargeR(side) {
-  return getPositionSideMod(side) === 'short' ? BEST_TAKE_PROFIT_R_SHORT : BEST_TAKE_PROFIT_R;
-}
-
-function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0, side = null) {
+function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
   if (entry == null || stop == null || entry === stop) return '—';
-  const resolvedSide = side ?? (entry > stop ? 'long' : 'short');
-  const tp = calcTakeProfit(entry, stop, getAdminTakeProfitSmallR(resolvedSide));
+  const tp = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R);
   if (tp == null) return '—';
   const normalized = normalizeReferenceTakeProfitPrice(tp);
   if (normalized == null) return '—';
@@ -2946,13 +2935,12 @@ function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces 
   return formatTrimmedFixedDecimals(normalized, decimals);
 }
 
-/** 趋势立项止盈大：做多 4.5R / 做空 3R */
-function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0, side = null) {
+/** 趋势立项最佳止盈点位：4.5R，方向随多空（开>止为多，开<止为空） */
+function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
   if (entry == null || stop == null || entry === stop) return '—';
-  const resolvedSide = side ?? (entry > stop ? 'long' : 'short');
-  const tp = calcTakeProfit(entry, stop, getAdminTakeProfitLargeR(resolvedSide));
+  const tp = calcTakeProfit(entry, stop, BEST_TAKE_PROFIT_R);
   if (tp == null) return '—';
   const normalized = normalizeReferenceTakeProfitPrice(tp);
   if (normalized == null) return '—';
@@ -4943,26 +4931,34 @@ async function renderAdminList() {
 }
 
 function getAdminCurrentModeTagHtml(row) {
-  const rawId = String(row?.id ?? '').trim();
   const type = getAdminStrategyTypeInfo(row).type;
   if (type === 'tier_assist') {
     return '<span class="admin-tier-assist-tag" aria-label="趋势辅助">趋势辅助</span>';
   }
-  if (!rawId || type !== 'trend') return '';
-  const syncing = updatingAdminViewModeIds.has(rawId);
+  return '';
+}
+
+function buildAdminTitleHtml(row, titleHtml, rawId) {
+  const id = String(rawId ?? '').trim();
+  const type = getAdminStrategyTypeInfo(row).type;
+  if (!id || type !== 'trend') {
+    return `<span class="admin-item__title">${titleHtml}</span>`;
+  }
+  const syncing = updatingAdminViewModeIds.has(id);
   const isCounter = isAdminCounterTrendView(row);
-  const canCycle = isCounter || canShowCounterTrend(row);
-  const label = isCounter ? '趋势力预测' : '趋势立项';
-  const mod = isCounter ? 'counter' : 'trend';
-  const enabled = canCycle && !syncing;
+  const canCycle = (isCounter || canShowCounterTrend(row)) && !syncing;
+  if (!canCycle) {
+    return `<span class="admin-item__title">${titleHtml}</span>`;
+  }
+  const modeLabel = isCounter ? '趋势力预测' : '趋势立项';
   return [
-    `<button type="button" class="admin-mode-tag admin-mode-tag--${mod}${syncing ? ' is-syncing' : ''}${enabled ? ' is-clickable' : ''}"`,
-    ` data-admin-mode-cycle data-id="${escapeHtml(rawId)}"`,
-    enabled ? '' : ' disabled',
-    ` aria-label="点击切换模式，当前${label}"`,
-    enabled ? ' title="点击切换模式"' : '',
+    '<button type="button"',
+    ` class="admin-item__title admin-item__title--mode-cycle${syncing ? ' is-syncing' : ''}"`,
+    ` data-admin-mode-cycle data-id="${escapeHtml(id)}"`,
+    ` aria-label="点击切换模式，当前${modeLabel}"`,
+    ' title="点击切换模式"',
     '>',
-    escapeHtml(label),
+    titleHtml,
     '</button>',
   ].join('');
 }
@@ -5036,18 +5032,16 @@ function buildAdminListItemHtml(row) {
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
   } else {
     concessions = buildAdminDisplayConcessions(row);
-    // 趋势立项：做多 止盈小=3R / 止盈大=4.5R；做空 止盈小=1R / 止盈大=3R
+    // 趋势立项：止盈小=3R，止盈大=4.5R，止损=原止损
     takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
       row?.entryPrice,
       row?.stopLossPrice,
       priceDecimalPlaces,
-      sideMod,
     );
     takeProfitLargeLabel = buildAdminBestTakeProfitLabel(
       row?.entryPrice,
       row?.stopLossPrice,
       priceDecimalPlaces,
-      sideMod,
     );
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
   }
@@ -5111,7 +5105,7 @@ function buildAdminListItemHtml(row) {
       alarmText
         ? [
           '<button type="button"',
-          ` class="admin-time-status__tag admin-time-status__value admin-copy-value"`,
+          ` class="admin-time-status__tag admin-time-status__value"`,
           ` data-copy-text="${escapeHtml(alarmText)}"`,
           ` data-expires-at="${expiresAt}"`,
           ` data-time-status="${timeBadge.timeStatus}"`,
@@ -5129,7 +5123,7 @@ function buildAdminListItemHtml(row) {
     : '';
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
-    `<span class="admin-item__title">${title}</span>`,
+    buildAdminTitleHtml(row, title, rawId),
     sideTagHtml,
     timeframeTagHtml,
     currentModeTagHtml,
@@ -6872,7 +6866,7 @@ if (adminListEl) {
     const target = e.target instanceof HTMLElement ? e.target : null;
     if (!target) return;
 
-    const copyBtn = target.closest('.admin-copy-value');
+    const copyBtn = target.closest('.admin-copy-value, .admin-time-status__value[data-copy-text]');
     if (copyBtn) {
       e.preventDefault();
       e.stopPropagation();
