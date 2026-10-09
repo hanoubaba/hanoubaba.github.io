@@ -317,10 +317,10 @@ const OPEN_COST_MULTIPLIER_MAX = 10;
 const OPEN_COST_MULTIPLIER_DEFAULT = 3;
 /** 后台管理：输入框为欢乐豆总数（总资金），落库 unit_cost；每档本金 = 总资金 × 凯利系数 */
 const ADMIN_TOTAL_CAPITAL_DEFAULT = 100;
-const KELLY_RATIO_MIN = 0.1;
+const KELLY_RATIO_MIN = 0.05;
 const KELLY_RATIO_MAX = 0.5;
 const KELLY_DENOM_MIN = 2;
-const KELLY_DENOM_MAX = 10;
+const KELLY_DENOM_MAX = 20;
 const KELLY_DENOM_DEFAULT = 3;
 const KELLY_RATIO_DEFAULT = 1 / KELLY_DENOM_DEFAULT;
 const KELLY_RATIO_STORAGE_KEY = 'ok_kelly_ratio';
@@ -739,13 +739,28 @@ async function saveAppSettings(patch = {}) {
     throw new Error('没有可保存的配置');
   }
 
-  const res = await supabaseFetch(`${SETTINGS_ENDPOINT}?on_conflict=id`, {
-    method: 'POST',
+  const patchBody = { ...payload };
+  delete patchBody.id;
+  const settingsUrl = `${SETTINGS_ENDPOINT}?id=eq.${encodeURIComponent(APP_SETTINGS_ID)}`;
+  let res = await supabaseFetch(settingsUrl, {
+    method: 'PATCH',
     headers: {
-      Prefer: 'resolution=merge-duplicates,return=minimal',
+      Prefer: 'return=representation',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(patchBody),
   });
+  if (res.ok) {
+    const rows = await res.json().catch(() => []);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      res = await supabaseFetch(`${SETTINGS_ENDPOINT}?on_conflict=id`, {
+        method: 'POST',
+        headers: {
+          Prefer: 'resolution=merge-duplicates,return=minimal',
+        },
+        body: JSON.stringify(payload),
+      });
+    }
+  }
   if (!res.ok) {
     const errorText = await res.text();
     if (markMissingSettingsColumn(errorText)) {
@@ -812,15 +827,18 @@ async function handleUnitCostSave() {
   const inputValue = normalizeUnitCost(getUnitCostInputValue());
   if (inputValue == null) {
     input?.focus();
+    showToast('请输入大于 0 的数字');
     return;
   }
   try {
     await runConfigSave(btn, async () => {
       await saveAppSettings({ unit_cost: inputValue });
+      restoreUnitCostInput();
+      showToast('欢乐豆总数已保存');
       if (currentPage === 'admin') renderAdminListItems();
     });
-  } catch {
-    // 仅按钮 Loading，不弹提示
+  } catch (err) {
+    showToast(String(err?.message || '保存失败').slice(0, 80));
   }
 }
 
@@ -837,16 +855,18 @@ async function handleKellyRatioSave() {
   const kelly = kellyRatioFromDenominator(denom);
   if (denom == null || kelly == null) {
     input?.focus();
+    showToast(`分母须为 ${KELLY_DENOM_MIN}–${KELLY_DENOM_MAX} 的整数`);
     return;
   }
   try {
     await runConfigSave(btn, async () => {
       await saveAppSettings({ kelly_ratio: kelly });
       restoreKellyRatioInput();
+      showToast(`凯利系数已保存为 1/${denom}`);
       if (currentPage === 'admin') renderAdminListItems();
     });
-  } catch {
-    // 仅按钮 Loading，不弹提示
+  } catch (err) {
+    showToast(String(err?.message || '保存失败').slice(0, 80));
   }
 }
 
@@ -1020,9 +1040,10 @@ function shouldHideAssistQuantity(rate) {
   return Math.abs(Number(rate) - 0.8) < 1e-9;
 }
 
-/** 趋势立项 -80% 档：仅展示参考，中划线样式 */
+/** 趋势立项 50% / -80% 档：仅展示参考，中划线样式 */
 function shouldStrikeTrendConcessionRate(rate) {
-  return Math.abs(Number(rate) - (-0.8)) < 1e-9;
+  const n = Number(rate);
+  return Math.abs(n - 0.5) < 1e-9 || Math.abs(n - (-0.8)) < 1e-9;
 }
 
 /** 趋势立项档位背景：正数 / 负数 / 00% */
@@ -1395,12 +1416,21 @@ function isConcessionItemSelected(item, row) {
   return selected.price != null && itemPrice != null && itemPrice === selected.price;
 }
 
+function isTrendHighlightConcessionRate(rate) {
+  const n = Number(rate);
+  return Number.isFinite(n)
+    && [0.2, 0, -0.2].some((target) => Math.abs(n - target) < 1e-9);
+}
+
 function isAdminConcessionCurrentItem(item, row) {
   // 趋势力预测：选中态跟随已创建的趋势辅助档位
   if (isAdminCounterTrendView(row)) {
     return isCounterTrendItemCurrentTierAssist(item, row);
   }
-  return isConcessionItemSelected(item, row);
+  if (getAdminStrategyTypeInfo(row).type === 'trend') {
+    return isTrendHighlightConcessionRate(item?.rate);
+  }
+  return false;
 }
 
 async function setSelectedConcession(strategyId, row, nextSelection) {
@@ -5056,7 +5086,7 @@ function buildAdminListItemHtml(row) {
     priceDecimalPlaces,
     assistLabels: isAssistLikeStrategy,
     hideStopColumn: true,
-    selectableStrategyId: showCounterTrend ? '' : rawId,
+    selectableStrategyId: '',
     isCurrentItem: (item) => isAdminConcessionCurrentItem(item, row),
     // 趋势立项档位由高到低：50% → -80%；趋势力预测保持倍数由高到低
     reverseOrder: showCounterTrend || strategyType.type === 'trend',
@@ -6915,31 +6945,6 @@ if (adminListEl) {
       if (expandedCounterTrendIds.has(id)) expandedCounterTrendIds.delete(id);
       else expandedCounterTrendIds.add(id);
       renderAdminListItems();
-      return;
-    }
-
-    const concessionSelectRow = target.closest('[data-admin-concession-select]');
-    if (concessionSelectRow) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (isAdminSelectionMode || isDeletingStrategies) return;
-      const id = String(concessionSelectRow.getAttribute('data-id') ?? '').trim();
-      if (!id) return;
-      const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
-      if (!row) return;
-      const rateRaw = String(concessionSelectRow.getAttribute('data-rate') ?? '').trim();
-      const priceRaw = String(concessionSelectRow.getAttribute('data-price') ?? '').trim();
-      const rate = Number(rateRaw);
-      const price = toNumber(priceRaw);
-      const current = getSelectedConcessionFromRow(row);
-      const sameRate = current?.rate != null && Number.isFinite(rate) && Math.abs(current.rate - rate) < 1e-9;
-      const samePrice = current?.price != null && price != null && current.price === price;
-      // 已选中同一行则保持，不再取消；点其他行则切换（同 tab）
-      if (sameRate || samePrice) return;
-      setSelectedConcession(id, row, {
-        rate: Number.isFinite(rate) ? rate : null,
-        price,
-      }).catch(() => {});
       return;
     }
 

@@ -606,7 +606,7 @@ check (
 -- ------------------------------------------------------------
 -- 6. 应用设置（多端同步）
 -- unit_cost：欢乐豆总数
--- kelly_ratio：凯利系数 0.1–0.5；每档本金 = 总数 × 凯利
+-- kelly_ratio：凯利系数 0.05–0.5（分母 2–20）；每档本金 = 总数 × 凯利
 -- default_timeframe：前台时间维度默认（1h/4h/8h/1d）
 -- developer_mode：开发者模式
 -- ------------------------------------------------------------
@@ -620,7 +620,7 @@ create table if not exists public.app_settings (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint app_settings_unit_cost_positive_check check (unit_cost > 0),
-  constraint app_settings_kelly_ratio_check check (kelly_ratio >= 0.1 and kelly_ratio <= 0.5),
+  constraint app_settings_kelly_ratio_check check (kelly_ratio >= 0.05 and kelly_ratio <= 0.5),
   constraint app_settings_default_timeframe_check check (default_timeframe in ('1h', '4h', '8h', '1d'))
 );
 
@@ -642,7 +642,7 @@ where unit_cost is null or unit_cost <= 0;
 
 update public.app_settings
 set kelly_ratio = 0.3333
-where kelly_ratio is null or kelly_ratio < 0.1 or kelly_ratio > 0.5;
+where kelly_ratio is null or kelly_ratio < 0.05 or kelly_ratio > 0.5;
 
 update public.app_settings
 set default_timeframe = '4h'
@@ -688,7 +688,7 @@ drop constraint if exists app_settings_kelly_ratio_check;
 
 alter table public.app_settings
 add constraint app_settings_kelly_ratio_check
-check (kelly_ratio >= 0.1 and kelly_ratio <= 0.5);
+check (kelly_ratio >= 0.05 and kelly_ratio <= 0.5);
 
 alter table public.app_settings
 drop constraint if exists app_settings_default_timeframe_check;
