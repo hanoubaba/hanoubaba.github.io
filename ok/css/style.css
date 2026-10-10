@@ -3924,6 +3924,18 @@ button.admin-time-status__tag:focus-visible {
   text-align: center;
 }
 
+.config-row__input--kelly[readonly] {
+  background: #f3f4f6;
+  color: var(--muted);
+  cursor: default;
+  box-shadow: none;
+}
+
+.config-row__input--kelly[readonly]:focus {
+  border-color: var(--border);
+  box-shadow: none;
+}
+
 .config-row__save {
   flex: none;
   box-sizing: border-box;

@@ -320,7 +320,7 @@ const KELLY_RATIO_MIN = 0.05;
 const KELLY_RATIO_MAX = 0.5;
 const KELLY_DENOM_MIN = 2;
 const KELLY_DENOM_MAX = 20;
-const KELLY_DENOM_DEFAULT = 3;
+const KELLY_DENOM_DEFAULT = 15;
 const KELLY_RATIO_DEFAULT = 1 / KELLY_DENOM_DEFAULT;
 const KELLY_RATIO_STORAGE_KEY = 'ok_kelly_ratio';
 const DEVELOPER_MODE_STORAGE_KEY = 'ok_developer_mode';
@@ -531,11 +531,11 @@ function kellyDenominatorFromRatio(ratio) {
 }
 
 function getKellyRatio() {
-  return normalizeKellyRatio(cachedKellyRatio) ?? KELLY_RATIO_DEFAULT;
+  return KELLY_RATIO_DEFAULT;
 }
 
 function getKellyDenominator() {
-  return kellyDenominatorFromRatio(getKellyRatio());
+  return KELLY_DENOM_DEFAULT;
 }
 
 function getAdminTierFixedOpenCost() {
@@ -1802,6 +1802,7 @@ const METHODOLOGY_SECTIONS = [
       '不追求最大利润，只追求合理利润。',
       '不在意一时得失，眼光放全局。',
       '准备的足够充分了，是时候开始行动了。',
+      '正确认识浮亏：不浮亏就无法挂上单盈利。开始的浮亏是为了最终的盈利。',
     ],
   },
   {
