@@ -299,9 +299,9 @@ let assistStartTimeUserPicked = false;
 let mobileTimePickerScope = 'trend';
 
 const PRICE_ADJUSTMENT_RATE = 0;
-/** 趋势立项让利档位（多空统一，展示由高到低）：50% / 20% / 00% / -20% / -50% */
+/** 趋势立项让利档位（多空统一，展示由高到低）：50%（手动） / 20% / 00% / -20% / -50% */
 const CONCESSION_RATES = [
-  { rate: 0.5, costShare: 1 / 2 },
+  { rate: 0.5, label: '50%（手动）', costShare: 1 / 2 },
   { rate: 0.2, display: true, reuseMinTierCost: true },
   { rate: 0, display: true, reuseMinTierCost: true },
   { rate: -0.2, display: true, reuseMinTierCost: true },
@@ -3074,10 +3074,17 @@ function resolveTierOpenCost(openCostTotal, costShare, fixedTierOpenCost = null)
 }
 
 function formatConcessionPercent(rate) {
-  const pct = Math.round(Number(rate) * 100);
+  const n = Number(rate);
+  if (Math.abs(n - 0.5) < 1e-9) return '50%（手动）';
+  const pct = Math.round(n * 100);
   if (!Number.isFinite(pct)) return '—';
   if (pct < 0) return `-${String(Math.abs(pct)).padStart(2, '0')}%`;
   return `${String(pct).padStart(2, '0')}%`;
+}
+
+function getTrendConcessionLabel(rate) {
+  const matched = CONCESSION_RATES.find((item) => Math.abs(Number(item.rate) - Number(rate)) < 1e-9);
+  return matched?.label || formatConcessionPercent(rate);
 }
 
 function formatCounterTrendRate(rate) {
@@ -3108,7 +3115,10 @@ function withBestConcessionLabel(label, rate) {
 }
 
 function stripRateAnnotation(label) {
-  return String(label ?? '').replace(/\s*[（(][^）)]*[）)]/g, '').trim();
+  // 仅去掉 best/三选一 注解；保留「手动」等业务标注
+  return String(label ?? '')
+    .replace(/\s*[（(](?:best三选一|best|三选一)[）)]/gi, '')
+    .trim();
 }
 
 function getDisplayConcessionItems(items) {
@@ -3574,7 +3584,7 @@ function renderConcessionsHtml({
   const rowClass = `${prefix}-concession`;
   const rateFormatter = assistLabels
     ? (rate) => getAssistTierLabel(rate)
-    : formatRate;
+    : (formatRate === formatConcessionPercent ? getTrendConcessionLabel : formatRate);
   let wrapper = hideStopColumn
     ? `${wrapperClass} ${wrapperClass}--no-stop`.trim()
     : wrapperClass;
