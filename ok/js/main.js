@@ -315,12 +315,13 @@ const OPEN_COST_MULTIPLIER_MIN = 1;
 const OPEN_COST_MULTIPLIER_MAX = 10;
 const OPEN_COST_MULTIPLIER_DEFAULT = 3;
 /** 后台管理：输入框为欢乐豆总数（总资金），落库 unit_cost；每档本金 = 总资金 × 凯利系数 */
-const ADMIN_TOTAL_CAPITAL_DEFAULT = 100;
-const KELLY_RATIO_MIN = 0.05;
+const ADMIN_TOTAL_CAPITAL_MIN = 1800;
+const ADMIN_TOTAL_CAPITAL_DEFAULT = 1800;
+const KELLY_RATIO_MIN = 1 / 30;
 const KELLY_RATIO_MAX = 0.5;
 const KELLY_DENOM_MIN = 2;
-const KELLY_DENOM_MAX = 20;
-const KELLY_DENOM_DEFAULT = 15;
+const KELLY_DENOM_MAX = 30;
+const KELLY_DENOM_DEFAULT = 30;
 const KELLY_RATIO_DEFAULT = 1 / KELLY_DENOM_DEFAULT;
 const KELLY_RATIO_STORAGE_KEY = 'ok_kelly_ratio';
 const DEVELOPER_MODE_STORAGE_KEY = 'ok_developer_mode';
@@ -491,7 +492,7 @@ function getOpenCostTotal(multiplier = OPEN_COST_MULTIPLIER_DEFAULT) {
 
 function normalizeUnitCost(value) {
   const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return null;
+  if (!Number.isFinite(n) || n < ADMIN_TOTAL_CAPITAL_MIN) return null;
   return n;
 }
 
@@ -507,8 +508,11 @@ function getTotalCapital() {
 function normalizeKellyRatio(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
-  if (n < KELLY_RATIO_MIN - 1e-9 || n > KELLY_RATIO_MAX + 1e-9) return null;
-  return Math.round(n * 10000) / 10000;
+  const rounded = Math.round(n * 10000) / 10000;
+  const min = Math.round(KELLY_RATIO_MIN * 10000) / 10000;
+  const max = Math.round(KELLY_RATIO_MAX * 10000) / 10000;
+  if (rounded < min - 1e-9 || rounded > max + 1e-9) return null;
+  return rounded;
 }
 
 function normalizeKellyDenominator(value) {
@@ -704,7 +708,7 @@ async function saveAppSettings(patch = {}) {
 
   if (Object.prototype.hasOwnProperty.call(patch, 'unit_cost')) {
     const cost = normalizeUnitCost(patch.unit_cost);
-    if (cost == null) throw new Error('请输入大于 0 的数字');
+    if (cost == null) throw new Error(`欢乐豆总数最小为 ${ADMIN_TOTAL_CAPITAL_MIN}`);
     payload.unit_cost = cost;
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'kelly_ratio')) {
@@ -826,7 +830,7 @@ async function handleUnitCostSave() {
   const inputValue = normalizeUnitCost(getUnitCostInputValue());
   if (inputValue == null) {
     input?.focus();
-    showToast('请输入大于 0 的数字');
+    showToast(`欢乐豆总数最小为 ${ADMIN_TOTAL_CAPITAL_MIN}`);
     return;
   }
   try {
