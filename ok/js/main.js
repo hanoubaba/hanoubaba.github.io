@@ -1829,6 +1829,13 @@ const METHODOLOGY_SECTIONS = [
       '周期往复，需要永远维持理智和克制',
     ],
   },
+  {
+    title: '13、全自动操作的手动补充',
+    items: [
+      '开单：最低档位可以市价成交保证成交率。',
+      '平单：时间完成空间未完成的情况，可以根据8小时维度延迟时间实现空间收益最大化。（结果二元论，舍弃中间稳定态）',
+    ],
+  },
 ];
 
 let authSession = null;
@@ -3610,7 +3617,10 @@ function renderConcessionsHtml({
       : false;
     const selectable = Boolean(prefix === 'admin' && selectId && !item?.isMidpoint);
     const strikeTrendRow = !assistLabels && shouldStrikeTrendConcessionRate(item.rate);
-    const rateSignMod = (!assistLabels && !sideActionsMode && !item?.isMidpoint)
+    const rateSignMod = (prefix !== 'admin'
+      && !assistLabels
+      && !sideActionsMode
+      && !item?.isMidpoint)
       ? getConcessionRateSignMod(item.rate)
       : '';
     const extraClass = [
