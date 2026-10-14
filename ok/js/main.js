@@ -158,20 +158,21 @@ function isSameDate(a, b) {
     && a.getDate() === b.getDate();
 }
 
+function formatSlotDatePart(at, now = new Date()) {
+  const sameYear = at.getFullYear() === now.getFullYear();
+  return sameYear
+    ? `${at.getMonth() + 1}月${at.getDate()}日`
+    : `${at.getFullYear()}年${at.getMonth() + 1}月${at.getDate()}日`;
+}
+
 function formatSlotLabel(at, now = new Date()) {
   const time = formatHHMM(at.getHours(), at.getMinutes());
-  if (isSameDate(at, now)) return time;
-  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
-  if (isSameDate(at, yesterday)) return `昨天 ${time}`;
-  return `${at.getMonth() + 1}/${at.getDate()} ${time}`;
+  return `${formatSlotDatePart(at, now)} ${time}`;
 }
 
 function formatSlotLabelForMode(at, now, mode) {
   if (normalizeTimeframeMode(mode) === '1d') {
-    if (isSameDate(at, now)) return '今天';
-    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
-    if (isSameDate(at, yesterday)) return '昨天';
-    return `${at.getMonth() + 1}/${at.getDate()}`;
+    return formatSlotDatePart(at, now);
   }
   return formatSlotLabel(at, now);
 }
@@ -195,7 +196,7 @@ function getCurrentTimeSlot(stepMinutes) {
   return formatStartSlotValue(floorDateToStep(new Date(), stepMinutes));
 }
 
-const START_TIME_SLOT_COUNT = 5;
+const START_TIME_SLOT_COUNT = 9;
 const BUILTIN_DEFAULT_TIMEFRAME = '4h';
 const DEFAULT_TIMEFRAME_OPTIONS = ['1h', '4h', '8h', '1d'];
 const DEFAULT_TIMEFRAME_STORAGE_KEY = 'ok_default_timeframe';
@@ -711,7 +712,7 @@ function restoreKellyRatioInput() {
   if (!tierEl && !nEl) return;
   const factors = getKellyFactors();
   if (tierEl) tierEl.value = String(KELLY_TIER_DEFAULT);
-  if (nEl && document.activeElement !== nEl) nEl.value = String(factors.n);
+  if (nEl) nEl.value = String(factors.n);
 }
 
 function restoreConfigForm() {
@@ -6798,19 +6799,6 @@ if (unitCostInput) {
     if (e.key === 'Enter') {
       e.preventDefault();
       handleUnitCostSave().catch(() => {});
-    }
-  });
-}
-const btnKellyRatioSave = document.getElementById('kelly-ratio-save');
-if (btnKellyRatioSave) btnKellyRatioSave.addEventListener('click', () => {
-  handleKellyRatioSave().catch(() => {});
-});
-const kellyNInput = document.getElementById('kelly-n-input');
-if (kellyNInput) {
-  kellyNInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleKellyRatioSave().catch(() => {});
     }
   });
 }
