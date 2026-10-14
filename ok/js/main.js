@@ -3398,8 +3398,27 @@ function findCounterTrendItemIndex(items, rate, price) {
   return index;
 }
 
+/** 5R 止盈→1R；3R 止盈→S（原开仓价）；其余档仍用邻档默认。 */
+function resolveCounterTrendTakeProfitOverride(displayItems, rate, row) {
+  const rateNum = Number(rate);
+  const items = Array.isArray(displayItems) ? displayItems : [];
+  if (Math.abs(rateNum - 5) < 1e-9) {
+    const oneR = items.find((item) => Math.abs(Number(item?.rate) - 1) < 1e-9);
+    return toNumber(oneR?.price);
+  }
+  if (Math.abs(rateNum - 3) < 1e-9) {
+    const sItem = items.find((item) => {
+      const label = String(item?.rateLabel ?? '').trim().toUpperCase();
+      return label === 'S' || label === 'R' || Math.abs(Number(item?.rate) - 0) < 1e-9;
+    });
+    return toNumber(sItem?.price) ?? toNumber(row?.entryPrice);
+  }
+  return null;
+}
+
 /**
- * 开仓=当前档或半档；止损=半个整档；止盈=1 个整档。
+ * 开仓=当前档或半档；止损=半个整档；止盈默认 1 个整档。
+ * 5R 止盈固定为 1R；3R 止盈固定为 S。
  * 相邻整档按非中间值行计算。
  */
 function findCounterTrendNeighborPrices(row, rate, price) {
@@ -3451,6 +3470,17 @@ function findCounterTrendNeighborPrices(row, rate, price) {
     takeProfitShort = belowPrice;
   }
 
+  const currentRate = Number(current?.rate);
+  const tpOverride = resolveCounterTrendTakeProfitOverride(
+    displayItems,
+    Number.isFinite(currentRate) ? currentRate : rate,
+    row,
+  );
+  if (tpOverride != null) {
+    takeProfitLong = tpOverride;
+    takeProfitShort = tpOverride;
+  }
+
   return {
     currentPrice: entryPrice,
     abovePrice,
@@ -3460,7 +3490,7 @@ function findCounterTrendNeighborPrices(row, rate, price) {
     stopShort,
     takeProfitShort,
     isMidpoint,
-    currentRate: Number(current?.rate),
+    currentRate,
     decimalPlaces: getAdminPriceDecimalPlacesFromRow(row),
   };
 }
