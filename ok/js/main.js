@@ -314,28 +314,64 @@ const OPEN_COST_BASE = 100;
 const OPEN_COST_MULTIPLIER_MIN = 1;
 const OPEN_COST_MULTIPLIER_MAX = 10;
 const OPEN_COST_MULTIPLIER_DEFAULT = 3;
-/** 后台管理：输入框为欢乐豆总数（总资金），落库 unit_cost；每档本金 = 总资金 × 凯利系数 */
-const ADMIN_TOTAL_CAPITAL_MIN = 1800;
-const ADMIN_TOTAL_CAPITAL_DEFAULT = 1800;
+/** 后台管理：输入框为欢乐豆总数（总资金），落库 unit_cost；每档本金 = 总资金 × 凯利系数（无最低/默认下限） */
+const ADMIN_TOTAL_CAPITAL_FALLBACK = 0;
 const KELLY_RATIO_MIN = 1 / 30;
 const KELLY_RATIO_MAX = 0.5;
 const KELLY_DENOM_MIN = 2;
 const KELLY_DENOM_MAX = 30;
-const KELLY_DENOM_DEFAULT = 30;
+/** 分母 = 档位 × n；默认 5 × 6 = 30 */
+const KELLY_TIER_DEFAULT = 5;
+const KELLY_N_DEFAULT = 6;
+const KELLY_DENOM_DEFAULT = KELLY_TIER_DEFAULT * KELLY_N_DEFAULT;
 const KELLY_RATIO_DEFAULT = 1 / KELLY_DENOM_DEFAULT;
 const KELLY_RATIO_STORAGE_KEY = 'ok_kelly_ratio';
+const KELLY_FACTORS_STORAGE_KEY = 'ok_kelly_factors';
 const DEVELOPER_MODE_STORAGE_KEY = 'ok_developer_mode';
-let cachedUnitCostInput = ADMIN_TOTAL_CAPITAL_DEFAULT;
+let cachedUnitCostInput = ADMIN_TOTAL_CAPITAL_FALLBACK;
 let cachedKellyRatio = KELLY_RATIO_DEFAULT;
+let cachedKellyTier = KELLY_TIER_DEFAULT;
+let cachedKellyN = KELLY_N_DEFAULT;
 let kellyRatioColumnAvailable = true;
 let defaultTimeframeColumnAvailable = true;
 let developerModeColumnAvailable = true;
 let isDeveloperMode = false;
 
+function loadCachedKellyFactorsFallback() {
+  try {
+    const raw = localStorage.getItem(KELLY_FACTORS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const factors = normalizeKellyFactors(KELLY_TIER_DEFAULT, parsed?.n);
+    if (factors == null) return null;
+    cachedKellyTier = KELLY_TIER_DEFAULT;
+    cachedKellyN = factors.n;
+    return factors;
+  } catch {
+    return null;
+  }
+}
+
+function persistKellyFactorsFallback(_tier, n) {
+  try {
+    localStorage.setItem(KELLY_FACTORS_STORAGE_KEY, JSON.stringify({ tier: KELLY_TIER_DEFAULT, n }));
+  } catch {
+    // ignore
+  }
+}
+
 function loadCachedKellyRatioFallback() {
   try {
     const kelly = normalizeKellyRatio(localStorage.getItem(KELLY_RATIO_STORAGE_KEY));
     if (kelly != null) cachedKellyRatio = kelly;
+    const factors = loadCachedKellyFactorsFallback();
+    if (factors != null) {
+      const denom = factors.tier * factors.n;
+      const fromFactors = kellyRatioFromDenominator(denom);
+      if (fromFactors != null) cachedKellyRatio = fromFactors;
+      return;
+    }
+    applyKellyFactorsFromDenominator(kellyDenominatorFromRatio(cachedKellyRatio));
   } catch {
     // ignore
   }
@@ -347,6 +383,23 @@ function persistKellyRatioFallback(kelly) {
   } catch {
     // ignore
   }
+}
+
+function applyKellyFactors(_tier, n) {
+  const factors = normalizeKellyFactors(KELLY_TIER_DEFAULT, n);
+  if (factors == null) return null;
+  cachedKellyTier = KELLY_TIER_DEFAULT;
+  cachedKellyN = factors.n;
+  persistKellyFactorsFallback(KELLY_TIER_DEFAULT, factors.n);
+  return factors;
+}
+
+function applyKellyFactorsFromDenominator(denom) {
+  const factors = decomposeKellyFactors(denom);
+  cachedKellyTier = KELLY_TIER_DEFAULT;
+  cachedKellyN = factors.n;
+  persistKellyFactorsFallback(KELLY_TIER_DEFAULT, factors.n);
+  return factors;
 }
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
@@ -492,7 +545,7 @@ function getOpenCostTotal(multiplier = OPEN_COST_MULTIPLIER_DEFAULT) {
 
 function normalizeUnitCost(value) {
   const n = Number(value);
-  if (!Number.isFinite(n) || n < ADMIN_TOTAL_CAPITAL_MIN) return null;
+  if (!Number.isFinite(n) || n < 0) return null;
   return n;
 }
 
@@ -502,7 +555,7 @@ function getUnitCostInputValue() {
 }
 
 function getTotalCapital() {
-  return normalizeUnitCost(cachedUnitCostInput) ?? ADMIN_TOTAL_CAPITAL_DEFAULT;
+  return normalizeUnitCost(cachedUnitCostInput) ?? ADMIN_TOTAL_CAPITAL_FALLBACK;
 }
 
 function normalizeKellyRatio(value) {
@@ -521,6 +574,44 @@ function normalizeKellyDenominator(value) {
   return n;
 }
 
+function normalizeKellyFactorPart(value) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n) || n < 1 || n > KELLY_DENOM_MAX) return null;
+  return n;
+}
+
+/** 分母 = 档位 × n，须落在允许区间 */
+function normalizeKellyFactors(tierValue, nValue) {
+  const tier = normalizeKellyFactorPart(tierValue);
+  const n = normalizeKellyFactorPart(nValue);
+  if (tier == null || n == null) return null;
+  const denom = normalizeKellyDenominator(tier * n);
+  if (denom == null) return null;
+  return { tier, n, denom };
+}
+
+/** 从分母拆回档位 × n；档位固定为 5 */
+function decomposeKellyFactors(denomValue) {
+  const denom = normalizeKellyDenominator(denomValue) ?? KELLY_DENOM_DEFAULT;
+  if (denom % KELLY_TIER_DEFAULT === 0) {
+    return {
+      tier: KELLY_TIER_DEFAULT,
+      n: denom / KELLY_TIER_DEFAULT,
+      denom,
+    };
+  }
+  const n = Math.min(
+    KELLY_DENOM_MAX / KELLY_TIER_DEFAULT,
+    Math.max(1, Math.round(denom / KELLY_TIER_DEFAULT)),
+  );
+  const fixedDenom = KELLY_TIER_DEFAULT * n;
+  return {
+    tier: KELLY_TIER_DEFAULT,
+    n,
+    denom: normalizeKellyDenominator(fixedDenom) ?? KELLY_DENOM_DEFAULT,
+  };
+}
+
 function kellyRatioFromDenominator(denom) {
   const n = normalizeKellyDenominator(denom);
   if (n == null) return null;
@@ -535,11 +626,17 @@ function kellyDenominatorFromRatio(ratio) {
 }
 
 function getKellyRatio() {
-  return KELLY_RATIO_DEFAULT;
+  return normalizeKellyRatio(cachedKellyRatio) ?? KELLY_RATIO_DEFAULT;
 }
 
 function getKellyDenominator() {
-  return KELLY_DENOM_DEFAULT;
+  return kellyDenominatorFromRatio(getKellyRatio());
+}
+
+function getKellyFactors() {
+  const fromCache = normalizeKellyFactors(KELLY_TIER_DEFAULT, cachedKellyN);
+  if (fromCache != null && fromCache.denom === getKellyDenominator()) return fromCache;
+  return decomposeKellyFactors(getKellyDenominator());
 }
 
 function getAdminTierFixedOpenCost() {
@@ -609,9 +706,12 @@ function restoreUnitCostInput() {
 }
 
 function restoreKellyRatioInput() {
-  const el = document.getElementById('kelly-denom-input');
-  if (!el || document.activeElement === el) return;
-  el.value = String(getKellyDenominator());
+  const tierEl = document.getElementById('kelly-tier-input');
+  const nEl = document.getElementById('kelly-n-input');
+  if (!tierEl && !nEl) return;
+  const factors = getKellyFactors();
+  if (tierEl) tierEl.value = String(KELLY_TIER_DEFAULT);
+  if (nEl && document.activeElement !== nEl) nEl.value = String(factors.n);
 }
 
 function restoreConfigForm() {
@@ -684,6 +784,16 @@ async function fetchAppSettings() {
     if (kelly != null) {
       cachedKellyRatio = kelly;
       persistKellyRatioFallback(kelly);
+      const storedFactors = loadCachedKellyFactorsFallback();
+      const denom = kellyDenominatorFromRatio(kelly);
+      if (storedFactors != null && KELLY_TIER_DEFAULT * storedFactors.n === denom) {
+        cachedKellyTier = KELLY_TIER_DEFAULT;
+        cachedKellyN = storedFactors.n;
+      } else {
+        applyKellyFactorsFromDenominator(denom);
+      }
+    } else {
+      loadCachedKellyRatioFallback();
     }
   } else {
     loadCachedKellyRatioFallback();
@@ -705,19 +815,25 @@ async function fetchAppSettings() {
 async function saveAppSettings(patch = {}) {
   const payload = { id: APP_SETTINGS_ID };
   let localOnlyApplied = false;
+  let pendingKellyFactors = null;
 
   if (Object.prototype.hasOwnProperty.call(patch, 'unit_cost')) {
     const cost = normalizeUnitCost(patch.unit_cost);
-    if (cost == null) throw new Error(`欢乐豆总数最小为 ${ADMIN_TOTAL_CAPITAL_MIN}`);
+    if (cost == null) throw new Error('请输入有效的欢乐豆总数（须为非负数字）');
     payload.unit_cost = cost;
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'kelly_ratio')) {
     const kelly = normalizeKellyRatio(patch.kelly_ratio);
-    if (kelly == null) throw new Error(`分母须为 ${KELLY_DENOM_MIN}–${KELLY_DENOM_MAX} 的整数（即 1/${KELLY_DENOM_MAX}–1/${KELLY_DENOM_MIN}）`);
+    if (kelly == null) throw new Error(`分母须为 ${KELLY_DENOM_MIN}–${KELLY_DENOM_MAX} 的整数（即 1/${KELLY_DENOM_MAX}–1/${KELLY_DENOM_MIN}），由档位×个数得到`);
+    pendingKellyFactors = patch.kelly_factors != null
+      ? normalizeKellyFactors(patch.kelly_factors.tier, patch.kelly_factors.n)
+      : null;
     if (kellyRatioColumnAvailable) payload.kelly_ratio = kelly;
     else {
       cachedKellyRatio = kelly;
       persistKellyRatioFallback(kelly);
+      if (pendingKellyFactors != null) applyKellyFactors(pendingKellyFactors.tier, pendingKellyFactors.n);
+      else applyKellyFactorsFromDenominator(kellyDenominatorFromRatio(kelly));
       localOnlyApplied = true;
     }
   }
@@ -770,10 +886,14 @@ async function saveAppSettings(patch = {}) {
       const retryPatch = {};
       if (payload.unit_cost != null) retryPatch.unit_cost = payload.unit_cost;
       if (payload.kelly_ratio != null) {
-        if (kellyRatioColumnAvailable) retryPatch.kelly_ratio = payload.kelly_ratio;
-        else {
+        if (kellyRatioColumnAvailable) {
+          retryPatch.kelly_ratio = payload.kelly_ratio;
+          if (pendingKellyFactors != null) retryPatch.kelly_factors = pendingKellyFactors;
+        } else {
           cachedKellyRatio = payload.kelly_ratio;
           persistKellyRatioFallback(payload.kelly_ratio);
+          if (pendingKellyFactors != null) applyKellyFactors(pendingKellyFactors.tier, pendingKellyFactors.n);
+          else applyKellyFactorsFromDenominator(kellyDenominatorFromRatio(payload.kelly_ratio));
         }
       }
       if (payload.default_timeframe != null) {
@@ -793,6 +913,8 @@ async function saveAppSettings(patch = {}) {
   if (payload.kelly_ratio != null) {
     cachedKellyRatio = payload.kelly_ratio;
     persistKellyRatioFallback(payload.kelly_ratio);
+    if (pendingKellyFactors != null) applyKellyFactors(pendingKellyFactors.tier, pendingKellyFactors.n);
+    else applyKellyFactorsFromDenominator(kellyDenominatorFromRatio(payload.kelly_ratio));
   }
   if (payload.default_timeframe != null) {
     applyDefaultTimeframeLocal(payload.default_timeframe, { syncFront: !editingStrategyId });
@@ -830,7 +952,7 @@ async function handleUnitCostSave() {
   const inputValue = normalizeUnitCost(getUnitCostInputValue());
   if (inputValue == null) {
     input?.focus();
-    showToast(`欢乐豆总数最小为 ${ADMIN_TOTAL_CAPITAL_MIN}`);
+    showToast('请输入有效的欢乐豆总数（须为非负数字）');
     return;
   }
   try {
@@ -845,27 +967,30 @@ async function handleUnitCostSave() {
   }
 }
 
-function getKellyDenominatorInputValue() {
-  const el = document.getElementById('kelly-denom-input');
+function getKellyNInputValue() {
+  const el = document.getElementById('kelly-n-input');
   return String(el?.value ?? '').trim();
 }
 
 async function handleKellyRatioSave() {
-  const input = document.getElementById('kelly-denom-input');
+  const nInput = document.getElementById('kelly-n-input');
   const btn = document.getElementById('kelly-ratio-save');
   if (btn?.disabled) return;
-  const denom = normalizeKellyDenominator(getKellyDenominatorInputValue());
-  const kelly = kellyRatioFromDenominator(denom);
-  if (denom == null || kelly == null) {
-    input?.focus();
-    showToast(`分母须为 ${KELLY_DENOM_MIN}–${KELLY_DENOM_MAX} 的整数`);
+  const factors = normalizeKellyFactors(KELLY_TIER_DEFAULT, getKellyNInputValue());
+  const kelly = factors != null ? kellyRatioFromDenominator(factors.denom) : null;
+  if (factors == null || kelly == null) {
+    nInput?.focus();
+    showToast(`分母=5×个数，须为 ${KELLY_DENOM_MIN}–${KELLY_DENOM_MAX} 的整数（个数 1–${Math.floor(KELLY_DENOM_MAX / KELLY_TIER_DEFAULT)}）`);
     return;
   }
   try {
     await runConfigSave(btn, async () => {
-      await saveAppSettings({ kelly_ratio: kelly });
+      await saveAppSettings({
+        kelly_ratio: kelly,
+        kelly_factors: { tier: KELLY_TIER_DEFAULT, n: factors.n },
+      });
       restoreKellyRatioInput();
-      showToast(`凯利系数已保存为 1/${denom}`);
+      showToast(`凯利系数已保存为 1/(5×${factors.n})=1/${factors.denom}`);
       if (currentPage === 'admin') renderAdminListItems();
     });
   } catch (err) {
@@ -2113,7 +2238,7 @@ async function enterAuthenticatedApp() {
   try {
     await fetchAppSettings();
   } catch {
-    cachedUnitCostInput = ADMIN_TOTAL_CAPITAL_DEFAULT;
+    cachedUnitCostInput = ADMIN_TOTAL_CAPITAL_FALLBACK;
     loadCachedKellyRatioFallback();
     restoreConfigForm();
   }
@@ -6680,9 +6805,9 @@ const btnKellyRatioSave = document.getElementById('kelly-ratio-save');
 if (btnKellyRatioSave) btnKellyRatioSave.addEventListener('click', () => {
   handleKellyRatioSave().catch(() => {});
 });
-const kellyRatioInput = document.getElementById('kelly-denom-input');
-if (kellyRatioInput) {
-  kellyRatioInput.addEventListener('keydown', (e) => {
+const kellyNInput = document.getElementById('kelly-n-input');
+if (kellyNInput) {
+  kellyNInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       handleKellyRatioSave().catch(() => {});

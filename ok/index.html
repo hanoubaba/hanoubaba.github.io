@@ -113,15 +113,19 @@
         <div class="config-row">
           <span class="config-row__label" id="unit-cost-label">欢乐豆总数</span>
           <span class="config-row__control">
-            <input id="unit-cost-input" class="config-row__input" type="text" inputmode="decimal" autocomplete="off" placeholder="1800" aria-labelledby="unit-cost-label" />
+            <input id="unit-cost-input" class="config-row__input" type="text" inputmode="decimal" autocomplete="off" placeholder="总数" aria-labelledby="unit-cost-label" />
             <button id="unit-cost-save" type="button" class="config-row__save">保存</button>
           </span>
         </div>
         <div class="config-row">
           <span class="config-row__label" id="kelly-denom-label">凯利系数</span>
-          <span class="config-row__control">
-            <span class="config-kelly" aria-hidden="true">1 /</span>
-            <input id="kelly-denom-input" class="config-row__input config-row__input--kelly" type="text" value="30" readonly tabindex="-1" aria-readonly="true" aria-labelledby="kelly-denom-label" />
+          <span class="config-row__control config-row__control--kelly">
+            <span class="config-kelly" aria-hidden="true">1 / (</span>
+            <input id="kelly-tier-input" class="config-row__input config-row__input--kelly" type="text" value="5" readonly tabindex="-1" aria-readonly="true" aria-label="档位" title="档位（固定）" />
+            <span class="config-kelly" aria-hidden="true">×</span>
+            <input id="kelly-n-input" class="config-row__input config-row__input--kelly" type="text" inputmode="numeric" autocomplete="off" value="6" aria-label="个数" title="个数" />
+            <span class="config-kelly" aria-hidden="true">)</span>
+            <button id="kelly-ratio-save" type="button" class="config-row__save">保存</button>
           </span>
         </div>
         <div class="config-row">
