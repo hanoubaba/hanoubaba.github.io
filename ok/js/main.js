@@ -3355,16 +3355,28 @@ function renderCounterTrendFoldLinkHtml(strategyId) {
 }
 
 function renderCounterTrendSideActionsHtml(strategyId, item) {
-  const id = String(strategyId ?? '').trim();
+  const id = escapeHtml(String(strategyId ?? '').trim());
+  const rateNum = Number(item?.rate);
   const rateLabel = String(item?.rateLabel ?? '').trim().toUpperCase();
   const isSRow = rateLabel === 'S' || rateLabel === 'R';
-  if (!id || isSRow) {
+  if (!id || isSRow || item?.isMidpoint) {
     return '<span class="admin-concession__actions"></span>';
+  }
+  const rate = escapeHtml(String(Number.isFinite(rateNum) ? rateNum : '').trim());
+  const price = escapeHtml(String(item?.price ?? '').trim());
+  const isLowR = Math.abs(rateNum - 1) < 1e-9 || Math.abs(rateNum - 2) < 1e-9;
+  if (isLowR) {
+    return [
+      '<span class="admin-concession__actions">',
+      '<button type="button" class="admin-concession__side-btn admin-concession__side-btn--long" disabled aria-disabled="true" title="1R/2R 不可创建">做多</button>',
+      '<button type="button" class="admin-concession__side-btn admin-concession__side-btn--short" disabled aria-disabled="true" title="1R/2R 不可创建">做空</button>',
+      '</span>',
+    ].join('');
   }
   return [
     '<span class="admin-concession__actions">',
-    '<button type="button" class="admin-concession__side-btn admin-concession__side-btn--long" disabled aria-disabled="true" title="暂不可用">做多</button>',
-    '<button type="button" class="admin-concession__side-btn admin-concession__side-btn--short" disabled aria-disabled="true" title="暂不可用">做空</button>',
+    `<button type="button" class="admin-concession__side-btn admin-concession__side-btn--long" data-counter-side-action="long" data-id="${id}" data-rate="${rate}" data-price="${price}" title="创建趋势辅助（做多）">做多</button>`,
+    `<button type="button" class="admin-concession__side-btn admin-concession__side-btn--short" data-counter-side-action="short" data-id="${id}" data-rate="${rate}" data-price="${price}" title="创建趋势辅助（做空）">做空</button>`,
     '</span>',
   ].join('');
 }
@@ -7085,6 +7097,22 @@ if (adminListEl) {
       if (expandedCounterTrendIds.has(id)) expandedCounterTrendIds.delete(id);
       else expandedCounterTrendIds.add(id);
       renderAdminListItems();
+      return;
+    }
+
+    const counterSideBtn = target.closest('[data-counter-side-action]');
+    if (counterSideBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isCreatingTierAssist || isAdminSelectionMode || isDeletingStrategies) return;
+      const id = String(counterSideBtn.getAttribute('data-id') ?? '').trim();
+      const side = String(counterSideBtn.getAttribute('data-counter-side-action') ?? '').trim();
+      const rate = Number(counterSideBtn.getAttribute('data-rate'));
+      const price = counterSideBtn.getAttribute('data-price');
+      if (!id || (side !== 'long' && side !== 'short')) return;
+      const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === id);
+      if (!row) return;
+      createTierAssistFromCounterAction(row, side, rate, price).catch(() => {});
       return;
     }
 
