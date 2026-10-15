@@ -321,9 +321,9 @@ const KELLY_RATIO_MIN = 1 / 30;
 const KELLY_RATIO_MAX = 0.5;
 const KELLY_DENOM_MIN = 2;
 const KELLY_DENOM_MAX = 30;
-/** 分母 = 档位 × n；默认 5 × 6 = 30 */
+/** 分母 = 档位 × n；默认 5 × 3 = 15（固定） */
 const KELLY_TIER_DEFAULT = 5;
-const KELLY_N_DEFAULT = 6;
+const KELLY_N_DEFAULT = 3;
 const KELLY_DENOM_DEFAULT = KELLY_TIER_DEFAULT * KELLY_N_DEFAULT;
 const KELLY_RATIO_DEFAULT = 1 / KELLY_DENOM_DEFAULT;
 const KELLY_RATIO_STORAGE_KEY = 'ok_kelly_ratio';
@@ -627,17 +627,20 @@ function kellyDenominatorFromRatio(ratio) {
 }
 
 function getKellyRatio() {
-  return normalizeKellyRatio(cachedKellyRatio) ?? KELLY_RATIO_DEFAULT;
+  // 配置菜单固定 1/(5×3)，忽略远端/缓存旧值
+  return KELLY_RATIO_DEFAULT;
 }
 
 function getKellyDenominator() {
-  return kellyDenominatorFromRatio(getKellyRatio());
+  return KELLY_DENOM_DEFAULT;
 }
 
 function getKellyFactors() {
-  const fromCache = normalizeKellyFactors(KELLY_TIER_DEFAULT, cachedKellyN);
-  if (fromCache != null && fromCache.denom === getKellyDenominator()) return fromCache;
-  return decomposeKellyFactors(getKellyDenominator());
+  return {
+    tier: KELLY_TIER_DEFAULT,
+    n: KELLY_N_DEFAULT,
+    denom: KELLY_DENOM_DEFAULT,
+  };
 }
 
 function getAdminTierFixedOpenCost() {
@@ -710,9 +713,8 @@ function restoreKellyRatioInput() {
   const tierEl = document.getElementById('kelly-tier-input');
   const nEl = document.getElementById('kelly-n-input');
   if (!tierEl && !nEl) return;
-  const factors = getKellyFactors();
   if (tierEl) tierEl.value = String(KELLY_TIER_DEFAULT);
-  if (nEl) nEl.value = String(factors.n);
+  if (nEl) nEl.value = String(KELLY_N_DEFAULT);
 }
 
 function restoreConfigForm() {
