@@ -1396,6 +1396,12 @@ function buildCounterTrendConcessions(row) {
     const price = calcTakeProfit(entryPrice, stopLoss, multiple);
     if (price == null) continue;
     if (!isMidpoint && COUNTER_TREND_ENTRY_MULTIPLES.includes(multiple) && price === counterStop) continue;
+    // 上下分别展示 +0.5R / −0.5R 价格
+    const plusHalf = calcTakeProfit(entryPrice, stopLoss, Number(multiple) + 0.5);
+    const minusHalfMultiple = Number(multiple) - 0.5;
+    const minusHalf = minusHalfMultiple > 0
+      ? calcTakeProfit(entryPrice, stopLoss, minusHalfMultiple)
+      : null;
     items.push({
       rate: multiple,
       display: true,
@@ -1403,6 +1409,12 @@ function buildCounterTrendConcessions(row) {
       showSideActions: true,
       isMidpoint,
       price: formatTrimmedFixedDecimals(price, decimalPlaces),
+      priceAbove: plusHalf != null
+        ? formatTrimmedFixedDecimals(plusHalf, decimalPlaces)
+        : '',
+      priceBelow: minusHalf != null
+        ? formatTrimmedFixedDecimals(minusHalf, decimalPlaces)
+        : '',
       quantity: '',
     });
   }
@@ -2702,16 +2714,47 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-function renderCopyableNumberHtml(value, className) {
+function renderCopyableNumberHtml(value, className, copyValue) {
   const text = String(value ?? '').trim();
+  const copyText = String(copyValue ?? value ?? '').trim() || text;
   const safeClass = String(className || '').trim();
   if (!text || text === '—') {
     return `<span class="${safeClass}">${escapeHtml(text || '—')}</span>`;
   }
   return [
-    `<button type="button" class="${safeClass} admin-copy-value" data-copy-text="${escapeHtml(text)}" title="点击复制" aria-label="复制 ${escapeHtml(text)}">`,
+    `<button type="button" class="${safeClass} admin-copy-value" data-copy-text="${escapeHtml(copyText)}" title="点击复制" aria-label="复制 ${escapeHtml(copyText)}">`,
     escapeHtml(text),
     '</button>',
+  ].join('');
+}
+
+/** 趋势力预测：本档价上下各显示 +0.5R / −0.5R */
+function renderStackedConcessionPriceHtml(item, rowClass, copyableNumbers) {
+  const mainPrice = String(item?.price ?? '').trim();
+  const priceAbove = String(item?.priceAbove ?? '').trim();
+  const priceBelow = String(item?.priceBelow ?? '').trim();
+  if (!priceAbove && !priceBelow) {
+    return copyableNumbers
+      ? renderCopyableNumberHtml(mainPrice, `${rowClass}__price`)
+      : `<span class="${rowClass}__price">${escapeHtml(mainPrice)}</span>`;
+  }
+  const edge = (value, mod) => {
+    const text = String(value ?? '').trim();
+    if (!text) return `<span class="${rowClass}__price-edge ${rowClass}__price-edge--${mod}" aria-hidden="true"></span>`;
+    if (copyableNumbers) {
+      return renderCopyableNumberHtml(text, `${rowClass}__price-edge ${rowClass}__price-edge--${mod}`);
+    }
+    return `<span class="${rowClass}__price-edge ${rowClass}__price-edge--${mod}">${escapeHtml(text)}</span>`;
+  };
+  const main = copyableNumbers
+    ? renderCopyableNumberHtml(mainPrice, `${rowClass}__price-main`)
+    : `<span class="${rowClass}__price-main">${escapeHtml(mainPrice)}</span>`;
+  return [
+    `<span class="${rowClass}__price ${rowClass}__price--stack">`,
+    edge(priceAbove, 'above'),
+    main,
+    edge(priceBelow, 'below'),
+    '</span>',
   ].join('');
 }
 
@@ -3701,9 +3744,14 @@ function renderConcessionRowHtml({
   const rateClass = strikeRate
     ? `${rowClass}__rate ${rowClass}__rate--strike`
     : `${rowClass}__rate`;
-  const priceHtml = copyableNumbers
-    ? renderCopyableNumberHtml(item.price, `${rowClass}__price`)
-    : `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`;
+  const hasStackedPrice = Boolean(
+    String(item?.priceAbove ?? '').trim() || String(item?.priceBelow ?? '').trim(),
+  );
+  const priceHtml = hasStackedPrice
+    ? renderStackedConcessionPriceHtml(item, rowClass, copyableNumbers)
+    : (copyableNumbers
+      ? renderCopyableNumberHtml(item.price, `${rowClass}__price`)
+      : `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`);
   const hasSideActions = Boolean(String(sideActionsHtml ?? '').trim());
   const qtyHtml = hasSideActions
     ? sideActionsHtml
