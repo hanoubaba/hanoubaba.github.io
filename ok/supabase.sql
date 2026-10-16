@@ -51,7 +51,7 @@ create table if not exists public.strategies (
   constraint strategies_position_side_check
     check (position_side in ('long', 'short')),
   constraint strategies_timeframe_check
-    check (timeframe in ('1h', '4h', '8h', '1d')),
+    check (timeframe in ('15m', '1h', '4h', '8h', '1d')),
   constraint strategies_outcome_status_check
     check (outcome_status in ('pending', 'profit', 'loss', 'not_filled')),
   constraint strategies_view_mode_check
@@ -542,7 +542,7 @@ drop constraint if exists strategies_timeframe_check;
 
 alter table public.strategies
 add constraint strategies_timeframe_check
-check (timeframe in ('1h', '4h', '8h', '1d'));
+check (timeframe in ('15m', '1h', '4h', '8h', '1d'));
 
 alter table public.strategies
 add column if not exists view_mode text;
@@ -605,9 +605,9 @@ check (
 
 -- ------------------------------------------------------------
 -- 6. 应用设置（多端同步）
--- unit_cost：欢乐豆总数（非负即可，无最低/默认下限）
+-- unit_cost：可用本金（非负即可，无最低/默认下限）
 -- kelly_ratio：凯利系数 1/30–0.5（分母=档位×n，默认 5×3=15，范围 2–30）；每档本金 = 总数 × 凯利
--- default_timeframe：前台时间维度默认（1h/4h/8h/1d）
+-- default_timeframe：前台时间维度默认（15m/1h/4h/8h/1d）
 -- developer_mode：开发者模式
 -- ------------------------------------------------------------
 
@@ -621,7 +621,7 @@ create table if not exists public.app_settings (
   updated_at timestamptz not null default now(),
   constraint app_settings_unit_cost_nonneg_check check (unit_cost >= 0),
   constraint app_settings_kelly_ratio_check check (kelly_ratio >= 0.0333 and kelly_ratio <= 0.5),
-  constraint app_settings_default_timeframe_check check (default_timeframe in ('1h', '4h', '8h', '1d'))
+  constraint app_settings_default_timeframe_check check (default_timeframe in ('15m', '1h', '4h', '8h', '1d'))
 );
 
 alter table public.app_settings
@@ -646,7 +646,7 @@ where kelly_ratio is null or kelly_ratio < 0.0333 or kelly_ratio > 0.5;
 
 update public.app_settings
 set default_timeframe = '4h'
-where default_timeframe is null or default_timeframe not in ('1h', '4h', '8h', '1d');
+where default_timeframe is null or default_timeframe not in ('15m', '1h', '4h', '8h', '1d');
 
 update public.app_settings
 set developer_mode = false
@@ -698,7 +698,7 @@ drop constraint if exists app_settings_default_timeframe_check;
 
 alter table public.app_settings
 add constraint app_settings_default_timeframe_check
-check (default_timeframe in ('1h', '4h', '8h', '1d'));
+check (default_timeframe in ('15m', '1h', '4h', '8h', '1d'));
 
 insert into public.app_settings (id, unit_cost, kelly_ratio, default_timeframe, developer_mode)
 values ('default', 0, 0.0333, '4h', false)

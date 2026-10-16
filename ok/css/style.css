@@ -3896,7 +3896,7 @@ button.admin-time-status__tag:focus-visible {
 
 .config-timeframe-switch {
   width: 100%;
-  max-width: 240px;
+  max-width: 300px;
   padding: 3px;
   gap: 4px;
 }

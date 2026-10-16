@@ -198,17 +198,18 @@ function getCurrentTimeSlot(stepMinutes) {
 
 const START_TIME_SLOT_COUNT = 9;
 const BUILTIN_DEFAULT_TIMEFRAME = '4h';
-const DEFAULT_TIMEFRAME_OPTIONS = ['1h', '4h', '8h', '1d'];
+const DEFAULT_TIMEFRAME_OPTIONS = ['15m', '1h', '4h', '8h', '1d'];
 const DEFAULT_TIMEFRAME_STORAGE_KEY = 'ok_default_timeframe';
 let DEFAULT_TIMEFRAME = BUILTIN_DEFAULT_TIMEFRAME;
 const DEFAULT_ASSIST_TIMEFRAME = '8h';
-const FRONT_TREND_TIMEFRAMES = ['1h', '4h', '8h', '1d'];
+const FRONT_TREND_TIMEFRAMES = ['15m', '1h', '4h', '8h', '1d'];
 const FRONT_PAGES = ['front'];
 const FRONT_MODE_TREND = 'trend';
 const FRONT_MODE_ASSIST = 'assist';
 let frontMode = FRONT_MODE_TREND;
 
 const TIMEFRAME_MINUTES = {
+  '15m': 15,
   '1h': 60,
   '4h': 240,
   '8h': 480,
@@ -216,6 +217,7 @@ const TIMEFRAME_MINUTES = {
 };
 
 const TIMEFRAME_LABELS = {
+  '15m': '15分钟',
   '1h': '1小时',
   '4h': '4小时',
   '8h': '8小时',
@@ -315,13 +317,13 @@ const OPEN_COST_BASE = 100;
 const OPEN_COST_MULTIPLIER_MIN = 1;
 const OPEN_COST_MULTIPLIER_MAX = 10;
 const OPEN_COST_MULTIPLIER_DEFAULT = 3;
-/** 后台管理：输入框为欢乐豆总数（总资金），落库 unit_cost；每档本金 = 总资金 × 凯利系数（无最低/默认下限） */
+/** 后台管理：输入框为可用本金（总资金），落库 unit_cost；每档本金 = 可用本金 × 凯利系数（无最低/默认下限） */
 const ADMIN_TOTAL_CAPITAL_FALLBACK = 0;
 const KELLY_RATIO_MIN = 1 / 30;
 const KELLY_RATIO_MAX = 0.5;
 const KELLY_DENOM_MIN = 2;
 const KELLY_DENOM_MAX = 30;
-/** 分母 = 档位 × n；默认 5 × 3 = 15（固定） */
+/** 分母 = 档位 × n；档位固定 5，n 可编辑；默认 5 × 3 = 15 */
 const KELLY_TIER_DEFAULT = 5;
 const KELLY_N_DEFAULT = 3;
 const KELLY_DENOM_DEFAULT = KELLY_TIER_DEFAULT * KELLY_N_DEFAULT;
@@ -627,20 +629,17 @@ function kellyDenominatorFromRatio(ratio) {
 }
 
 function getKellyRatio() {
-  // 配置菜单固定 1/(5×3)，忽略远端/缓存旧值
-  return KELLY_RATIO_DEFAULT;
+  return normalizeKellyRatio(cachedKellyRatio) ?? KELLY_RATIO_DEFAULT;
 }
 
 function getKellyDenominator() {
-  return KELLY_DENOM_DEFAULT;
+  return kellyDenominatorFromRatio(getKellyRatio());
 }
 
 function getKellyFactors() {
-  return {
-    tier: KELLY_TIER_DEFAULT,
-    n: KELLY_N_DEFAULT,
-    denom: KELLY_DENOM_DEFAULT,
-  };
+  const fromCache = normalizeKellyFactors(KELLY_TIER_DEFAULT, cachedKellyN);
+  if (fromCache != null && fromCache.denom === getKellyDenominator()) return fromCache;
+  return decomposeKellyFactors(getKellyDenominator());
 }
 
 function getAdminTierFixedOpenCost() {
@@ -713,8 +712,9 @@ function restoreKellyRatioInput() {
   const tierEl = document.getElementById('kelly-tier-input');
   const nEl = document.getElementById('kelly-n-input');
   if (!tierEl && !nEl) return;
+  const factors = getKellyFactors();
   if (tierEl) tierEl.value = String(KELLY_TIER_DEFAULT);
-  if (nEl) nEl.value = String(KELLY_N_DEFAULT);
+  if (nEl && document.activeElement !== nEl) nEl.value = String(factors.n);
 }
 
 function restoreConfigForm() {
@@ -822,7 +822,7 @@ async function saveAppSettings(patch = {}) {
 
   if (Object.prototype.hasOwnProperty.call(patch, 'unit_cost')) {
     const cost = normalizeUnitCost(patch.unit_cost);
-    if (cost == null) throw new Error('请输入有效的欢乐豆总数（须为非负数字）');
+    if (cost == null) throw new Error('请输入有效的可用本金（须为非负数字）');
     payload.unit_cost = cost;
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'kelly_ratio')) {
@@ -955,14 +955,14 @@ async function handleUnitCostSave() {
   const inputValue = normalizeUnitCost(getUnitCostInputValue());
   if (inputValue == null) {
     input?.focus();
-    showToast('请输入有效的欢乐豆总数（须为非负数字）');
+    showToast('请输入有效的可用本金（须为非负数字）');
     return;
   }
   try {
     await runConfigSave(btn, async () => {
       await saveAppSettings({ unit_cost: inputValue });
       restoreUnitCostInput();
-      showToast('欢乐豆总数已保存');
+      showToast('可用本金已保存');
       if (currentPage === 'admin') renderAdminListItems();
     });
   } catch (err) {
@@ -1985,6 +1985,9 @@ const METHODOLOGY_SECTIONS = [
       '时间完成+空间未完成 ==> 根据多维走势选择继续还是结束',
       '空间完成+时间未完成 ==> 观测选择新的支撑点',
       '时间空间都完成 ==> 做个反弹',
+      '4h/8h：趋势跟随',
+      '15m/1h：事件预设+形态确认',
+      '1d：方向指导，一般不直接作为开单维度',
     ],
   },
 ];
@@ -6902,6 +6905,19 @@ if (unitCostInput) {
     if (e.key === 'Enter') {
       e.preventDefault();
       handleUnitCostSave().catch(() => {});
+    }
+  });
+}
+const btnKellyRatioSave = document.getElementById('kelly-ratio-save');
+if (btnKellyRatioSave) btnKellyRatioSave.addEventListener('click', () => {
+  handleKellyRatioSave().catch(() => {});
+});
+const kellyNInput = document.getElementById('kelly-n-input');
+if (kellyNInput) {
+  kellyNInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleKellyRatioSave().catch(() => {});
     }
   });
 }
