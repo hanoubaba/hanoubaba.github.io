@@ -4617,9 +4617,18 @@ function formatCompactDateTimeLabel(d, base = new Date()) {
   return `${date} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+/** 凌晨 0–8 点（未到 8:00）的闹钟推迟到当天 8:00；界面倒计时/时间展示不变 */
+function resolveAlarmDateTime(endAt) {
+  if (!(endAt instanceof Date) || Number.isNaN(endAt.getTime())) return null;
+  if (endAt.getHours() >= 8) return endAt;
+  const adjusted = new Date(endAt.getTime());
+  adjusted.setHours(8, 0, 0, 0);
+  return adjusted;
+}
+
 function buildAlarmCopyText(name, endAt) {
   const title = formatStrategyCardTitle(name);
-  const time = formatCompactDateTimeLabel(endAt);
+  const time = formatCompactDateTimeLabel(resolveAlarmDateTime(endAt));
   if (!title || !time) return '';
   return `请加一个${time}点的闹钟，名称为${title}`;
 }
