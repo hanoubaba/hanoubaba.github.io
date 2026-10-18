@@ -408,7 +408,7 @@ const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R = 3;
 const BEST_TAKE_PROFIT_R = 4.5;
-const STRATEGY_DURATION_PERIODS = 10;
+const STRATEGY_DURATION_PERIODS = 9;
 const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
 /** 反趋势：挂单档位 = 原策略 1/2/3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R–100R 价格（无数量） */
@@ -1377,7 +1377,7 @@ function getCounterTrendRateRows() {
 /**
  * 反趋势策略：以原策略 R 倍数推算挂单价。
  * 档位 1/2/3/5R 与 10–100R 仅展示价格；除 1R–5R 外相邻档插入中间值（默认折叠，展开可见）；末行 S = 原开仓价。
- * 时间范围接在原策略结束后再排 10 个周期。
+ * 时间范围接在原策略结束后再排 9 个周期。
  */
 function buildCounterTrendConcessions(row) {
   const entryPrice = toNumber(row?.entryPrice);
@@ -2801,7 +2801,7 @@ function renderMethodologyBalanceBannerHtml() {
     '<div class="methodology-balance__row">',
     '<div class="methodology-balance__side">',
     '<span class="methodology-balance__stage">趋势立项</span>',
-    '<span class="methodology-balance__desc">时间10，空间3-5倍</span>',
+    '<span class="methodology-balance__desc">时间9，空间3-5倍</span>',
     '</div>',
     '<span class="methodology-balance__arrow" aria-hidden="true">==&gt;</span>',
     '<div class="methodology-balance__side">',
