@@ -302,7 +302,7 @@ let assistStartTimeUserPicked = false;
 let mobileTimePickerScope = 'trend';
 
 const PRICE_ADJUSTMENT_RATE = 0;
-/** 趋势立项让利档位（多空统一，展示由高到低）：50%（手动） / 20% / 00% / -20% / -50% */
+/** 趋势立项让利档位（多空统一；展示按数量从小到大）：50%（手动） / 20% / 00% / -20% / -50% */
 const CONCESSION_RATES = [
   { rate: 0.5, label: '50%（手动）', costShare: 1 / 2 },
   { rate: 0.2, display: true, reuseMinTierCost: true },
@@ -413,14 +413,15 @@ const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
 /** 反趋势：挂单档位 = 原策略 1/2/3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R–100R 价格（无数量） */
 const COUNTER_TREND_ENTRY_MULTIPLES = [1, 2, 3, 5];
-const COUNTER_TREND_PRICE_ONLY_MULTIPLES = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+/** 趋势力预测目前只展示到 10R，更高倍数先隐藏 */
+const COUNTER_TREND_PRICE_ONLY_MULTIPLES = [10];
 const COUNTER_TREND_BASE_MULTIPLES = [
   ...COUNTER_TREND_ENTRY_MULTIPLES,
   ...COUNTER_TREND_PRICE_ONLY_MULTIPLES,
 ];
 const COUNTER_TREND_STOP_MULTIPLE = 10;
-/** 趋势力预测默认只显示到 50R，展开后显示到 100R */
-const COUNTER_TREND_COLLAPSED_MAX_RATE = 50;
+/** 趋势力预测默认只显示到 10R */
+const COUNTER_TREND_COLLAPSED_MAX_RATE = 10;
 /** 辅助开单：10%/20% 复用最小让利档仓位；后台每档固定本金；80% 仅展示 */
 const ASSIST_TIER_RATIOS = [
   { rate: 0.1, label: '10%（三选一）', reuseMinTierCost: true },
@@ -441,12 +442,15 @@ const ASSIST_TIER_RATES_LEGACY_10_TO_100 = Array.from({ length: 10 }, (_, index)
 const ASSIST_TIER_RATES_LEGACY_20_TO_100 = Array.from({ length: 9 }, (_, index) => (index + 2) / 10);
 const ASSIST_TITLE_SUFFIX = ' (顺势而为)';
 const TIER_ASSIST_TITLE_SUFFIX = ' (趋势辅助)';
-/** 趋势辅助：00% / 10% 两档，每档固定本金 */
+/** 趋势辅助：与趋势立项同为 5 档，每档固定本金 */
 const TIER_ASSIST_RATES = [
-  { rate: 0, display: true, costShare: 1 / 2 },
-  { rate: 0.1, display: true, costShare: 1 / 2 },
+  { rate: 0.5, label: '50%（手动）', costShare: 1 / 2 },
+  { rate: 0.2, display: true, reuseMinTierCost: true },
+  { rate: 0, display: true, reuseMinTierCost: true },
+  { rate: -0.2, display: true, reuseMinTierCost: true },
+  { rate: -0.5, costShare: 1 / 2 },
 ];
-const TIER_ASSIST_RATES_LEGACY_00_10_20 = [0, 0.1, 0.2];
+/** 趋势辅助展示回退用；创建时止盈统一为 S（原趋势开仓价） */
 const TIER_ASSIST_TAKE_PROFIT_MULTIPLE = 1;
 
 function clampOpenCostMultiplier(value) {
@@ -538,8 +542,8 @@ function getTradeMode() {
 function updateTradeModeAppearance() {
   const openLabel = document.getElementById('open-price-label');
   const stopLabel = document.getElementById('stop-price-label');
-  if (openLabel) openLabel.textContent = '开始价格';
-  if (stopLabel) stopLabel.textContent = '止损价格';
+  if (openLabel) openLabel.textContent = '核心点位';
+  if (stopLabel) stopLabel.textContent = '止损点位';
 }
 
 function getOpenCostTotal(multiplier = OPEN_COST_MULTIPLIER_DEFAULT) {
@@ -1138,10 +1142,8 @@ function isCurrentTrendConcessionSet(concessions) {
   return ratesMatch(rates, getConfiguredDisplayRates(CONCESSION_RATES));
 }
 
-function isTierAssistConcessionSet(concessions) {
-  const rates = getSortedDisplayRates(concessions);
-  return ratesMatch(rates, getConfiguredDisplayRates(TIER_ASSIST_RATES))
-    || ratesMatch(rates, TIER_ASSIST_RATES_LEGACY_00_10_20);
+function isTierAssistRecord(row) {
+  return normalizeViewState(row?.viewState)?.kind === 'tier_assist';
 }
 
 function isCurrentAssistConcessionSet(concessions) {
@@ -1213,17 +1215,15 @@ function buildFallbackTimeRange(now = new Date()) {
 }
 
 function getAdminStrategyTypeInfo(row) {
-  const rawConcessions = hasConcessions(row?.concessions) ? row.concessions : [];
-  if (isTierAssistConcessionSet(rawConcessions)) {
+  // 与趋势立项共用 5 档，仅靠 viewState.kind 区分
+  if (isTierAssistRecord(row)) {
     return { label: '趋势辅助', type: 'tier_assist' };
   }
+  const rawConcessions = hasConcessions(row?.concessions) ? row.concessions : [];
   if (isAssistConcessionSet(rawConcessions)) {
     return { label: '顺势而为', type: 'assist' };
   }
   const savedConcessions = buildAdminConcessionsForRow(row);
-  if (isTierAssistConcessionSet(savedConcessions)) {
-    return { label: '趋势辅助', type: 'tier_assist' };
-  }
   if (isAssistConcessionSet(savedConcessions)) {
     return { label: '顺势而为', type: 'assist' };
   }
@@ -1376,7 +1376,7 @@ function getCounterTrendRateRows() {
 
 /**
  * 反趋势策略：以原策略 R 倍数推算挂单价。
- * 档位 1/2/3/5R 与 10–100R 仅展示价格；除 1R–5R 外相邻档插入中间值（默认折叠，展开可见）；末行 S = 原开仓价。
+ * 档位 1/2/3/5R 与 10R 仅展示价格；5R–10R 插入中间值 7.5R（默认折叠，展开可见）；末行 S = 原开仓价。
  * 时间范围接在原策略结束后再排 9 个周期。
  */
 function buildCounterTrendConcessions(row) {
@@ -1398,12 +1398,6 @@ function buildCounterTrendConcessions(row) {
     const price = calcTakeProfit(entryPrice, stopLoss, multiple);
     if (price == null) continue;
     if (!isMidpoint && COUNTER_TREND_ENTRY_MULTIPLES.includes(multiple) && price === counterStop) continue;
-    // 上下分别展示 +0.5R / −0.5R 价格
-    const plusHalf = calcTakeProfit(entryPrice, stopLoss, Number(multiple) + 0.5);
-    const minusHalfMultiple = Number(multiple) - 0.5;
-    const minusHalf = minusHalfMultiple > 0
-      ? calcTakeProfit(entryPrice, stopLoss, minusHalfMultiple)
-      : null;
     items.push({
       rate: multiple,
       display: true,
@@ -1411,12 +1405,6 @@ function buildCounterTrendConcessions(row) {
       showSideActions: true,
       isMidpoint,
       price: formatTrimmedFixedDecimals(price, decimalPlaces),
-      priceAbove: plusHalf != null
-        ? formatTrimmedFixedDecimals(plusHalf, decimalPlaces)
-        : '',
-      priceBelow: minusHalf != null
-        ? formatTrimmedFixedDecimals(minusHalf, decimalPlaces)
-        : '',
       quantity: '',
     });
   }
@@ -1825,6 +1813,27 @@ function normalizeStrategyGrade(grade) {
 
 const SAVE_LOG_PREFIX = '[strategy-save]';
 const METHODOLOGY_SECTIONS = [
+  {
+    title: '核心理论',
+    items: [
+      '只做右侧正向趋势，一种方法做到极致。',
+      '其他想法是路线错误，精力有限顾此失彼。',
+      '趋势不够明确才有可能插针。',
+      '趋势十分明确需要提前预判。（时间9，止损前峰值插针）',
+      '要么大趋势机会，要么小趋势机会。不可能没有机会。',
+      '根据形态和生命周期理论，观测和计算出核心点位和止损点位，并以此为依据进行布局，分批挂单兼容让利和插针。在限定的时间和空间取得最佳的结果。',
+      '最好的仓位管理是2/5。',
+      '找到规则的起点，以此构建完整的生命周期。',
+    ],
+  },
+  {
+    title: '失败原因统计',
+    items: [
+      'btc/eth不准确',
+      '凌晨4点容易逆反',
+      '错过以后心理上找补瞎操作',
+    ],
+  },
   {
     title: '1、操作守则',
     items: [
@@ -2733,36 +2742,6 @@ function renderCopyableNumberHtml(value, className, copyValue) {
   ].join('');
 }
 
-/** 趋势力预测：本档价上下各显示 +0.5R / −0.5R */
-function renderStackedConcessionPriceHtml(item, rowClass, copyableNumbers) {
-  const mainPrice = String(item?.price ?? '').trim();
-  const priceAbove = String(item?.priceAbove ?? '').trim();
-  const priceBelow = String(item?.priceBelow ?? '').trim();
-  if (!priceAbove && !priceBelow) {
-    return copyableNumbers
-      ? renderCopyableNumberHtml(mainPrice, `${rowClass}__price`)
-      : `<span class="${rowClass}__price">${escapeHtml(mainPrice)}</span>`;
-  }
-  const edge = (value, mod) => {
-    const text = String(value ?? '').trim();
-    if (!text) return `<span class="${rowClass}__price-edge ${rowClass}__price-edge--${mod}" aria-hidden="true"></span>`;
-    if (copyableNumbers) {
-      return renderCopyableNumberHtml(text, `${rowClass}__price-edge ${rowClass}__price-edge--${mod}`);
-    }
-    return `<span class="${rowClass}__price-edge ${rowClass}__price-edge--${mod}">${escapeHtml(text)}</span>`;
-  };
-  const main = copyableNumbers
-    ? renderCopyableNumberHtml(mainPrice, `${rowClass}__price-main`)
-    : `<span class="${rowClass}__price-main">${escapeHtml(mainPrice)}</span>`;
-  return [
-    `<span class="${rowClass}__price ${rowClass}__price--stack">`,
-    edge(priceAbove, 'above'),
-    main,
-    edge(priceBelow, 'below'),
-    '</span>',
-  ].join('');
-}
-
 async function copyTextToClipboard(text) {
   const value = String(text ?? '');
   if (!value) return false;
@@ -3325,6 +3304,16 @@ function getDisplayConcessionItems(items) {
     .sort((a, b) => Number(a.rate) - Number(b.rate));
 }
 
+/** 5 档统一：数量小的在上方；无有效数量时按让利从高到低（与固定本金下数量序一致） */
+function sortConcessionItemsQuantityAsc(items) {
+  return (Array.isArray(items) ? items : []).slice().sort((a, b) => {
+    const qa = toNumber(String(a?.quantity ?? '').replace(/,/g, ''));
+    const qb = toNumber(String(b?.quantity ?? '').replace(/,/g, ''));
+    if (qa != null && qb != null && Math.abs(qa - qb) > 1e-12) return qa - qb;
+    return Number(b?.rate) - Number(a?.rate);
+  });
+}
+
 function normalizeConcessionRateConfig(rateConfig) {
   if (rateConfig && typeof rateConfig === 'object') {
     const costShare = Number(rateConfig.costShare);
@@ -3425,17 +3414,23 @@ function renderCounterTrendSideActionsHtml(strategyId, item) {
   const price = escapeHtml(String(item?.price ?? '').trim());
   const isLowR = Math.abs(rateNum - 1) < 1e-9 || Math.abs(rateNum - 2) < 1e-9;
   if (isLowR) {
-    return [
-      '<span class="admin-concession__actions">',
-      '<button type="button" class="admin-concession__side-btn admin-concession__side-btn--long" disabled aria-disabled="true" title="1R/2R 不可创建">做多</button>',
-      '<button type="button" class="admin-concession__side-btn admin-concession__side-btn--short" disabled aria-disabled="true" title="1R/2R 不可创建">做空</button>',
-      '</span>',
-    ].join('');
+    return '<span class="admin-concession__actions"></span>';
   }
+  // 只显示与原趋势相反的一侧：原单做空→只做多；原单做多→只做空
+  const parentRow = (Array.isArray(latestAdminRows) ? latestAdminRows : [])
+    .find((row) => String(row?.id ?? '').trim() === String(strategyId ?? '').trim());
+  if (!parentRow) {
+    return '<span class="admin-concession__actions"></span>';
+  }
+  const trendSide = getTrendPositionSide(parentRow);
+  const counterSide = trendSide === 'short' ? 'long' : 'short';
+  const sideClass = counterSide === 'long'
+    ? 'admin-concession__side-btn--long'
+    : 'admin-concession__side-btn--short';
+  const sideLabel = counterSide === 'long' ? '做多' : '做空';
   return [
     '<span class="admin-concession__actions">',
-    `<button type="button" class="admin-concession__side-btn admin-concession__side-btn--long" data-counter-side-action="long" data-id="${id}" data-rate="${rate}" data-price="${price}" title="创建趋势辅助（做多）">做多</button>`,
-    `<button type="button" class="admin-concession__side-btn admin-concession__side-btn--short" data-counter-side-action="short" data-id="${id}" data-rate="${rate}" data-price="${price}" title="创建趋势辅助（做空）">做空</button>`,
+    `<button type="button" class="admin-concession__side-btn ${sideClass}" data-counter-side-action="${counterSide}" data-id="${id}" data-rate="${rate}" data-price="${price}" title="创建趋势辅助（${sideLabel}）">${sideLabel}</button>`,
     '</span>',
   ].join('');
 }
@@ -3457,28 +3452,33 @@ function findCounterTrendItemIndex(items, rate, price) {
   return index;
 }
 
-/** 5R 止盈→1R；3R 止盈→S（原开仓价）；其余档仍用邻档默认。 */
-function resolveCounterTrendTakeProfitOverride(displayItems, rate, row) {
+/** 可见整档 + 最高档之上一档（如 10 之上用 20）用于两档中间止损，即使更高档未展示 */
+function getCounterTrendGeometryFullRates() {
+  const visible = [...COUNTER_TREND_ENTRY_MULTIPLES, ...COUNTER_TREND_PRICE_ONLY_MULTIPLES]
+    .map((n) => Number(n))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b);
+  if (!visible.length) return [];
+  const top = visible[visible.length - 1];
+  const impliedNext = top * 2;
+  if (!(impliedNext > top)) return visible;
+  return [...visible, impliedNext];
+}
+
+function findCounterTrendRateNeighbors(rate) {
+  const rates = getCounterTrendGeometryFullRates();
   const rateNum = Number(rate);
-  const items = Array.isArray(displayItems) ? displayItems : [];
-  if (Math.abs(rateNum - 5) < 1e-9) {
-    const oneR = items.find((item) => Math.abs(Number(item?.rate) - 1) < 1e-9);
-    return toNumber(oneR?.price);
-  }
-  if (Math.abs(rateNum - 3) < 1e-9) {
-    const sItem = items.find((item) => {
-      const label = String(item?.rateLabel ?? '').trim().toUpperCase();
-      return label === 'S' || label === 'R' || Math.abs(Number(item?.rate) - 0) < 1e-9;
-    });
-    return toNumber(sItem?.price) ?? toNumber(row?.entryPrice);
-  }
-  return null;
+  const idx = rates.findIndex((item) => Math.abs(item - rateNum) < 1e-9);
+  if (idx < 0) return null;
+  return {
+    higher: idx < rates.length - 1 ? rates[idx + 1] : null,
+    lower: idx > 0 ? rates[idx - 1] : null,
+  };
 }
 
 /**
- * 开仓=当前档或半档；止损=半个整档；止盈默认 1 个整档。
- * 5R 止盈固定为 1R；3R 止盈固定为 S。
- * 相邻整档按非中间值行计算。
+ * 开仓=当前整档；止损=当前档与更高一档的中间值（如 5↔10→7.5，10↔20→15）；
+ * 止盈在创建时统一为 S（原趋势开仓价）。
  */
 function findCounterTrendNeighborPrices(row, rate, price) {
   const displayItems = getCounterTrendDisplayItems(row);
@@ -3488,67 +3488,37 @@ function findCounterTrendNeighborPrices(row, rate, price) {
   const current = displayItems[index];
   const entryPrice = toNumber(current?.price);
   if (entryPrice == null) return null;
-
-  let aboveFull = null;
-  let belowFull = null;
-  for (let i = index - 1; i >= 0; i -= 1) {
-    if (!displayItems[i]?.isMidpoint) {
-      aboveFull = displayItems[i];
-      break;
-    }
-  }
-  for (let i = index + 1; i < displayItems.length; i += 1) {
-    if (!displayItems[i]?.isMidpoint) {
-      belowFull = displayItems[i];
-      break;
-    }
-  }
-  const abovePrice = toNumber(aboveFull?.price);
-  const belowPrice = toNumber(belowFull?.price);
-  const isMidpoint = Boolean(current?.isMidpoint);
-  let stopLong = null;
-  let takeProfitLong = null;
-  let stopShort = null;
-  let takeProfitShort = null;
-
-  if (isMidpoint) {
-    if (abovePrice == null || belowPrice == null) return null;
-    const tierSize = Math.abs(abovePrice - belowPrice);
-    if (!(tierSize > 0)) return null;
-    // 半档开仓：止损半档落到相邻整档，止盈 1 整档
-    stopLong = belowPrice;
-    takeProfitLong = entryPrice + Math.sign(abovePrice - belowPrice) * tierSize;
-    stopShort = abovePrice;
-    takeProfitShort = entryPrice - Math.sign(abovePrice - belowPrice) * tierSize;
-  } else {
-    if (abovePrice == null || belowPrice == null) return null;
-    // 整档开仓：止损=与止损向邻档中点（半档），止盈=止盈向邻档（1 档）
-    stopLong = (entryPrice + belowPrice) / 2;
-    takeProfitLong = abovePrice;
-    stopShort = (entryPrice + abovePrice) / 2;
-    takeProfitShort = belowPrice;
-  }
+  if (current?.isMidpoint) return null;
 
   const currentRate = Number(current?.rate);
-  const tpOverride = resolveCounterTrendTakeProfitOverride(
-    displayItems,
+  const parentEntry = toNumber(row?.entryPrice);
+  const parentStop = toNumber(row?.stopLossPrice);
+  const rateNeighbors = findCounterTrendRateNeighbors(
     Number.isFinite(currentRate) ? currentRate : rate,
-    row,
   );
-  if (tpOverride != null) {
-    takeProfitLong = tpOverride;
-    takeProfitShort = tpOverride;
+  const higherRate = rateNeighbors?.higher;
+  if (
+    !Number.isFinite(currentRate)
+    || !Number.isFinite(higherRate)
+    || higherRate === currentRate
+    || parentEntry == null
+    || parentStop == null
+  ) {
+    return null;
   }
+
+  // 止损统一取两档中间值（当前档 ↔ 更高一档）
+  const midRate = (currentRate + higherRate) / 2;
+  const stopPrice = calcTakeProfit(parentEntry, parentStop, midRate);
+  if (stopPrice == null) return null;
 
   return {
     currentPrice: entryPrice,
-    abovePrice,
-    belowPrice,
-    stopLong,
-    takeProfitLong,
-    stopShort,
-    takeProfitShort,
-    isMidpoint,
+    stopLong: stopPrice,
+    stopShort: stopPrice,
+    takeProfitLong: null,
+    takeProfitShort: null,
+    isMidpoint: false,
     currentRate,
     decimalPlaces: getAdminPriceDecimalPlacesFromRow(row),
   };
@@ -3618,7 +3588,10 @@ function buildTierAssistRecord({
     expiresAt: timeRange?.endAt ? timeRange.endAt.toISOString() : null,
     outcomeStatus: 'pending',
     viewMode: STRATEGY_VIEW_MODE_TREND,
-    viewState: Number.isFinite(rateNum) ? { sourceRate: rateNum } : {},
+    viewState: {
+      kind: 'tier_assist',
+      ...(Number.isFinite(rateNum) ? { sourceRate: rateNum } : {}),
+    },
   };
 }
 
@@ -3671,6 +3644,12 @@ async function deleteExistingTierAssistsForName(strategyName) {
 async function createTierAssistFromCounterAction(parentRow, side, rate, price) {
   if (isCreatingTierAssist) return;
   if (getAdminStrategyTypeInfo(parentRow).type !== 'trend') return;
+  const trendSide = getTrendPositionSide(parentRow);
+  const expectedSide = trendSide === 'short' ? 'long' : 'short';
+  if (side !== expectedSide) {
+    showToast(trendSide === 'short' ? '原趋势做空，仅可创建做多辅助' : '原趋势做多，仅可创建做空辅助');
+    return;
+  }
   const neighbors = findCounterTrendNeighborPrices(parentRow, rate, price);
   if (!neighbors || neighbors.currentPrice == null) {
     showToast('无法定位当前档位');
@@ -3678,7 +3657,8 @@ async function createTierAssistFromCounterAction(parentRow, side, rate, price) {
   }
   const entryPrice = neighbors.currentPrice;
   const stopLoss = side === 'long' ? neighbors.stopLong : neighbors.stopShort;
-  const takeProfit = side === 'long' ? neighbors.takeProfitLong : neighbors.takeProfitShort;
+  // 止盈统一为 S = 原趋势开仓价
+  const takeProfit = toNumber(parentRow?.entryPrice);
   if (stopLoss == null || takeProfit == null) {
     showToast('缺少相邻档位价格，无法创建');
     return;
@@ -3749,14 +3729,9 @@ function renderConcessionRowHtml({
   const rateClass = strikeRate
     ? `${rowClass}__rate ${rowClass}__rate--strike`
     : `${rowClass}__rate`;
-  const hasStackedPrice = Boolean(
-    String(item?.priceAbove ?? '').trim() || String(item?.priceBelow ?? '').trim(),
-  );
-  const priceHtml = hasStackedPrice
-    ? renderStackedConcessionPriceHtml(item, rowClass, copyableNumbers)
-    : (copyableNumbers
-      ? renderCopyableNumberHtml(item.price, `${rowClass}__price`)
-      : `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`);
+  const priceHtml = copyableNumbers
+    ? renderCopyableNumberHtml(item.price, `${rowClass}__price`)
+    : `<span class="${rowClass}__price">${escapeHtml(item.price)}</span>`;
   const hasSideActions = Boolean(String(sideActionsHtml ?? '').trim());
   const qtyHtml = hasSideActions
     ? sideActionsHtml
@@ -3818,7 +3793,13 @@ function renderConcessionsHtml({
   isCurrentItem = null,
 }) {
   let displayItems = getDisplayConcessionItems(items);
-  if (reverseOrder) displayItems = displayItems.slice().reverse();
+  if (reverseOrder) {
+    // 趋势力预测等：按倍数从高到低
+    displayItems = displayItems.slice().reverse();
+  } else if (!sideActionsMode && !assistLabels && displayItems.some((item) => toNumber(String(item?.quantity ?? '').replace(/,/g, '')) != null)) {
+    // 趋势立项 / 趋势辅助 5 档：数量小的在上方
+    displayItems = sortConcessionItemsQuantityAsc(displayItems);
+  }
   if (reversePriceQty) displayItems = reverseConcessionPriceQty(displayItems);
   if (!displayItems.length) return '';
   const stop = escapeHtml(String(stopLabel ?? '').trim() || '—');
@@ -4080,13 +4061,13 @@ function generate() {
   if (errEl) errEl.textContent = '';
 
   if (open === null || stop === null) {
-    if (errEl) errEl.textContent = '请输入有效的开始价格与止损价格（数字）。';
+    if (errEl) errEl.textContent = '请输入有效的核心点位与止损点位（数字）。';
     clearStrategyState();
     return;
   }
 
   if (open <= 0 || stop <= 0) {
-    if (errEl) errEl.textContent = '开始价格和止损价格须为大于 0 的数字。';
+    if (errEl) errEl.textContent = '核心点位和止损点位须为大于 0 的数字。';
     clearStrategyState();
     return;
   }
@@ -4098,7 +4079,7 @@ function generate() {
   }
 
   if (open === stop) {
-    if (errEl) errEl.textContent = '开始价格与止损价格不能相同，无法计算数量与方向。';
+    if (errEl) errEl.textContent = '核心点位与止损点位不能相同，无法计算数量与方向。';
     clearStrategyState();
     return;
   }
@@ -4109,7 +4090,7 @@ function generate() {
   const adjustedOpen = calcAdjustedOpenPrice(open, stop, priceDecimals);
   const takeProfit = calcTakeProfit(adjustedOpen, stop, TAKE_PROFIT_R_MULTIPLE);
   if (!Number.isFinite(adjustedOpen) || adjustedOpen <= 0 || takeProfit == null) {
-    if (errEl) errEl.textContent = '开始价格无效，请检查开始价格与止损价格。';
+    if (errEl) errEl.textContent = '核心点位无效，请检查核心点位与止损点位。';
     clearStrategyState();
     return;
   }
@@ -5356,8 +5337,8 @@ function buildAdminListItemHtml(row) {
     hideStopColumn: true,
     selectableStrategyId: '',
     isCurrentItem: (item) => isAdminConcessionCurrentItem(item, row),
-    // 趋势立项档位由高到低：50% → -50%；趋势力预测保持倍数由高到低
-    reverseOrder: showCounterTrend || strategyType.type === 'trend',
+    // 趋势力预测：倍数由高到低；趋势立项/趋势辅助 5 档：数量小的在上方（见 sortConcessionItemsQuantityAsc）
+    reverseOrder: showCounterTrend,
     ...(showCounterTrend
       ? {
         formatRate: formatCounterTrendRate,

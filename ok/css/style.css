@@ -2109,57 +2109,6 @@ button.admin-time-status__tag:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-.admin-concession__price--stack {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  line-height: 1.15;
-}
-
-.admin-concession__price-main,
-.admin-concession__price-main.admin-copy-value {
-  display: block;
-  width: 100%;
-  font-weight: 700;
-  font-size: inherit;
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
-  background: transparent;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-  text-align: center;
-}
-
-.admin-concession__price-edge,
-.admin-concession__price-edge.admin-copy-value {
-  display: block;
-  width: 100%;
-  min-height: 1em;
-  font-size: 12px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  color: #9a3412;
-  opacity: 0.72;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-  text-align: center;
-  line-height: 1.2;
-}
-
-.admin-item--counter-trend .admin-concession--mid .admin-concession__price--stack {
-  align-items: flex-start;
-}
-
-.admin-item--counter-trend .admin-concession--mid .admin-concession__price-main,
-.admin-item--counter-trend .admin-concession--mid .admin-concession__price-edge {
-  text-align: left;
-}
-
 .admin-concession__qty,
 .admin-concession__stop {
   text-align: right;
