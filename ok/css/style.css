@@ -1091,6 +1091,40 @@ body.login-mode {
   line-height: 1;
 }
 
+.admin-item__star {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 16px;
+  line-height: 1;
+  color: #ca8a04;
+  pointer-events: none;
+  user-select: none;
+}
+
+button.admin-item__side--star-toggle {
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button.admin-item__side--star-toggle:focus-visible {
+  outline: 2px solid rgba(202, 138, 4, 0.45);
+  outline-offset: 2px;
+}
+
+button.admin-item__side--star-toggle:active {
+  transform: scale(0.96);
+}
+
+button.admin-item__side--star-toggle[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1px rgba(202, 138, 4, 0.35);
+}
+
 .admin-view-switch {
   display: inline-flex;
   align-items: center;

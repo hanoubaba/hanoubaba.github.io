@@ -1823,7 +1823,7 @@ const METHODOLOGY_SECTIONS = [
       '要么大趋势机会，要么小趋势机会。不可能没有机会。',
       '根据形态和生命周期理论，观测和计算出核心点位和止损点位，并以此为依据进行布局，分批挂单兼容让利和插针。在限定的时间和空间取得最佳的结果。',
       '最好的仓位管理是2/5。',
-      '找到规则的起点，以此构建完整的生命周期。',
+      '找到规则的起点，以此构建完整的生命周期，长期全程跟踪不间断。',
     ],
   },
   {
@@ -2408,6 +2408,7 @@ function fromDbRecord(row) {
     outcomeRemark: dbValueToString(row.outcome_remark),
     viewMode: normalizeStrategyViewMode(row.view_mode),
     viewState: normalizeViewState(row.view_state),
+    starred: row.starred === true,
   };
 }
 
@@ -2446,6 +2447,7 @@ function toDbRecord(record) {
     outcome_remark: String(record.outcomeRemark ?? '').trim(),
     view_mode: normalizeStrategyViewMode(record.viewMode),
     view_state: normalizeViewState(record.viewState),
+    starred: record.starred === true,
   };
 }
 
@@ -4359,11 +4361,7 @@ function buildStrategiesQuery(filterValue = 'all') {
     params.push(`strategy_name=ilike.${encodeURIComponent(`*${nameSearch}*`)}`);
   }
   if (filter === 'active') {
-    const nowIso = encodeURIComponent(new Date().toISOString());
-    // 进行中：当前时间落在 [start_at, expires_at) 内（须有明确时间范围）
-    params.push(`start_at=lte.${nowIso}`);
-    params.push(`expires_at=gt.${nowIso}`);
-    params.push('outcome_status=eq.pending');
+    // 进行中改为星标筛选，实际在展示层按 view_state.starred 过滤（此处拉全量）
   } else if (filter === 'dueToday') {
     const { start, end } = getLocalDayRange();
     params.push(`expires_at=gte.${encodeURIComponent(start.toISOString())}`);
@@ -4717,15 +4715,9 @@ function isStrategyDueToday(row) {
   return status === 'pending';
 }
 
-/** 进行中：当前时刻落在策略时间范围内 */
-function isStrategyInProgress(row) {
-  const startAt = getStrategyStartAt(row);
-  const endAt = getStrategyEndAt(row);
-  if (!startAt || !endAt) return false;
-  const status = String(row?.outcomeStatus ?? '').trim() || 'pending';
-  if (status !== 'pending') return false;
-  const nowTs = Date.now();
-  return nowTs >= startAt.getTime() && nowTs < endAt.getTime();
+/** 进行中：以后端 starred 字段为准（实心=选中，多端同步） */
+function isStrategyStarred(row) {
+  return row?.starred === true;
 }
 
 function filterRowsByAdminTimeFilter(rows) {
@@ -4734,7 +4726,7 @@ function filterRowsByAdminTimeFilter(rows) {
   if (filter === 'active') {
     return list.filter((row) => {
       if (getAdminStrategyTypeInfo(row).type === 'tier_assist') return false;
-      return isStrategyInProgress(row);
+      return isStrategyStarred(row);
     });
   }
   if (filter === 'dueToday') {
@@ -5217,6 +5209,73 @@ function getAdminCurrentModeTagHtml(row) {
   return '';
 }
 
+/** 实心星仅在已标记时展示；切换由做多/做空按钮触发 */
+function renderAdminStarBadgeHtml(starred) {
+  if (!starred) return '';
+  return '<span class="admin-item__star is-on" aria-label="进行中" title="进行中">★</span>';
+}
+
+function renderAdminSideStarToggleHtml(strategyId, sideMod, sideLabel, starred) {
+  const id = escapeHtml(String(strategyId ?? '').trim());
+  const label = escapeHtml(String(sideLabel ?? '').trim());
+  if (!id || !label) return '';
+  const on = Boolean(starred);
+  return [
+    '<button type="button"',
+    ` class="admin-item__side admin-item__side--${escapeHtml(sideMod)} admin-item__side--star-toggle"`,
+    ` data-star-toggle data-id="${id}"`,
+    ` aria-pressed="${on ? 'true' : 'false'}"`,
+    ` title="${on ? '取消进行中标记' : '标记为进行中'}"`,
+    ` aria-label="${on ? `取消进行中（${label}）` : `标记进行中（${label}）`}"`,
+    '>',
+    label,
+    '</button>',
+  ].join('');
+}
+
+const togglingStarIds = new Set();
+
+async function updateStrategyStarred(id, starred) {
+  const encodedId = encodeURIComponent(id);
+  const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodedId}`, {
+    method: 'PATCH',
+    headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+    body: JSON.stringify({ starred: Boolean(starred) }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+async function toggleStrategyStarred(id) {
+  const rawId = String(id ?? '').trim();
+  if (!rawId || togglingStarIds.has(rawId)) return;
+  const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === rawId);
+  if (!row || getAdminStrategyTypeInfo(row).type !== 'trend') return;
+
+  const prevStarred = row.starred === true;
+  const nextStarred = !prevStarred;
+  togglingStarIds.add(rawId);
+  latestAdminRows = latestAdminRows.map((item) => (
+    String(item?.id ?? '').trim() === rawId
+      ? { ...item, starred: nextStarred }
+      : item
+  ));
+  renderAdminListItems();
+  try {
+    await updateStrategyStarred(rawId, nextStarred);
+  } catch (err) {
+    latestAdminRows = latestAdminRows.map((item) => (
+      String(item?.id ?? '').trim() === rawId
+        ? { ...item, starred: prevStarred }
+        : item
+    ));
+    renderAdminListItems();
+    showToast('星标同步失败');
+    console.error('[star-toggle]', err);
+  } finally {
+    togglingStarIds.delete(rawId);
+  }
+}
+
 function buildAdminTitleHtml(row, titleHtml, rawId) {
   const id = String(rawId ?? '').trim();
   const type = getAdminStrategyTypeInfo(row).type;
@@ -5328,8 +5387,13 @@ function buildAdminListItemHtml(row) {
     ? ''
     : renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLabel);
   const sideLabel = getPositionSideLabel(sideMod);
+  const starred = isStrategyStarred(row);
   const sideTagHtml = sideLabel
-    ? `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
+    ? (
+      rawId && strategyType.type === 'trend'
+        ? renderAdminSideStarToggleHtml(rawId, sideMod, sideLabel, starred)
+        : `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
+    )
     : '';
   const concessionsHtml = renderAdminConcessionsHtml(concessions, stopLabel, {
     priceDecimalPlaces,
@@ -5400,12 +5464,17 @@ function buildAdminListItemHtml(row) {
   const timeframeTagHtml = strategyType.type === 'trend'
     ? getTimeframeTagHtml(row?.timeframe)
     : '';
+  const starHtml = rawId && strategyType.type === 'trend'
+    ? renderAdminStarBadgeHtml(starred)
+    : '';
   const titleGroupHtml = [
     '<div class="admin-item__title-wrap">',
     buildAdminTitleHtml(row, title, rawId),
     sideTagHtml,
     timeframeTagHtml,
     currentModeTagHtml,
+    // 星标默认隐藏；点击做多/做空切换显示（实心=进行中）
+    starHtml,
     '</div>',
   ].join('');
   const headRightHtml = timeBadgeHtml
@@ -7144,6 +7213,17 @@ if (adminListEl) {
   adminListEl.addEventListener('click', async (e) => {
     const target = e.target instanceof HTMLElement ? e.target : null;
     if (!target) return;
+
+    const starBtn = target.closest('[data-star-toggle]');
+    if (starBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isAdminSelectionMode || isDeletingStrategies) return;
+      const id = String(starBtn.getAttribute('data-id') ?? '').trim();
+      if (!id) return;
+      toggleStrategyStarred(id).catch(() => {});
+      return;
+    }
 
     const copyBtn = target.closest('.admin-copy-value, .admin-time-status__value[data-copy-text]');
     if (copyBtn) {

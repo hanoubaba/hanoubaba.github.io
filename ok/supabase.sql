@@ -47,6 +47,7 @@ create table if not exists public.strategies (
   grade text not null default '普通',
   view_mode text not null default 'trend',
   view_state jsonb not null default '{}'::jsonb,
+  starred boolean not null default false,
 
   constraint strategies_position_side_check
     check (position_side in ('long', 'short')),
@@ -577,6 +578,24 @@ alter column view_state set default '{}'::jsonb;
 
 alter table public.strategies
 alter column view_state set not null;
+
+alter table public.strategies
+add column if not exists starred boolean;
+
+update public.strategies
+set starred = coalesce(starred, false)
+  or coalesce((view_state->>'starred')::boolean, false)
+where starred is null
+  or (starred = false and coalesce((view_state->>'starred')::boolean, false) = true);
+
+alter table public.strategies
+alter column starred set default false;
+
+alter table public.strategies
+alter column starred set not null;
+
+create index if not exists strategies_starred_created_at_idx
+on public.strategies (starred, created_at desc);
 
 alter table public.strategies
 add column if not exists description text not null default '';
