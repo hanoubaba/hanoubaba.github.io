@@ -197,6 +197,8 @@ function getCurrentTimeSlot(stepMinutes) {
 }
 
 const START_TIME_SLOT_COUNT = 9;
+/** 开始时间额外可选：当前格之后的下一个时间段 */
+const START_TIME_FUTURE_SLOT_COUNT = 1;
 const BUILTIN_DEFAULT_TIMEFRAME = '4h';
 const DEFAULT_TIMEFRAME_OPTIONS = ['15m', '1h', '4h', '8h', '1d'];
 const DEFAULT_TIMEFRAME_STORAGE_KEY = 'ok_default_timeframe';
@@ -418,6 +420,8 @@ const TAKE_PROFIT_R_MULTIPLE = 1;
 const REF_TAKE_PROFIT_R = 3;
 const BEST_TAKE_PROFIT_R = 4.5;
 const STRATEGY_DURATION_PERIODS = 9;
+/** 名称含「追」：时间范围 = 开始 + 1 个时间维度周期 */
+const CHASE_DURATION_PERIODS = 1;
 const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
 /** 反趋势：挂单档位 = 原策略 1/2/3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R–100R 价格（无数量） */
@@ -1057,6 +1061,10 @@ function getConcessionRates(name) {
 
 function getConcessionRatesForRow(row) {
   return getConcessionRates(row?.strategyName);
+}
+
+function getStrategyDurationPeriods(name) {
+  return isChaseStrategyName(name) ? CHASE_DURATION_PERIODS : STRATEGY_DURATION_PERIODS;
 }
 
 function isKnownTierCount(tierCount) {
@@ -2546,7 +2554,8 @@ function getTimeSlotsByMode(mode) {
   const stepMinutes = getTimeframeMinutes(normalizedMode);
   const now = new Date();
   const currentSlot = floorDateToStep(now, stepMinutes);
-  for (let i = START_TIME_SLOT_COUNT - 1; i >= 0; i -= 1) {
+  // 含历史 START_TIME_SLOT_COUNT 格 + 当前格之后的下一个时间段
+  for (let i = START_TIME_SLOT_COUNT - 1; i >= -START_TIME_FUTURE_SLOT_COUNT; i -= 1) {
     const at = new Date(currentSlot.getTime() - i * stepMinutes * 60 * 1000);
     slots.push({
       value: formatStartSlotValue(at),
@@ -2577,7 +2586,11 @@ function resolveStartTimeSelection(mode, prevValue) {
     if (match) return match.value;
   }
 
-  return slots[slots.length - 1].value;
+  // 默认仍选当前时间格，不自动跳到「下一个」未来格
+  const currentValue = getCurrentTimeSlot(stepMinutes);
+  if (slots.some((slot) => slot.value === currentValue)) return currentValue;
+  const currentIndex = Math.max(0, slots.length - 1 - START_TIME_FUTURE_SLOT_COUNT);
+  return slots[currentIndex].value;
 }
 
 function getStartTimeFieldEls(scope = getFrontFormScope()) {
@@ -3102,7 +3115,7 @@ function enrichStrategyRecordForSubmit(record) {
   if (!record) return null;
   const timeframe = getTimeframeMode();
   const timeframeMinutes = getTimeframeMinutes(timeframe);
-  const validPeriods = Number(record.validPeriods) || STRATEGY_DURATION_PERIODS;
+  const validPeriods = getStrategyDurationPeriods(record?.strategyName);
   const durationMinutes = timeframeMinutes * validPeriods;
   const next = {
     ...record,
@@ -4064,7 +4077,6 @@ function getStartDateTime(startValue) {
 function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel, openCost, priceDecimalPlaces, tradeMode = getTradeMode()) {
   const timeframe = getTimeframeMode();
   const unitMin = getTimeframeMinutes(timeframe);
-  const spanMinutes = unitMin * STRATEGY_DURATION_PERIODS;
   const reverse = false;
   const adjustedOpen = calcAdjustedOpenPrice(open, stop, priceDecimalPlaces);
   const openCostMultiplier = OPEN_COST_MULTIPLIER_DEFAULT;
@@ -4079,6 +4091,8 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
   const name = String(nameEl?.value ?? '').trim();
   const side = adjustedOpen > stop ? 'long' : 'short';
   const alarmName = name || 'test';
+  const validPeriods = getStrategyDurationPeriods(alarmName);
+  const spanMinutes = unitMin * validPeriods;
   const startAt = getStartDateTime(startTimeValue);
   const endAt = addPeriodToStart(startTimeValue, spanMinutes);
 
@@ -4120,7 +4134,7 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
     timeframe,
     timeframeMinutes: unitMin,
     timeframeLabel: getTimeframeLabel(timeframe),
-    validPeriods: STRATEGY_DURATION_PERIODS,
+    validPeriods,
     durationMinutes: spanMinutes,
     startAt: startAt ? startAt.toISOString() : null,
     expiresAt: endAt ? endAt.toISOString() : null,
@@ -4669,6 +4683,16 @@ function getOutcomeStatusInfo(outcomeStatus) {
 }
 
 function getStrategyEndAt(row) {
+  // 追单：展示/筛选统一按开始 + 1 个时间维度周期
+  if (isChaseStrategyName(row?.strategyName)) {
+    const startAt = getStrategyStartAt(row);
+    if (startAt) {
+      const unitMin = Number(row?.timeframeMinutes) || getTimeframeMinutes(row?.timeframe);
+      if (Number.isFinite(unitMin) && unitMin > 0) {
+        return new Date(startAt.getTime() + unitMin * CHASE_DURATION_PERIODS * 60 * 1000);
+      }
+    }
+  }
   return parseDateValue(row?.expiresAt);
 }
 
