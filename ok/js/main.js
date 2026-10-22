@@ -316,9 +316,9 @@ const CHASE_CONCESSION_RATES = [
   { rate: -0.2, display: true },
   { rate: -0.5, display: true },
 ];
-/** 追单止盈：核心点位 × (1±20%) / (1±50%)，多 + 空 − */
+/** 追单止盈：核心点位 × (1±20%) / (1±45%)，多 + 空 − */
 const CHASE_TAKE_PROFIT_SMALL_PCT = 0.2;
-const CHASE_TAKE_PROFIT_LARGE_PCT = 0.5;
+const CHASE_TAKE_PROFIT_LARGE_PCT = 0.45;
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
 const TRADE_MODE_NORMAL = 'normal';
@@ -1853,6 +1853,8 @@ const METHODOLOGY_SECTIONS = [
       '去捡钱吧，不必做高风险操作。',
       '先活下去，然后再考虑破局。',
       '按月计算，上不上班都不影响收入过万',
+      '彻底放松，灵感就会涌现。',
+      '只赚自己认知内的钱，不赚自己认知外的钱。',
     ],
   },
   {
@@ -1867,6 +1869,7 @@ const METHODOLOGY_SECTIONS = [
       '最好的仓位管理是2/5。',
       '找到规则的起点，以此构建完整的生命周期，长期全程跟踪不间断。',
       '历史数据很有用，不要再删除了。',
+      '机会范围已经很广了，再扩展只会适得其反。'
     ],
   },
   {
@@ -1875,6 +1878,9 @@ const METHODOLOGY_SECTIONS = [
       'btc/eth/平台币不准确（meme最好也别碰）',
       '凌晨4点容易逆反',
       '错过以后心理上找补瞎操作',
+      '明知道是高危操作还不放手'，  
+      '在过程中迷失，然后选择浮亏结束',
+      '时间明显不够，只能草草结束'
     ],
   },
   {
@@ -1884,8 +1890,9 @@ const METHODOLOGY_SECTIONS = [
       '最快：趋势中期。时间已完成空间未完成。==>15分钟短线预设，止损前高，止盈新10。', 
       '最险：趋势后期。时间空间皆完成，关键位置反弹 xxx',
       '趋势＋调整＋有效时间＝=> 生命周期理论三阶段因素', 
-      '前中期都可以做，后期调整和模糊不做。',
-      '不抄底不没顶，时间空间结束就放手。',
+      '判断：4h以上三线起飞。15m/1h调整布局。看大做小。时间空间结合。生命周期三阶段。',
+      '操作：插针止损。止损前单位极限值。时间空间参考。追求正确不准确。多选择分仓3-5。',
+      '时间：8-24(最佳12-24)，好好休息不做过夜单。',
     ],
   },
   {
@@ -5451,7 +5458,7 @@ function buildAdminListItemHtml(row) {
   } else {
     concessions = buildAdminDisplayConcessions(row);
     if (isChaseStrategyName(row?.strategyName)) {
-      // 追单：止盈小=核心×(1±20%)，止盈大=核心×(1±50%)
+      // 追单：止盈小=核心×(1±20%)，止盈大=核心×(1±45%)
       takeProfitSmallLabel = buildChaseTakeProfitLabel(
         row?.entryPrice,
         row?.stopLossPrice,
