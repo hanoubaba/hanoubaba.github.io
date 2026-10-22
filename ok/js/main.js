@@ -310,6 +310,15 @@ const CONCESSION_RATES = [
   { rate: -0.2, display: true, reuseMinTierCost: true },
   { rate: -0.5, costShare: 1 / 2 },
 ];
+/** 名称含「追」：仅 00% / -20% / -50% */
+const CHASE_CONCESSION_RATES = [
+  { rate: 0, display: true },
+  { rate: -0.2, display: true },
+  { rate: -0.5, display: true },
+];
+/** 追单止盈：核心点位 × (1±20%) / (1±50%)，多 + 空 − */
+const CHASE_TAKE_PROFIT_SMALL_PCT = 0.2;
+const CHASE_TAKE_PROFIT_LARGE_PCT = 0.5;
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
 const TRADE_MODE_NORMAL = 'normal';
@@ -1038,8 +1047,16 @@ function getTrendPositionSide(rowOrSide) {
   return 'long';
 }
 
-function getConcessionRates() {
-  return CONCESSION_RATES;
+function isChaseStrategyName(name) {
+  return String(name ?? '').includes('追');
+}
+
+function getConcessionRates(name) {
+  return isChaseStrategyName(name) ? CHASE_CONCESSION_RATES : CONCESSION_RATES;
+}
+
+function getConcessionRatesForRow(row) {
+  return getConcessionRates(row?.strategyName);
 }
 
 function isKnownTierCount(tierCount) {
@@ -1111,7 +1128,7 @@ function buildUnifiedConcessionsForRow(row) {
     stopLoss,
     null,
     decimalPlaces,
-    getConcessionRates(),
+    getConcessionRatesForRow(row),
     reverse,
     { fixedTierOpenCost: getAdminTierFixedOpenCost() },
   );
@@ -1137,9 +1154,9 @@ function getConfiguredDisplayRates(rateConfigs) {
     .sort((a, b) => a - b);
 }
 
-function isCurrentTrendConcessionSet(concessions) {
+function isCurrentTrendConcessionSet(concessions, name) {
   const rates = getSortedDisplayRates(concessions);
-  return ratesMatch(rates, getConfiguredDisplayRates(CONCESSION_RATES));
+  return ratesMatch(rates, getConfiguredDisplayRates(getConcessionRates(name)));
 }
 
 function isTierAssistRecord(row) {
@@ -1233,12 +1250,12 @@ function getAdminStrategyTypeInfo(row) {
 function buildAdminDisplayConcessions(row) {
   const savedConcessions = buildAdminConcessionsForRow(row);
   const stopLoss = toNumber(row?.stopLossPrice);
-  if (isCurrentTrendConcessionSet(savedConcessions)) {
+  if (isCurrentTrendConcessionSet(savedConcessions, row?.strategyName)) {
     return applyAdminFixedTierQuantities(savedConcessions, stopLoss);
   }
   const rebuilt = buildUnifiedConcessionsForRow(row);
   if (rebuilt) return rebuilt;
-  if (hasConcessions(savedConcessions)) {
+  if (hasConcessions(savedConcessions) && !isChaseStrategyName(row?.strategyName)) {
     return applyAdminFixedTierQuantities(savedConcessions, stopLoss);
   }
   return buildTrendAdminConcessions(row);
@@ -1267,7 +1284,7 @@ function buildTrendAdminConcessions(row) {
     stopLoss,
     null,
     decimalPlaces,
-    getConcessionRates(),
+    getConcessionRatesForRow(row),
     reverse,
     { fixedTierOpenCost: getAdminTierFixedOpenCost() },
   );
@@ -1443,6 +1460,8 @@ function getCounterTrendTimeRange(row) {
 
 function canShowCounterTrend(row) {
   if (getAdminStrategyTypeInfo(row).type !== 'trend') return false;
+  // 名称含「追」：禁止切到趋势力预测
+  if (isChaseStrategyName(row?.strategyName)) return false;
   const entryPrice = toNumber(row?.entryPrice);
   const stopLoss = toNumber(row?.stopLossPrice);
   if (entryPrice == null || stopLoss == null || entryPrice === stopLoss) return false;
@@ -1825,6 +1844,12 @@ const METHODOLOGY_SECTIONS = [
       '右侧交易的真谛，4h逆反之前趋势跟随，4h逆反之后放弃，寻找新的机会',
       '认准趋势，看大做小，巧用回调。',
       '时间维度比空间维度更重要。',
+      '增大收益，必然伴随着放大风险，反之亦然。',
+      '在对错结果确认之前，选择浮盈离场是可取的，浮亏离场是无效磨损。',
+      '降低难度和期待值，止盈止损空间同步。每天赚几十刀就胜过上班了。单次亏损不超过100刀心里无压力。',
+      '做单空间不能太小，否则无法覆盖手续费。',
+      '一次只做一个单子，不要同时做多个单子。开单之前就想好是哪个阶段，想清楚全部的结果，做好两手准备。',
+      '只做正向，不做反向。趋势的反向并不是反向的机会，风险很大。',
     ],
   },
   {
@@ -3000,6 +3025,7 @@ function startEditStrategy(row, { focusId = '' } = {}) {
     viewMode: coerceSupportedViewMode(target?.viewMode),
     viewState: target?.viewState,
     description: target?.description,
+    starred: target?.starred === true,
   };
 
   generate();
@@ -3092,6 +3118,7 @@ function enrichStrategyRecordForSubmit(record) {
     next.outcomeRemark = editingStrategyPreserve.outcomeRemark ?? '';
     next.viewMode = editingStrategyPreserve.viewMode ?? next.viewMode;
     next.viewState = editingStrategyPreserve.viewState ?? next.viewState;
+    next.starred = editingStrategyPreserve.starred === true;
   }
   return next;
 }
@@ -3177,6 +3204,30 @@ function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) 
   const stop = toNumber(stopLoss);
   if (entry == null || stop == null || entry === stop) return '—';
   const tp = calcTakeProfit(entry, stop, BEST_TAKE_PROFIT_R);
+  if (tp == null) return '—';
+  const normalized = normalizeReferenceTakeProfitPrice(tp);
+  if (normalized == null) return '—';
+  const decimals = Math.max(0, Math.min(20, Math.floor(Number(decimalPlaces) || 0)));
+  return formatTrimmedFixedDecimals(normalized, decimals);
+}
+
+/** 追单止盈：核心点位 × (1±pct)，做多加、做空减 */
+function calcChaseTakeProfitPrice(entryPrice, stopLoss, pct, positionSide) {
+  const entry = toNumber(entryPrice);
+  const rate = Number(pct);
+  if (entry == null || !Number.isFinite(rate)) return null;
+  const stop = toNumber(stopLoss);
+  let side = positionSide === 'long' || positionSide === 'short' ? positionSide : null;
+  if (!side && stop != null && entry !== stop) {
+    side = entry > stop ? 'long' : 'short';
+  }
+  if (!side) side = 'long';
+  const factor = side === 'short' ? (1 - rate) : (1 + rate);
+  return clampPriceAtZero(entry * factor);
+}
+
+function buildChaseTakeProfitLabel(entryPrice, stopLoss, pct, decimalPlaces = 0, positionSide) {
+  const tp = calcChaseTakeProfitPrice(entryPrice, stopLoss, pct, positionSide);
   if (tp == null) return '—';
   const normalized = normalizeReferenceTakeProfitPrice(tp);
   if (normalized == null) return '—';
@@ -4023,7 +4074,7 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
   const priceLabel = formatTrimmedFixedDecimals(adjustedOpen, priceDecimalPlaces);
   const tpLabel = formatTrimmedFixedDecimals(tp, tpDecimals);
   const stopLabel = formatPrice(stop);
-  const concessionRates = getConcessionRates();
+  const concessionRates = getConcessionRates(alarmName);
   const concessionItems = buildConcessionItems(adjustedOpen, stop, openCostTotal, priceDecimalPlaces, concessionRates, reverse);
   const primaryItem = concessionItems.find((item) => Math.abs(Number(item.rate) - PRICE_ADJUSTMENT_RATE) < 1e-9);
   const qty = primaryItem?.quantity ?? formatQuantity(quantity);
@@ -5396,17 +5447,35 @@ function buildAdminListItemHtml(row) {
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
   } else {
     concessions = buildAdminDisplayConcessions(row);
-    // 趋势立项：止盈小=3R，止盈大=4.5R，止损=原止损
-    takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
-      row?.entryPrice,
-      row?.stopLossPrice,
-      priceDecimalPlaces,
-    );
-    takeProfitLargeLabel = buildAdminBestTakeProfitLabel(
-      row?.entryPrice,
-      row?.stopLossPrice,
-      priceDecimalPlaces,
-    );
+    if (isChaseStrategyName(row?.strategyName)) {
+      // 追单：止盈小=核心×(1±20%)，止盈大=核心×(1±50%)
+      takeProfitSmallLabel = buildChaseTakeProfitLabel(
+        row?.entryPrice,
+        row?.stopLossPrice,
+        CHASE_TAKE_PROFIT_SMALL_PCT,
+        priceDecimalPlaces,
+        sideMod,
+      );
+      takeProfitLargeLabel = buildChaseTakeProfitLabel(
+        row?.entryPrice,
+        row?.stopLossPrice,
+        CHASE_TAKE_PROFIT_LARGE_PCT,
+        priceDecimalPlaces,
+        sideMod,
+      );
+    } else {
+      // 趋势立项：止盈小=3R，止盈大=4.5R，止损=原止损
+      takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
+        row?.entryPrice,
+        row?.stopLossPrice,
+        priceDecimalPlaces,
+      );
+      takeProfitLargeLabel = buildAdminBestTakeProfitLabel(
+        row?.entryPrice,
+        row?.stopLossPrice,
+        priceDecimalPlaces,
+      );
+    }
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
   }
   const tpSlHtml = showCounterTrend
@@ -5421,6 +5490,7 @@ function buildAdminListItemHtml(row) {
         : `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
     )
     : '';
+  const isChaseTrend = strategyType.type === 'trend' && isChaseStrategyName(row?.strategyName);
   const concessionsHtml = renderAdminConcessionsHtml(concessions, stopLabel, {
     priceDecimalPlaces,
     assistLabels: isAssistLikeStrategy,
@@ -5429,6 +5499,8 @@ function buildAdminListItemHtml(row) {
     isCurrentItem: (item) => isAdminConcessionCurrentItem(item, row),
     // 趋势力预测：倍数由高到低；趋势立项/趋势辅助 5 档：数量小的在上方（见 sortConcessionItemsQuantityAsc）
     reverseOrder: showCounterTrend,
+    // 追单仅三档，不做「best三选一」分组
+    ...(isChaseTrend ? { groupBestPeers: false } : {}),
     ...(showCounterTrend
       ? {
         formatRate: formatCounterTrendRate,
