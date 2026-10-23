@@ -1841,7 +1841,7 @@ function normalizeStrategyGrade(grade) {
 const SAVE_LOG_PREFIX = '[strategy-save]';
 const METHODOLOGY_SECTIONS = [
   {
-    title: '核心理念',
+    title: '核心',
     items: [
       '右侧交易，趋势立项。风控第一，收益第二，策略唯一。',
       '确定性第一，风险第二，盈亏比第三。做胜率最高的选择，不做盈利最大的选择。',
@@ -1863,11 +1863,6 @@ const METHODOLOGY_SECTIONS = [
       '按月计算，上不上班都不影响收入过万',
       '彻底放松，灵感就会涌现。',
       '只赚自己认知内的钱，不赚自己认知外的钱。',
-    ],
-  },
-  {
-    title: '核心理论',
-    items: [
       '只做右侧正向趋势，一种方法做到极致。',
       '其他想法是路线错误，精力有限顾此失彼。',
       '趋势不够明确才有可能插针。',
@@ -1878,7 +1873,7 @@ const METHODOLOGY_SECTIONS = [
       '找到规则的起点，以此构建完整的生命周期，长期全程跟踪不间断。',
       '历史数据很有用，不要再删除了。',
       '机会范围已经很广了，再扩展只会适得其反。',
-      '坦然允许3天没有机会，要有这样的心理准备'
+      '坦然允许3天没有机会，要有这样的心理准备',
     ],
   },
   {
@@ -1902,6 +1897,14 @@ const METHODOLOGY_SECTIONS = [
       '判断：4h以上三线起飞。15m/1h调整布局。看大做小。时间空间结合。生命周期三阶段。',
       '操作：插针止损。止损前单位极限值。时间空间参考。追求正确不准确。多选择分仓3-5。',
       '时间：8-24(最佳12-24)，好好休息不做过夜单。',
+    ],
+  },
+  {
+    title: '操作策略',
+    items: [
+      '前期：有利润保守止盈，小额积累实现本金增长。',
+      '中期：时间空间指导，整体战略上可以实现收益最大化。',
+      '后期：结果二元论，单次可能失败，总体收益很大且省事。',
     ],
   },
   {
@@ -1940,11 +1943,10 @@ const METHODOLOGY_SECTIONS = [
   {
     title: '4、时间',
     items: [
-      '4小时为主，日线为辅。顺序看4h，倒序看1d。',
-      '15分钟和1小时不能作为操作依据。',
-      '操作节点是8点、16点、24点，可以提前半小时准备。节点之间不看、不操作。',
-      '盯盘会调动情绪。按挂单列表和时间执行，不用盯盘代替判断。',
-      '行情剧烈时执行，行情平缓时思考。关键点出现之前只是猜测，出现之后才计算。',
+      '1d是方向线',
+      '4h是趋势线',
+      '8h是规范线（最佳止损点）',
+      '15m/1h是调整线（双十生命周期）'
     ],
   },
   {
@@ -1955,18 +1957,6 @@ const METHODOLOGY_SECTIONS = [
       '单笔仓位不超过本金的10%。再大，心态会失衡，时间和空间就不起作用。',
       '单笔止损幅度不超过50%，止盈预期不超过一个数量级。',
       '开仓之后仓位固定：不补、不减、不滚。时间才是杠杆。',
-    ],
-  },
-  {
-    title: '6、持仓与出场',
-    items: [
-      '空仓才分析，持仓后不再分析，只信最初的判断。',
-      '浮亏扛到底。浮亏会扭曲判断，所以不用它做新决定；趋势还在，这个位置就是机会。踏空才是要避开的风险。',
-      '利润可以随时出，不必吃满，也不必开在最好的位置。',
-      '时间上看九尾和十尾，空间上看3倍和5倍。这是参考，不是必须拿到的目标。',
-      '短线1个单位解决战斗。',
-      '趋势立项不改最初判断。反趋势见好就收。',
-      '正确但不准确是常态。止损用来挡住小概率意外，不用来回做波段。',
     ],
   },
   {
@@ -4463,7 +4453,7 @@ function buildStrategiesQuery(filterValue = 'all') {
     params.push(`strategy_name=ilike.${encodeURIComponent(`*${nameSearch}*`)}`);
   }
   if (filter === 'active') {
-    // 进行中改为星标筛选，实际在展示层按 view_state.starred 过滤（此处拉全量）
+    // 进行中：星标 + 时间范围内，展示层过滤（此处拉全量）
   } else if (filter === 'dueToday') {
     const { start, end } = getLocalDayRange();
     params.push(`expires_at=gte.${encodeURIComponent(start.toISOString())}`);
@@ -4827,9 +4817,25 @@ function isStrategyDueToday(row) {
   return status === 'pending';
 }
 
-/** 进行中：以后端 starred 字段为准（实心=选中，多端同步） */
+/** 星标进行中：以后端 starred 字段为准（实心=选中，多端同步） */
 function isStrategyStarred(row) {
   return row?.starred === true;
+}
+
+/** 时间进行中：当前落在开始—截止区间内（无开始时仅看未到期） */
+function isStrategyTimeActive(row, now = new Date()) {
+  const endAt = getStrategyEndAt(row);
+  if (!endAt) return false;
+  const nowTs = now.getTime();
+  if (!(nowTs < endAt.getTime())) return false;
+  const startAt = getStrategyStartAt(row);
+  if (startAt && nowTs < startAt.getTime()) return false;
+  return true;
+}
+
+/** 进行中 tab：星标 或 时间范围内进行中 */
+function isStrategyActiveForAdminFilter(row) {
+  return isStrategyStarred(row) || isStrategyTimeActive(row);
 }
 
 function filterRowsByAdminTimeFilter(rows) {
@@ -4838,7 +4844,7 @@ function filterRowsByAdminTimeFilter(rows) {
   if (filter === 'active') {
     return list.filter((row) => {
       if (getAdminStrategyTypeInfo(row).type === 'tier_assist') return false;
-      return isStrategyStarred(row);
+      return isStrategyActiveForAdminFilter(row);
     });
   }
   if (filter === 'dueToday') {
