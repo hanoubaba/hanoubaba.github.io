@@ -312,14 +312,14 @@ const CONCESSION_RATES = [
   { rate: -0.2, display: true, reuseMinTierCost: true },
   { rate: -0.5, costShare: 1 / 2 },
 ];
-/** 名称含「追」：仅 00% / -20% / -50% */
+/** 名称含「追」：仅 00% / -50% */
 const CHASE_CONCESSION_RATES = [
   { rate: 0, display: true },
-  { rate: -0.2, display: true },
   { rate: -0.5, display: true },
 ];
-/** 追单止盈：核心点位 × (1±20%) / (1±45%)，多 + 空 − */
-const CHASE_TAKE_PROFIT_SMALL_PCT = 0.2;
+/** 全系列止盈小：盈利 = 1.2 × 单位本金（即 1.2R）对应价格 */
+const TAKE_PROFIT_SMALL_R = 1.2;
+/** 追单止盈大：核心点位 × (1±45%)，多 + 空 − */
 const CHASE_TAKE_PROFIT_LARGE_PCT = 0.45;
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
@@ -331,10 +331,10 @@ const OPEN_COST_MULTIPLIER_DEFAULT = 3;
 /** 后台管理：输入框为可用本金（总资金），落库 unit_cost；每档本金 = 可用本金 × 凯利系数（无最低/默认下限） */
 const ADMIN_TOTAL_CAPITAL_FALLBACK = 0;
 const KELLY_RATIO_MIN = 1 / 30;
-const KELLY_RATIO_MAX = 0.5;
-const KELLY_DENOM_MIN = 2;
+const KELLY_RATIO_MAX = 1;
+const KELLY_DENOM_MIN = 1;
 const KELLY_DENOM_MAX = 30;
-/** 分母 = 档位 × n；档位固定 5，n 可编辑；默认 5 × 3 = 15 */
+/** 分母 = 档位 × n；档位与 n 均可编辑；默认 5 × 3 = 15 */
 const KELLY_TIER_DEFAULT = 5;
 const KELLY_N_DEFAULT = 3;
 const KELLY_DENOM_DEFAULT = KELLY_TIER_DEFAULT * KELLY_N_DEFAULT;
@@ -356,9 +356,9 @@ function loadCachedKellyFactorsFallback() {
     const raw = localStorage.getItem(KELLY_FACTORS_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    const factors = normalizeKellyFactors(KELLY_TIER_DEFAULT, parsed?.n);
+    const factors = normalizeKellyFactors(parsed?.tier, parsed?.n);
     if (factors == null) return null;
-    cachedKellyTier = KELLY_TIER_DEFAULT;
+    cachedKellyTier = factors.tier;
     cachedKellyN = factors.n;
     return factors;
   } catch {
@@ -366,9 +366,14 @@ function loadCachedKellyFactorsFallback() {
   }
 }
 
-function persistKellyFactorsFallback(_tier, n) {
+function persistKellyFactorsFallback(tier, n) {
   try {
-    localStorage.setItem(KELLY_FACTORS_STORAGE_KEY, JSON.stringify({ tier: KELLY_TIER_DEFAULT, n }));
+    const factors = normalizeKellyFactors(tier, n);
+    if (factors == null) return;
+    localStorage.setItem(
+      KELLY_FACTORS_STORAGE_KEY,
+      JSON.stringify({ tier: factors.tier, n: factors.n }),
+    );
   } catch {
     // ignore
   }
@@ -399,25 +404,24 @@ function persistKellyRatioFallback(kelly) {
   }
 }
 
-function applyKellyFactors(_tier, n) {
-  const factors = normalizeKellyFactors(KELLY_TIER_DEFAULT, n);
+function applyKellyFactors(tier, n) {
+  const factors = normalizeKellyFactors(tier, n);
   if (factors == null) return null;
-  cachedKellyTier = KELLY_TIER_DEFAULT;
+  cachedKellyTier = factors.tier;
   cachedKellyN = factors.n;
-  persistKellyFactorsFallback(KELLY_TIER_DEFAULT, factors.n);
+  persistKellyFactorsFallback(factors.tier, factors.n);
   return factors;
 }
 
 function applyKellyFactorsFromDenominator(denom) {
   const factors = decomposeKellyFactors(denom);
-  cachedKellyTier = KELLY_TIER_DEFAULT;
+  cachedKellyTier = factors.tier;
   cachedKellyN = factors.n;
-  persistKellyFactorsFallback(KELLY_TIER_DEFAULT, factors.n);
+  persistKellyFactorsFallback(factors.tier, factors.n);
   return factors;
 }
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
-const REF_TAKE_PROFIT_R = 3;
 const BEST_TAKE_PROFIT_R = 4.5;
 const STRATEGY_DURATION_PERIODS = 9;
 /** 名称含「追」：时间范围 = 开始 + 1 个时间维度周期 */
@@ -610,25 +614,30 @@ function normalizeKellyFactors(tierValue, nValue) {
   return { tier, n, denom };
 }
 
-/** 从分母拆回档位 × n；档位固定为 5 */
+/** 从分母拆回档位 × n；优先沿用当前档位，其次默认 5，再找任意合法因式 */
 function decomposeKellyFactors(denomValue) {
   const denom = normalizeKellyDenominator(denomValue) ?? KELLY_DENOM_DEFAULT;
-  if (denom % KELLY_TIER_DEFAULT === 0) {
-    return {
-      tier: KELLY_TIER_DEFAULT,
-      n: denom / KELLY_TIER_DEFAULT,
-      denom,
-    };
+  const preferredTiers = [
+    normalizeKellyFactorPart(cachedKellyTier),
+    KELLY_TIER_DEFAULT,
+  ].filter((tier, index, list) => tier != null && list.indexOf(tier) === index);
+
+  for (const tier of preferredTiers) {
+    if (denom % tier !== 0) continue;
+    const factors = normalizeKellyFactors(tier, denom / tier);
+    if (factors != null) return factors;
   }
-  const n = Math.min(
-    KELLY_DENOM_MAX / KELLY_TIER_DEFAULT,
-    Math.max(1, Math.round(denom / KELLY_TIER_DEFAULT)),
-  );
-  const fixedDenom = KELLY_TIER_DEFAULT * n;
+
+  for (let tier = 1; tier <= denom; tier += 1) {
+    if (denom % tier !== 0) continue;
+    const factors = normalizeKellyFactors(tier, denom / tier);
+    if (factors != null) return factors;
+  }
+
   return {
     tier: KELLY_TIER_DEFAULT,
-    n,
-    denom: normalizeKellyDenominator(fixedDenom) ?? KELLY_DENOM_DEFAULT,
+    n: KELLY_N_DEFAULT,
+    denom: KELLY_DENOM_DEFAULT,
   };
 }
 
@@ -654,7 +663,7 @@ function getKellyDenominator() {
 }
 
 function getKellyFactors() {
-  const fromCache = normalizeKellyFactors(KELLY_TIER_DEFAULT, cachedKellyN);
+  const fromCache = normalizeKellyFactors(cachedKellyTier, cachedKellyN);
   if (fromCache != null && fromCache.denom === getKellyDenominator()) return fromCache;
   return decomposeKellyFactors(getKellyDenominator());
 }
@@ -730,7 +739,7 @@ function restoreKellyRatioInput() {
   const nEl = document.getElementById('kelly-n-input');
   if (!tierEl && !nEl) return;
   const factors = getKellyFactors();
-  if (tierEl) tierEl.value = String(KELLY_TIER_DEFAULT);
+  if (tierEl && document.activeElement !== tierEl) tierEl.value = String(factors.tier);
   if (nEl && document.activeElement !== nEl) nEl.value = String(factors.n);
 }
 
@@ -806,8 +815,8 @@ async function fetchAppSettings() {
       persistKellyRatioFallback(kelly);
       const storedFactors = loadCachedKellyFactorsFallback();
       const denom = kellyDenominatorFromRatio(kelly);
-      if (storedFactors != null && KELLY_TIER_DEFAULT * storedFactors.n === denom) {
-        cachedKellyTier = KELLY_TIER_DEFAULT;
+      if (storedFactors != null && storedFactors.tier * storedFactors.n === denom) {
+        cachedKellyTier = storedFactors.tier;
         cachedKellyN = storedFactors.n;
       } else {
         applyKellyFactorsFromDenominator(denom);
@@ -987,30 +996,37 @@ async function handleUnitCostSave() {
   }
 }
 
+function getKellyTierInputValue() {
+  const el = document.getElementById('kelly-tier-input');
+  return String(el?.value ?? '').trim();
+}
+
 function getKellyNInputValue() {
   const el = document.getElementById('kelly-n-input');
   return String(el?.value ?? '').trim();
 }
 
 async function handleKellyRatioSave() {
+  const tierInput = document.getElementById('kelly-tier-input');
   const nInput = document.getElementById('kelly-n-input');
   const btn = document.getElementById('kelly-ratio-save');
   if (btn?.disabled) return;
-  const factors = normalizeKellyFactors(KELLY_TIER_DEFAULT, getKellyNInputValue());
+  const factors = normalizeKellyFactors(getKellyTierInputValue(), getKellyNInputValue());
   const kelly = factors != null ? kellyRatioFromDenominator(factors.denom) : null;
   if (factors == null || kelly == null) {
-    nInput?.focus();
-    showToast(`分母=5×个数，须为 ${KELLY_DENOM_MIN}–${KELLY_DENOM_MAX} 的整数（个数 1–${Math.floor(KELLY_DENOM_MAX / KELLY_TIER_DEFAULT)}）`);
+    const tierOk = normalizeKellyFactorPart(getKellyTierInputValue()) != null;
+    (tierOk ? nInput : tierInput)?.focus();
+    showToast(`分母=档位×个数，须为 ${KELLY_DENOM_MIN}–${KELLY_DENOM_MAX} 的整数`);
     return;
   }
   try {
     await runConfigSave(btn, async () => {
       await saveAppSettings({
         kelly_ratio: kelly,
-        kelly_factors: { tier: KELLY_TIER_DEFAULT, n: factors.n },
+        kelly_factors: { tier: factors.tier, n: factors.n },
       });
       restoreKellyRatioInput();
-      showToast(`凯利系数已保存为 1/(5×${factors.n})=1/${factors.denom}`);
+      showToast(`凯利系数已保存为 1/(${factors.tier}×${factors.n})=1/${factors.denom}`);
       if (currentPage === 'admin') renderAdminListItems();
     });
   } catch (err) {
@@ -1857,7 +1873,7 @@ const METHODOLOGY_SECTIONS = [
       '降低难度和期待值，止盈止损空间同步。每天赚几十刀就胜过上班了。单次亏损不超过100刀心里无压力。',
       '做单空间不能太小，否则无法覆盖手续费。',
       '一次只做一个单子，不要同时做多个单子。开单之前就想好是哪个阶段，想清楚全部的结果，做好两手准备。',
-      '只做正向，不做反向。趋势的反向并不是反向的机会，风险很大。',
+      '只做正向，不做反向。趋势的反向并不是反向的机会，风险很大（插针夸张难以预料）。',
       '去捡钱吧，不必做高风险操作。',
       '先活下去，然后再考虑破局。',
       '按月计算，上不上班都不影响收入过万',
@@ -1877,6 +1893,16 @@ const METHODOLOGY_SECTIONS = [
     ],
   },
   {
+    title: '正确不准确的解决方案',
+    items: [
+      '降低仓位',
+      '降低期待值',
+      '主动设计浪费空间（让渡让位让利）',
+      '全流程自动化，杜绝主观干预',
+      '258数值定位可以占据一定的空间优势'
+    ],
+  },
+  {
     title: '失败原因统计',
     items: [
       'btc/eth/平台币不准确（meme最好也别碰）',
@@ -1884,7 +1910,7 @@ const METHODOLOGY_SECTIONS = [
       '错过以后心理上找补瞎操作',
       '明知道是高危操作还不放手',
       '在过程中迷失，然后选择浮亏结束',
-      '时间明显不够，只能草草结束'
+      '时间明显不够，只能草草结束',
     ],
   },
   {
@@ -3188,11 +3214,12 @@ function normalizeReferenceTakeProfitPrice(price) {
   return clampPriceAtZero(price);
 }
 
+/** 止盈小：盈利 = 1.2 × 单位本金 → 价差 = 1.2 × |开仓-止损| */
 function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
   if (entry == null || stop == null || entry === stop) return '—';
-  const tp = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R);
+  const tp = calcTakeProfit(entry, stop, TAKE_PROFIT_SMALL_R);
   if (tp == null) return '—';
   const normalized = normalizeReferenceTakeProfitPrice(tp);
   if (normalized == null) return '—';
@@ -3204,7 +3231,7 @@ function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces 
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
   if (entry == null || stop == null || entry === stop) return '—';
-  const tp = calcTakeProfit(entry, stop, REF_TAKE_PROFIT_R);
+  const tp = calcTakeProfit(entry, stop, TAKE_PROFIT_SMALL_R);
   if (tp == null) return '—';
   const normalized = normalizeReferenceTakeProfitPrice(tp);
   if (normalized == null) return '—';
@@ -3225,8 +3252,8 @@ function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) 
   return formatTrimmedFixedDecimals(normalized, decimals);
 }
 
-/** 追单止盈：核心点位 × (1±pct)，做多加、做空减 */
-function calcChaseTakeProfitPrice(entryPrice, stopLoss, pct, positionSide) {
+/** 按核心点位百分比止盈：× (1±pct)，做多加、做空减 */
+function calcPercentTakeProfitPrice(entryPrice, stopLoss, pct, positionSide) {
   const entry = toNumber(entryPrice);
   const rate = Number(pct);
   if (entry == null || !Number.isFinite(rate)) return null;
@@ -3240,8 +3267,8 @@ function calcChaseTakeProfitPrice(entryPrice, stopLoss, pct, positionSide) {
   return clampPriceAtZero(entry * factor);
 }
 
-function buildChaseTakeProfitLabel(entryPrice, stopLoss, pct, decimalPlaces = 0, positionSide) {
-  const tp = calcChaseTakeProfitPrice(entryPrice, stopLoss, pct, positionSide);
+function buildPercentTakeProfitLabel(entryPrice, stopLoss, pct, decimalPlaces = 0, positionSide) {
+  const tp = calcPercentTakeProfitPrice(entryPrice, stopLoss, pct, positionSide);
   if (tp == null) return '—';
   const normalized = normalizeReferenceTakeProfitPrice(tp);
   if (normalized == null) return '—';
@@ -5488,16 +5515,15 @@ function buildAdminListItemHtml(row) {
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
   } else {
     concessions = buildAdminDisplayConcessions(row);
+    // 全系列止盈小：1.2 倍单位本金对应价格（1.2R）
+    takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
+      row?.entryPrice,
+      row?.stopLossPrice,
+      priceDecimalPlaces,
+    );
     if (isChaseStrategyName(row?.strategyName)) {
-      // 追单：止盈小=核心×(1±20%)，止盈大=核心×(1±45%)
-      takeProfitSmallLabel = buildChaseTakeProfitLabel(
-        row?.entryPrice,
-        row?.stopLossPrice,
-        CHASE_TAKE_PROFIT_SMALL_PCT,
-        priceDecimalPlaces,
-        sideMod,
-      );
-      takeProfitLargeLabel = buildChaseTakeProfitLabel(
+      // 追单止盈大：核心×(1±45%)
+      takeProfitLargeLabel = buildPercentTakeProfitLabel(
         row?.entryPrice,
         row?.stopLossPrice,
         CHASE_TAKE_PROFIT_LARGE_PCT,
@@ -5505,12 +5531,7 @@ function buildAdminListItemHtml(row) {
         sideMod,
       );
     } else {
-      // 趋势立项：止盈小=3R，止盈大=4.5R，止损=原止损
-      takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
-        row?.entryPrice,
-        row?.stopLossPrice,
-        priceDecimalPlaces,
-      );
+      // 趋势立项止盈大：4.5R
       takeProfitLargeLabel = buildAdminBestTakeProfitLabel(
         row?.entryPrice,
         row?.stopLossPrice,
@@ -5711,6 +5732,12 @@ document.addEventListener('visibilitychange', () => {
 
 async function renderConfigPage() {
   restoreConfigForm();
+  try {
+    // 切到配置菜单时拉取最新 app_settings
+    await fetchAppSettings();
+  } catch {
+    restoreConfigForm();
+  }
   try {
     const rows = await fetchStrategies('all');
     latestAdminRows = rows;
@@ -7110,6 +7137,15 @@ const btnKellyRatioSave = document.getElementById('kelly-ratio-save');
 if (btnKellyRatioSave) btnKellyRatioSave.addEventListener('click', () => {
   handleKellyRatioSave().catch(() => {});
 });
+const kellyTierInput = document.getElementById('kelly-tier-input');
+if (kellyTierInput) {
+  kellyTierInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleKellyRatioSave().catch(() => {});
+    }
+  });
+}
 const kellyNInput = document.getElementById('kelly-n-input');
 if (kellyNInput) {
   kellyNInput.addEventListener('keydown', (e) => {

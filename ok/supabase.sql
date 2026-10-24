@@ -625,7 +625,7 @@ check (
 -- ------------------------------------------------------------
 -- 6. 应用设置（多端同步）
 -- unit_cost：可用本金（非负即可，无最低/默认下限）
--- kelly_ratio：凯利系数 1/30–0.5（分母=档位×n，默认 5×3=15，范围 2–30）；每档本金 = 总数 × 凯利
+-- kelly_ratio：凯利系数 1/30–1（分母=档位×n，默认 5×3=15，范围 1–30）；每档本金 = 总数 × 凯利
 -- default_timeframe：前台时间维度默认（15m/1h/4h/8h/1d）
 -- developer_mode：开发者模式
 -- ------------------------------------------------------------
@@ -639,7 +639,7 @@ create table if not exists public.app_settings (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint app_settings_unit_cost_nonneg_check check (unit_cost >= 0),
-  constraint app_settings_kelly_ratio_check check (kelly_ratio >= 0.0333 and kelly_ratio <= 0.5),
+  constraint app_settings_kelly_ratio_check check (kelly_ratio >= 0.0333 and kelly_ratio <= 1),
   constraint app_settings_default_timeframe_check check (default_timeframe in ('15m', '1h', '4h', '8h', '1d'))
 );
 
@@ -661,7 +661,7 @@ where unit_cost is null or unit_cost < 0;
 
 update public.app_settings
 set kelly_ratio = 0.0333
-where kelly_ratio is null or kelly_ratio < 0.0333 or kelly_ratio > 0.5;
+where kelly_ratio is null or kelly_ratio < 0.0333 or kelly_ratio > 1;
 
 update public.app_settings
 set default_timeframe = '4h'
@@ -710,7 +710,7 @@ drop constraint if exists app_settings_kelly_ratio_check;
 
 alter table public.app_settings
 add constraint app_settings_kelly_ratio_check
-check (kelly_ratio >= 0.0333 and kelly_ratio <= 0.5);
+check (kelly_ratio >= 0.0333 and kelly_ratio <= 1);
 
 alter table public.app_settings
 drop constraint if exists app_settings_default_timeframe_check;
