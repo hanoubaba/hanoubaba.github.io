@@ -319,8 +319,8 @@ const CHASE_CONCESSION_RATES = [
 ];
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
 const REF_TAKE_PROFIT_R = 3;
-/** 追模式止盈小：盈利 = 1.2 × 单位本金（即 1.2R）对应价格 */
-const CHASE_TAKE_PROFIT_SMALL_R = 1.2;
+/** 追模式止盈小：盈利 = 1.1 × 单位本金（即 1.1R）对应价格 */
+const CHASE_TAKE_PROFIT_SMALL_R = 1.1;
 /** 追单止盈大：核心点位 × (1±45%)，多 + 空 − */
 const CHASE_TAKE_PROFIT_LARGE_PCT = 0.45;
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
@@ -1901,13 +1901,15 @@ const METHODOLOGY_SECTIONS = [
       '降低期待值',
       '主动设计浪费空间（让渡让位让利）',
       '全流程自动化，杜绝主观干预',
-      '258数值定位可以占据一定的空间优势'
+      '258数值定位可以占据一定的空间优势',
+      '先来一单试一下盘感',
+      'eth更容易结合258点位辅助分析'
     ],
   },
   {
     title: '失败（错过）原因统计',
     items: [
-      'btc/eth/平台币不准确（meme最好也别碰）',
+      'btc/平台币不准确（meme最好也别碰）',
       '凌晨4点容易逆反',
       '错过以后心理上找补瞎操作',
       '明知道是高危操作还不放手',
@@ -1963,7 +1965,7 @@ const METHODOLOGY_SECTIONS = [
       '三线齐飞是信号，三线统一是根源，看大做小是方法。',
       '大维度是主方向，小维度只做配合。方向统一看10，背离也看10。',
       '只研究热度前20、交易量过亿的标的。开单只做前三，种类不超过三个。',
-      '只做龙头的日内右侧趋势。放弃多空临界值，不做BTC和ETH。',
+      '只做龙头的日内右侧趋势。放弃多空临界值，不做BTC。',
       '只看自己的行情和数据，不参考别人。',
       '止损位置，往前数10个标的里的插针极限。',
       '优先级：趋势立项＞趋势力预测。反趋势只做空，而且时间和空间都要满足；新的趋势立项优先于反趋势。',
@@ -3217,7 +3219,7 @@ function normalizeReferenceTakeProfitPrice(price) {
   return clampPriceAtZero(price);
 }
 
-/** 止盈小：普通 3R / 追模式 1.2R */
+/** 止盈小：普通 3R / 追模式 1.1R */
 function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces, { chase = false } = {}) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
@@ -5528,7 +5530,7 @@ function buildAdminListItemHtml(row) {
   } else {
     concessions = buildAdminDisplayConcessions(row);
     const isChase = isChaseStrategyName(row?.strategyName);
-    // 止盈小：普通 3R，追模式 1.2R
+    // 止盈小：普通 3R，追模式 1.1R
     takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
       row?.entryPrice,
       row?.stopLossPrice,
