@@ -3279,15 +3279,22 @@ function buildPercentTakeProfitLabel(entryPrice, stopLoss, pct, decimalPlaces = 
   return formatTrimmedFixedDecimals(normalized, decimals);
 }
 
-function renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLossLabel) {
+function renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLossLabel, {
+  strikeTakeProfitLarge = false,
+} = {}) {
   const tpSmallRaw = String(takeProfitSmallLabel ?? '').trim() || '—';
   const tpLargeRaw = String(takeProfitLargeLabel ?? '').trim() || '—';
   const slRaw = String(stopLossLabel ?? '').trim() || '—';
 
-  const renderBlock = (modClass, label, value, ariaLabel, { copyable = true } = {}) => {
+  const renderBlock = (modClass, label, value, ariaLabel, { copyable = true, strike = false } = {}) => {
     const text = String(value ?? '').trim() || '—';
     const canCopy = copyable && Boolean(text && text !== '—');
-    const className = `admin-item__tp-sl-item ${modClass}${canCopy ? ' admin-copy-value' : ''}`.trim();
+    const className = [
+      'admin-item__tp-sl-item',
+      modClass,
+      canCopy ? 'admin-copy-value' : '',
+      strike ? 'admin-item__tp-sl-item--strike' : '',
+    ].filter(Boolean).join(' ');
     const tag = canCopy ? 'button' : 'span';
     const copyAttrs = canCopy
       ? ` type="button" data-copy-text="${escapeHtml(text)}" title="点击复制" aria-label="复制${escapeHtml(label)} ${escapeHtml(text)}"`
@@ -3298,7 +3305,9 @@ function renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabe
   return [
     '<div class="admin-item__tp-sl" aria-label="止盈止损">',
     renderBlock('admin-item__tp-sl-item--tp-small', '止盈小', tpSmallRaw, '止盈小价格'),
-    renderBlock('admin-item__tp-sl-item--tp', '止盈大', tpLargeRaw, '止盈大价格'),
+    renderBlock('admin-item__tp-sl-item--tp', '止盈大', tpLargeRaw, '止盈大价格', {
+      strike: strikeTakeProfitLarge,
+    }),
     renderBlock('admin-item__tp-sl-item--sl', '止损', slRaw, '止损价格'),
     '</div>',
   ].join('');
@@ -5547,7 +5556,14 @@ function buildAdminListItemHtml(row) {
   }
   const tpSlHtml = showCounterTrend
     ? ''
-    : renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLabel);
+    : renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLabel, {
+      // 追模式止盈大仅作参考，中划线样式
+      strikeTakeProfitLarge: Boolean(isChaseStrategyName(row?.strategyName)
+        && strategyType.type === 'trend'
+        && !showTierAssistView
+        && !isAssistLikeStrategy
+        && !isTierAssistStrategy),
+    });
   const sideLabel = getPositionSideLabel(sideMod);
   const starred = isStrategyStarred(row);
   const sideTagHtml = sideLabel

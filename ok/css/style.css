@@ -2358,6 +2358,20 @@ button.admin-time-status__tag:focus-visible {
   border: 1px solid #86efac;
 }
 
+.admin-item__tp-sl-item--strike,
+.admin-item__tp-sl-item--strike.admin-copy-value {
+  color: var(--muted);
+  background: #f3f4f6;
+  border: 1px solid var(--border);
+}
+
+.admin-item__tp-sl-item--strike .admin-item__tp-sl-label,
+.admin-item__tp-sl-item--strike .admin-item__tp-sl-value {
+  text-decoration: line-through;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .admin-item__tp-sl-item--sl,
 .admin-item__tp-sl-item--sl.admin-copy-value {
   color: #be123c;
