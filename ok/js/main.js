@@ -317,8 +317,10 @@ const CHASE_CONCESSION_RATES = [
   { rate: 0, display: true },
   { rate: -0.5, display: true },
 ];
-/** 全系列止盈小：盈利 = 1.2 × 单位本金（即 1.2R）对应价格 */
-const TAKE_PROFIT_SMALL_R = 1.2;
+/** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
+const REF_TAKE_PROFIT_R = 3;
+/** 追模式止盈小：盈利 = 1.2 × 单位本金（即 1.2R）对应价格 */
+const CHASE_TAKE_PROFIT_SMALL_R = 1.2;
 /** 追单止盈大：核心点位 × (1±45%)，多 + 空 − */
 const CHASE_TAKE_PROFIT_LARGE_PCT = 0.45;
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
@@ -1903,7 +1905,7 @@ const METHODOLOGY_SECTIONS = [
     ],
   },
   {
-    title: '失败原因统计',
+    title: '失败（错过）原因统计',
     items: [
       'btc/eth/平台币不准确（meme最好也别碰）',
       '凌晨4点容易逆反',
@@ -1911,6 +1913,7 @@ const METHODOLOGY_SECTIONS = [
       '明知道是高危操作还不放手',
       '在过程中迷失，然后选择浮亏结束',
       '时间明显不够，只能草草结束',
+      '关键时间8点和16点没有提前准备',
     ],
   },
   {
@@ -1928,7 +1931,7 @@ const METHODOLOGY_SECTIONS = [
   {
     title: '操作策略',
     items: [
-      '前期：有利润保守止盈，小额积累实现本金增长。',
+      '前期：有利润保守止盈，小额积累实现本金增长。（稳健且实际，已经过实践验证）',
       '中期：时间空间指导，整体战略上可以实现收益最大化。',
       '后期：结果二元论，单次可能失败，总体收益很大且省事。',
     ],
@@ -3214,12 +3217,12 @@ function normalizeReferenceTakeProfitPrice(price) {
   return clampPriceAtZero(price);
 }
 
-/** 止盈小：盈利 = 1.2 × 单位本金 → 价差 = 1.2 × |开仓-止损| */
-function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces) {
+/** 止盈小：普通 3R / 追模式 1.2R */
+function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces, { chase = false } = {}) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
   if (entry == null || stop == null || entry === stop) return '—';
-  const tp = calcTakeProfit(entry, stop, TAKE_PROFIT_SMALL_R);
+  const tp = calcTakeProfit(entry, stop, chase ? CHASE_TAKE_PROFIT_SMALL_R : REF_TAKE_PROFIT_R);
   if (tp == null) return '—';
   const normalized = normalizeReferenceTakeProfitPrice(tp);
   if (normalized == null) return '—';
@@ -3227,11 +3230,11 @@ function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces) {
   return formatTrimmedFixedDecimals(normalized, decimals);
 }
 
-function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) {
+function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0, { chase = false } = {}) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
   if (entry == null || stop == null || entry === stop) return '—';
-  const tp = calcTakeProfit(entry, stop, TAKE_PROFIT_SMALL_R);
+  const tp = calcTakeProfit(entry, stop, chase ? CHASE_TAKE_PROFIT_SMALL_R : REF_TAKE_PROFIT_R);
   if (tp == null) return '—';
   const normalized = normalizeReferenceTakeProfitPrice(tp);
   if (normalized == null) return '—';
@@ -5515,13 +5518,15 @@ function buildAdminListItemHtml(row) {
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
   } else {
     concessions = buildAdminDisplayConcessions(row);
-    // 全系列止盈小：1.2 倍单位本金对应价格（1.2R）
+    const isChase = isChaseStrategyName(row?.strategyName);
+    // 止盈小：普通 3R，追模式 1.2R
     takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
       row?.entryPrice,
       row?.stopLossPrice,
       priceDecimalPlaces,
+      { chase: isChase },
     );
-    if (isChaseStrategyName(row?.strategyName)) {
+    if (isChase) {
       // 追单止盈大：核心×(1±45%)
       takeProfitLargeLabel = buildPercentTakeProfitLabel(
         row?.entryPrice,

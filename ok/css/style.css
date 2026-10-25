@@ -2239,6 +2239,24 @@ button.admin-time-status__tag:focus-visible {
   line-height: 1.3;
 }
 
+.admin-item__tp-sl--no-large {
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: var(--admin-tier-gap, 10px);
+}
+
+.admin-item__tp-sl--no-large .admin-item__tp-sl-item {
+  width: auto;
+  max-width: none;
+  flex: 0 0 auto;
+}
+
+.admin-item__tp-sl--no-large .admin-item__tp-sl-item--tp-small {
+  align-items: flex-end;
+  text-align: right;
+}
+
 .admin-item__tp-sl-item {
   display: flex;
   flex-direction: column;
