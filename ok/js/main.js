@@ -319,10 +319,8 @@ const CHASE_CONCESSION_RATES = [
 ];
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
 const REF_TAKE_PROFIT_R = 3;
-/** 追模式止盈小：盈利 = 1.1 × 单位本金（即 1.1R）对应价格 */
+/** 追模式止盈：盈利 = 1.1 × 单位本金（即 1.1R）对应价格 */
 const CHASE_TAKE_PROFIT_SMALL_R = 1.1;
-/** 追单止盈大：核心点位 × (1±45%)，多 + 空 − */
-const CHASE_TAKE_PROFIT_LARGE_PCT = 0.45;
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
 const TRADE_MODE_NORMAL = 'normal';
@@ -3223,7 +3221,7 @@ function normalizeReferenceTakeProfitPrice(price) {
   return clampPriceAtZero(price);
 }
 
-/** 止盈小：普通 3R / 追模式 1.1R */
+/** 止盈：普通「止盈小」3R；追模式仅「止盈」1.1R（无止盈大） */
 function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces, { chase = false } = {}) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
@@ -3261,45 +3259,22 @@ function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) 
   return formatTrimmedFixedDecimals(normalized, decimals);
 }
 
-/** 按核心点位百分比止盈：× (1±pct)，做多加、做空减 */
-function calcPercentTakeProfitPrice(entryPrice, stopLoss, pct, positionSide) {
-  const entry = toNumber(entryPrice);
-  const rate = Number(pct);
-  if (entry == null || !Number.isFinite(rate)) return null;
-  const stop = toNumber(stopLoss);
-  let side = positionSide === 'long' || positionSide === 'short' ? positionSide : null;
-  if (!side && stop != null && entry !== stop) {
-    side = entry > stop ? 'long' : 'short';
-  }
-  if (!side) side = 'long';
-  const factor = side === 'short' ? (1 - rate) : (1 + rate);
-  return clampPriceAtZero(entry * factor);
-}
-
-function buildPercentTakeProfitLabel(entryPrice, stopLoss, pct, decimalPlaces = 0, positionSide) {
-  const tp = calcPercentTakeProfitPrice(entryPrice, stopLoss, pct, positionSide);
-  if (tp == null) return '—';
-  const normalized = normalizeReferenceTakeProfitPrice(tp);
-  if (normalized == null) return '—';
-  const decimals = Math.max(0, Math.min(20, Math.floor(Number(decimalPlaces) || 0)));
-  return formatTrimmedFixedDecimals(normalized, decimals);
-}
-
 function renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLossLabel, {
-  strikeTakeProfitLarge = false,
+  hideTakeProfitLarge = false,
+  takeProfitSmallTitle = '止盈小',
 } = {}) {
   const tpSmallRaw = String(takeProfitSmallLabel ?? '').trim() || '—';
   const tpLargeRaw = String(takeProfitLargeLabel ?? '').trim() || '—';
   const slRaw = String(stopLossLabel ?? '').trim() || '—';
+  const smallTitle = String(takeProfitSmallTitle ?? '').trim() || '止盈小';
 
-  const renderBlock = (modClass, label, value, ariaLabel, { copyable = true, strike = false } = {}) => {
+  const renderBlock = (modClass, label, value, ariaLabel, { copyable = true } = {}) => {
     const text = String(value ?? '').trim() || '—';
     const canCopy = copyable && Boolean(text && text !== '—');
     const className = [
       'admin-item__tp-sl-item',
       modClass,
       canCopy ? 'admin-copy-value' : '',
-      strike ? 'admin-item__tp-sl-item--strike' : '',
     ].filter(Boolean).join(' ');
     const tag = canCopy ? 'button' : 'span';
     const copyAttrs = canCopy
@@ -3308,12 +3283,18 @@ function renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabe
     return `<${tag} class="${className}"${copyAttrs}><span class="admin-item__tp-sl-label">${escapeHtml(label)}</span><span class="admin-item__tp-sl-value">${escapeHtml(text)}</span></${tag}>`;
   };
 
+  const takeProfitBlock = hideTakeProfitLarge
+    // 追模式：左空占位，中间「止盈」（居中对齐），右止损
+    ? renderBlock('admin-item__tp-sl-item--tp', smallTitle, tpSmallRaw, `${smallTitle}价格`)
+    : renderBlock('admin-item__tp-sl-item--tp', '止盈大', tpLargeRaw, '止盈大价格');
+  const smallOrPlaceholder = hideTakeProfitLarge
+    ? '<span class="admin-item__tp-sl-item admin-item__tp-sl-item--placeholder" aria-hidden="true"></span>'
+    : renderBlock('admin-item__tp-sl-item--tp-small', smallTitle, tpSmallRaw, `${smallTitle}价格`);
+
   return [
     '<div class="admin-item__tp-sl" aria-label="止盈止损">',
-    renderBlock('admin-item__tp-sl-item--tp-small', '止盈小', tpSmallRaw, '止盈小价格'),
-    renderBlock('admin-item__tp-sl-item--tp', '止盈大', tpLargeRaw, '止盈大价格', {
-      strike: strikeTakeProfitLarge,
-    }),
+    smallOrPlaceholder,
+    takeProfitBlock,
     renderBlock('admin-item__tp-sl-item--sl', '止损', slRaw, '止损价格'),
     '</div>',
   ].join('');
@@ -5534,24 +5515,15 @@ function buildAdminListItemHtml(row) {
   } else {
     concessions = buildAdminDisplayConcessions(row);
     const isChase = isChaseStrategyName(row?.strategyName);
-    // 止盈小：普通 3R，追模式 1.1R
+    // 止盈：普通 3R（止盈小），追模式 1.1R（仅展示「止盈」）
     takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
       row?.entryPrice,
       row?.stopLossPrice,
       priceDecimalPlaces,
       { chase: isChase },
     );
-    if (isChase) {
-      // 追单止盈大：核心×(1±45%)
-      takeProfitLargeLabel = buildPercentTakeProfitLabel(
-        row?.entryPrice,
-        row?.stopLossPrice,
-        CHASE_TAKE_PROFIT_LARGE_PCT,
-        priceDecimalPlaces,
-        sideMod,
-      );
-    } else {
-      // 趋势立项止盈大：4.5R
+    if (!isChase) {
+      // 趋势立项止盈大：4.5R；追模式不展示止盈大
       takeProfitLargeLabel = buildAdminBestTakeProfitLabel(
         row?.entryPrice,
         row?.stopLossPrice,
@@ -5560,15 +5532,18 @@ function buildAdminListItemHtml(row) {
     }
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
   }
+  const isChaseTrendTp = Boolean(
+    isChaseStrategyName(row?.strategyName)
+    && strategyType.type === 'trend'
+    && !showTierAssistView
+    && !isAssistLikeStrategy
+    && !isTierAssistStrategy,
+  );
   const tpSlHtml = showCounterTrend
     ? ''
     : renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLabel, {
-      // 追模式止盈大仅作参考，中划线样式
-      strikeTakeProfitLarge: Boolean(isChaseStrategyName(row?.strategyName)
-        && strategyType.type === 'trend'
-        && !showTierAssistView
-        && !isAssistLikeStrategy
-        && !isTierAssistStrategy),
+      hideTakeProfitLarge: isChaseTrendTp,
+      takeProfitSmallTitle: isChaseTrendTp ? '止盈' : '止盈小',
     });
   const sideLabel = getPositionSideLabel(sideMod);
   const starred = isStrategyStarred(row);
