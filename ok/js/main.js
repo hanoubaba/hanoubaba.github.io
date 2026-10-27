@@ -312,11 +312,12 @@ const CONCESSION_RATES = [
   { rate: -0.2, display: true, reuseMinTierCost: true },
   { rate: -0.5, costShare: 1 / 2 },
 ];
-/** 名称含「追」：仅 00% / -50% */
+/** 名称含「追」：默认仅 00%；开发者模式额外显示 -50% */
 const CHASE_CONCESSION_RATES = [
   { rate: 0, display: true },
   { rate: -0.5, display: true },
 ];
+const CHASE_DEV_ONLY_CONCESSION_RATE = -0.5;
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
 const REF_TAKE_PROFIT_R = 3;
 /** 追模式止盈：盈利 = 1.1 × 单位本金（即 1.1R）对应价格 */
@@ -695,6 +696,10 @@ function applyDeveloperModeLocal(enabled) {
   updateHeaderClearButton();
   updateAdminSelectionControls();
   updateObsSelectionControls();
+  // 追模式 -50% 随开发者模式显隐，后台列表需即时刷新
+  if (typeof currentPage !== 'undefined' && currentPage === 'admin') {
+    renderAdminListItems();
+  }
   return isDeveloperMode;
 }
 
@@ -1072,7 +1077,12 @@ function isChaseStrategyName(name) {
 }
 
 function getConcessionRates(name) {
-  return isChaseStrategyName(name) ? CHASE_CONCESSION_RATES : CONCESSION_RATES;
+  if (!isChaseStrategyName(name)) return CONCESSION_RATES;
+  // 追模式：非开发者模式隐藏 -50%
+  if (isDeveloperMode) return CHASE_CONCESSION_RATES;
+  return CHASE_CONCESSION_RATES.filter(
+    (item) => Math.abs(Number(item.rate) - CHASE_DEV_ONLY_CONCESSION_RATE) > 1e-9,
+  );
 }
 
 function getConcessionRatesForRow(row) {
@@ -1939,6 +1949,16 @@ const METHODOLOGY_SECTIONS = [
       '前期：有利润保守止盈，小额积累实现本金增长。（稳健且实际，已经过实践验证）',
       '中期：时间空间指导，整体战略上可以实现收益最大化。',
       '后期：结果二元论，单次可能失败，总体收益很大且省事。',
+    ],
+  },
+  {
+    title: '操作手册',
+    items: [
+      '有效止损，宽松止盈',
+      '一次一个，专精最佳（行情同质化）',
+      '严格执行，不怕失败（盈利覆盖亏损，实现做的越多对的越多。）',
+      '自动成交绝不干预（错了等后续可以重开）',
+      '前十等五，前五等十。逐步回调，直到4h带动1d实现反转。',
     ],
   },
   {
