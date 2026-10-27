@@ -2222,6 +2222,11 @@ button.admin-time-status__tag:focus-visible {
   white-space: nowrap;
 }
 
+/* 追模式：前台开始时间选项暂隐藏，后续可随时去掉本规则恢复 */
+#start-time-field.is-chase-hidden {
+  display: none;
+}
+
 .admin-item__time-range--assist {
   color: #0f766e;
   font-weight: 700;

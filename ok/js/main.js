@@ -1076,6 +1076,16 @@ function isChaseStrategyName(name) {
   return String(name ?? '').includes('追');
 }
 
+/** 追模式：前台开始时间选项 display:none（逻辑仍保留，便于随时改回） */
+function syncChaseStartTimeFieldVisibility() {
+  const field = document.getElementById('start-time-field');
+  const nameEl = document.getElementById('name-input');
+  if (!field) return;
+  const hide = isChaseStrategyName(nameEl?.value);
+  field.classList.toggle('is-chase-hidden', hide);
+  if (hide) closeMobileTimePicker();
+}
+
 function getConcessionRates(name) {
   if (!isChaseStrategyName(name)) return CONCESSION_RATES;
   // 追模式：非开发者模式隐藏 -50%
@@ -1960,7 +1970,8 @@ const METHODOLOGY_SECTIONS = [
       '严格执行，不怕失败（盈利覆盖亏损，实现做的越多对的越多。）',
       '自动成交绝不干预，手动操作十次九错，且操作成本很大',
       '成功和失败都有预案，只需要勇气和坚持。',
-      '行情挂单只等10'
+      '为了战略上的最终胜利，必须允许战术上的偶尔牺牲。（规矩要立住）',
+      '必须赶在ai量化磨平价差之前实现个人目标'
     ],
   },
   {
@@ -3017,6 +3028,7 @@ function populateTrendFormFromRow(row) {
   const startSlot = getStartSlotValueFromRow(row);
   setStartTimeUserPicked(true, 'trend');
   rebuildStartTimeOptions(startSlot, { ensurePreferredSlot: true, scope: 'trend' });
+  syncChaseStartTimeFieldVisibility();
 }
 
 function populateAssistFormFromRow(row) {
@@ -3065,6 +3077,7 @@ function applyFrontFormDraft(draft, scope) {
     ensurePreferredSlot: Boolean(draft.startTimePicked),
     scope: isAssist ? 'assist' : 'trend',
   });
+  if (!isAssist) syncChaseStartTimeFieldVisibility();
 }
 
 function startEditStrategy(row, { focusId = '' } = {}) {
@@ -3103,7 +3116,6 @@ function startEditStrategy(row, { focusId = '' } = {}) {
   updateSaveButtonLabels();
   updateHeaderClearButton();
   syncFrontModeSwitchLock();
-  showToast('已进入修改模式（趋势立项）');
   window.scrollTo(0, 0);
 }
 
@@ -4304,6 +4316,7 @@ function resetFrontPage() {
   const errEl = document.getElementById('error');
   if (errEl) errEl.textContent = '';
   clearStrategyState();
+  syncChaseStartTimeFieldVisibility();
 }
 
 function clearAssistState() {
@@ -4485,7 +4498,13 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('focus', syncStartTimeToNow);
 
 const nameInput = document.getElementById('name-input');
-if (nameInput) nameInput.addEventListener('input', autoGenerateIfReady);
+if (nameInput) {
+  nameInput.addEventListener('input', () => {
+    syncChaseStartTimeFieldVisibility();
+    autoGenerateIfReady();
+  });
+}
+syncChaseStartTimeFieldVisibility();
 
 function getLocalDayRange(date = new Date()) {
   const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
