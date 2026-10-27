@@ -4924,11 +4924,19 @@ function compareAdminRowsByExpiresAsc(a, b) {
   return aTs - bTs;
 }
 
+/** 追模式单据置顶；组内可再按截止时间排序 */
+function compareAdminRowsChaseFirst(a, b, { byExpires = false } = {}) {
+  const aChase = isChaseStrategyName(a?.strategyName) ? 0 : 1;
+  const bChase = isChaseStrategyName(b?.strategyName) ? 0 : 1;
+  if (aChase !== bChase) return aChase - bChase;
+  return byExpires ? compareAdminRowsByExpiresAsc(a, b) : 0;
+}
+
 function getDisplayAdminRows(rows = latestAdminRows) {
   const filtered = getFilteredAdminRows(rows);
-  const ordered = adminSortByExpiresAsc
-    ? filtered.slice().sort(compareAdminRowsByExpiresAsc)
-    : filtered;
+  const ordered = filtered.slice().sort((a, b) => (
+    compareAdminRowsChaseFirst(a, b, { byExpires: adminSortByExpiresAsc })
+  ));
   return arrangeLinkedTierAssistRows(ordered);
 }
 
