@@ -312,6 +312,12 @@ const CONCESSION_RATES = [
   { rate: -0.2, display: true, reuseMinTierCost: true },
   { rate: -0.5, costShare: 1 / 2 },
 ];
+/** 普通趋势非开发者模式：仅中间三档（自带份额，不依赖 ±50%） */
+const CONCESSION_RATES_BASIC = [
+  { rate: 0.2, display: true, costShare: 1 / 3 },
+  { rate: 0, display: true, costShare: 1 / 3 },
+  { rate: -0.2, display: true, costShare: 1 / 3 },
+];
 /** 名称含「追」：默认仅 00%；开发者模式额外显示 -50% */
 const CHASE_CONCESSION_RATES = [
   { rate: 0, display: true },
@@ -696,7 +702,7 @@ function applyDeveloperModeLocal(enabled) {
   updateHeaderClearButton();
   updateAdminSelectionControls();
   updateObsSelectionControls();
-  // 追模式 -50% 随开发者模式显隐，后台列表需即时刷新
+  // ±50% / 追模式 -50% 随开发者模式显隐，后台列表需即时刷新
   if (typeof currentPage !== 'undefined' && currentPage === 'admin') {
     renderAdminListItems();
   }
@@ -1087,16 +1093,23 @@ function syncChaseStartTimeFieldVisibility() {
 }
 
 function getConcessionRates(name) {
-  if (!isChaseStrategyName(name)) return CONCESSION_RATES;
-  // 追模式：非开发者模式隐藏 -50%
-  if (isDeveloperMode) return CHASE_CONCESSION_RATES;
-  return CHASE_CONCESSION_RATES.filter(
-    (item) => Math.abs(Number(item.rate) - CHASE_DEV_ONLY_CONCESSION_RATE) > 1e-9,
-  );
+  if (isChaseStrategyName(name)) {
+    // 追模式：非开发者模式隐藏 -50%
+    if (isDeveloperMode) return CHASE_CONCESSION_RATES;
+    return CHASE_CONCESSION_RATES.filter(
+      (item) => Math.abs(Number(item.rate) - CHASE_DEV_ONLY_CONCESSION_RATE) > 1e-9,
+    );
+  }
+  // 普通趋势：非开发者模式隐藏 ±50%
+  return isDeveloperMode ? CONCESSION_RATES : CONCESSION_RATES_BASIC;
 }
 
 function getConcessionRatesForRow(row) {
   return getConcessionRates(row?.strategyName);
+}
+
+function getTierAssistRates() {
+  return isDeveloperMode ? TIER_ASSIST_RATES : CONCESSION_RATES_BASIC;
 }
 
 function getStrategyDurationPeriods(name) {
@@ -1394,16 +1407,17 @@ function buildLinkedTierAssistDisplay(row) {
       stopLabel: '—',
     };
   }
+  const tierAssistRates = getTierAssistRates();
   const concessionItems = buildConcessionItems(
     entryPrice,
     stopLoss,
     null,
     decimalPlaces,
-    TIER_ASSIST_RATES,
+    tierAssistRates,
     false,
     { fixedTierOpenCost: getAdminTierFixedOpenCost() },
   );
-  const allowedRates = getConfiguredDisplayRates(TIER_ASSIST_RATES);
+  const allowedRates = getConfiguredDisplayRates(tierAssistRates);
   const concessions = applyAdminFixedTierQuantities(concessionItems, stopLoss).filter((item) => (
     allowedRates.some((rate) => Math.abs(Number(item.rate) - rate) < 1e-9)
   ));
@@ -1910,6 +1924,9 @@ const METHODOLOGY_SECTIONS = [
       '历史数据很有用，不要再删除了。',
       '机会范围已经很广了，再扩展只会适得其反。',
       '坦然允许3天没有机会，要有这样的心理准备',
+      '每天预计开单数量1-3单',
+      '重要的是相信的力量',
+      '连续2次失败考虑反思调整',
     ],
   },
   {
@@ -1919,14 +1936,14 @@ const METHODOLOGY_SECTIONS = [
       '降低期待值',
       '主动设计浪费空间（让渡让位让利）',
       '全流程自动化，杜绝主观干预',
+      '严进宽出，很难会输',
       '258数值定位可以占据一定的空间优势',
       '先来一单试一下盘感',
       'eth更容易结合258点位辅助分析',
-      '只赚有限利润',
+      '只赚有限利润（110%已经是最小单位盈利）',
       '反向需要证据，正向只需要时间。',
-      '不要急，等时间空间信号。果断点，不要墨迹。',
-      '矛盾则减半,黄金七小时',
-      '主动错一次保持手感反而可以赢得更多'
+      '不要急，等时间空间信号。',
+      '固定+自由，解决纠结心态',
     ],
   },
   {
@@ -1939,6 +1956,7 @@ const METHODOLOGY_SECTIONS = [
       '在过程中迷失，然后选择浮亏结束',
       '时间明显不够，只能草草结束',
       '关键时间8点和16点没有提前准备',
+      '趋势模糊地带操作，分不清趋势方向，也就无法坚持，在试错中损失本金'
     ],
   },
   {
@@ -1964,14 +1982,15 @@ const METHODOLOGY_SECTIONS = [
   {
     title: '操作手册',
     items: [
+      '规矩要立住',
       '一次一个，专精最佳（行情同质化）',
       '不做重复行情',
-      '金九银十（不是第9就是第10个单位）',
+      '金九银十（判断止损可行性，空间太小可能无法覆盖手续费）',
       '正向只需要找到有效止损，反向需要确切证据。',
       '严格执行，不怕失败（盈利覆盖亏损，实现做的越多对的越多。）',
       '自动成交绝不干预，手动操作十次九错，且操作成本很大',
       '成功和失败都有预案，只需要勇气和坚持。',
-      '为了战略上的最终胜利，必须允许战术上的偶尔牺牲。（规矩要立住）',
+      '为了战略上的最终胜利，必须允许战术上的偶尔牺牲。',
       '必须赶在ai量化磨平价差之前实现个人目标'
     ],
   },
@@ -1999,13 +2018,14 @@ const METHODOLOGY_SECTIONS = [
   {
     title: '3、选择标准',
     items: [
-      '三线齐飞是信号，三线统一是根源，看大做小是方法。',
-      '大维度是主方向，小维度只做配合。方向统一看10，背离也看10。',
-      '只研究热度前20、交易量过亿的标的。开单只做前三，种类不超过三个。',
-      '只做龙头的日内右侧趋势。放弃多空临界值，不做BTC。',
-      '只看自己的行情和数据，不参考别人。',
-      '止损位置，往前数10个标的里的插针极限。',
-      '优先级：趋势立项＞趋势力预测。反趋势只做空，而且时间和空间都要满足；新的趋势立项优先于反趋势。',
+      '4h与1d方向一致（不够稳定的时间限制在前10单位的4h，特别确定的可原方向扩展延伸）',
+      '刚反转的行情一般都不稳定，先看前10个单位的4h。后续待观测。',
+      '空间没溢出参考止盈',
+      '做15分钟短线',
+      '金九十银提前量（反）或三线齐飞起点（正）',
+      '理想情况：日线稳住5以上+4h同向且起点最好是前10单位',
+      '方法论不可能对全部行情适用，排除矛盾模糊时间段再进行操作(排除逆向前10，其他皆可)',
+      '从龙头中择优，避免手续费磨损太多。（ETH是合约最好标的，研究透能解决全部问题）',
     ],
   },
   {
@@ -5550,7 +5570,7 @@ function buildAdminListItemHtml(row) {
   } else if (isTierAssistStrategy) {
     const saved = hasConcessions(row?.concessions) ? row.concessions : [];
     const stopLoss = toNumber(row?.stopLossPrice);
-    const allowedRates = getConfiguredDisplayRates(TIER_ASSIST_RATES);
+    const allowedRates = getConfiguredDisplayRates(getTierAssistRates());
     concessions = applyAdminFixedTierQuantities(saved, stopLoss).filter((item) => (
       allowedRates.some((rate) => Math.abs(Number(item.rate) - rate) < 1e-9)
     ));
