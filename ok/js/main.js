@@ -197,8 +197,8 @@ function getCurrentTimeSlot(stepMinutes) {
 }
 
 const START_TIME_SLOT_COUNT = 9;
-/** 开始时间额外可选：当前格之后的下一个时间段 */
-const START_TIME_FUTURE_SLOT_COUNT = 1;
+/** 开始时间不含尚未到来的时间段 */
+const START_TIME_FUTURE_SLOT_COUNT = 0;
 const BUILTIN_DEFAULT_TIMEFRAME = '4h';
 const DEFAULT_TIMEFRAME_OPTIONS = ['15m', '1h', '4h', '8h', '1d'];
 const DEFAULT_TIMEFRAME_STORAGE_KEY = 'ok_default_timeframe';
@@ -2612,9 +2612,10 @@ function getTimeSlotsByMode(mode) {
   const stepMinutes = getTimeframeMinutes(normalizedMode);
   const now = new Date();
   const currentSlot = floorDateToStep(now, stepMinutes);
-  // 含历史 START_TIME_SLOT_COUNT 格 + 当前格之后的下一个时间段
+  // 历史格 + 当前已开始的格；开始时间晚于现在的不进入选项
   for (let i = START_TIME_SLOT_COUNT - 1; i >= -START_TIME_FUTURE_SLOT_COUNT; i -= 1) {
     const at = new Date(currentSlot.getTime() - i * stepMinutes * 60 * 1000);
+    if (at.getTime() > now.getTime()) continue;
     slots.push({
       value: formatStartSlotValue(at),
       label: formatSlotLabelForMode(at, now, normalizedMode),
@@ -2807,14 +2808,16 @@ function rebuildStartTimeOptions(preferredValue = null, { ensurePreferredSlot = 
   const mode = getTimeframeMode(scope);
   let slots = getTimeSlotsByMode(mode);
   const preferred = String(preferredValue ?? '').trim();
-  // ensurePreferredSlot 时保留明确传入的值（含空，表示旧单无开始时间）
-  const selectedValue = ensurePreferredSlot
+  const preferredAt = parseStartSlotValue(preferred);
+  const preferredIsFuture = Boolean(preferredAt && preferredAt.getTime() > Date.now());
+  // ensurePreferredSlot 时保留明确传入的值（含空，表示旧单无开始时间）；未来时间回落到当前格
+  const selectedValue = (ensurePreferredSlot && !preferredIsFuture)
     ? preferred
-    : resolveStartTimeSelection(mode, preferredValue ?? sel.value);
+    : resolveStartTimeSelection(mode, preferredIsFuture ? '' : (preferredValue ?? sel.value));
 
   if (ensurePreferredSlot && selectedValue && !slots.some((slot) => slot.value === selectedValue)) {
     const extraAt = parseStartSlotValue(selectedValue);
-    if (extraAt) {
+    if (extraAt && extraAt.getTime() <= Date.now()) {
       slots = [{
         value: selectedValue,
         label: formatFullDateTimeLabel(extraAt),
