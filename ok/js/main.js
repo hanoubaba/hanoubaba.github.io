@@ -1962,7 +1962,8 @@ const METHODOLOGY_SECTIONS = [
       '时间明显不够，只能草草结束',
       '关键时间8点和16点没有提前准备',
       '趋势模糊地带操作，分不清趋势方向，也就无法坚持，在试错中损失本金',
-      '大小趋势方向不一致，力量矛盾冲突'
+      '大小趋势方向不一致，力量矛盾冲突',
+      '以前赢是因为三时间维度方向一致，输是因为有冲突'
     ],
   },
   {
@@ -1990,14 +1991,15 @@ const METHODOLOGY_SECTIONS = [
     items: [
       '规矩要立住',
       '一次一个，专精最佳（行情同质化）',
-      '不做重复行情',
-      '金九银十（判断止损可行性，空间太小可能无法覆盖手续费）',
+      '大中小三线一致',
+      '金十银九（判断止损可行性，空间太小可能无法覆盖手续费）',
       '正向只需要找到有效止损，反向需要确切证据。',
       '严格执行，不怕失败（盈利覆盖亏损，实现做的越多对的越多。）',
       '自动成交绝不干预，手动操作十次九错，且操作成本很大',
       '成功和失败都有预案，只需要勇气和坚持。',
       '为了战略上的最终胜利，必须允许战术上的偶尔牺牲。',
-      '必须赶在ai量化磨平价差之前实现个人目标'
+      '必须赶在ai量化磨平价差之前实现个人目标',
+      '不跨线止盈，能走就走不等下一个单位'
     ],
   },
   {
@@ -3286,7 +3288,7 @@ function normalizeReferenceTakeProfitPrice(price) {
   return clampPriceAtZero(price);
 }
 
-/** 止盈：普通「止盈小」3R；追模式仅「止盈」1.1R（无止盈大） */
+/** 止盈：普通「止盈小」3R；追模式「止盈」1.1R（另有止盈大 4.5R） */
 function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces, { chase = false } = {}) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
@@ -3327,6 +3329,8 @@ function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) 
 function renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLossLabel, {
   hideTakeProfitLarge = false,
   takeProfitSmallTitle = '止盈小',
+  /** 追模式：止盈大在左、止盈在中 */
+  takeProfitLargeOnLeft = false,
 } = {}) {
   const tpSmallRaw = String(takeProfitSmallLabel ?? '').trim() || '—';
   const tpLargeRaw = String(takeProfitLargeLabel ?? '').trim() || '—';
@@ -3348,18 +3352,25 @@ function renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabe
     return `<${tag} class="${className}"${copyAttrs}><span class="admin-item__tp-sl-label">${escapeHtml(label)}</span><span class="admin-item__tp-sl-value">${escapeHtml(text)}</span></${tag}>`;
   };
 
-  const takeProfitBlock = hideTakeProfitLarge
-    // 追模式：左空占位，中间「止盈」（居中对齐），右止损
-    ? renderBlock('admin-item__tp-sl-item--tp', smallTitle, tpSmallRaw, `${smallTitle}价格`)
-    : renderBlock('admin-item__tp-sl-item--tp', '止盈大', tpLargeRaw, '止盈大价格');
-  const smallOrPlaceholder = hideTakeProfitLarge
-    ? '<span class="admin-item__tp-sl-item admin-item__tp-sl-item--placeholder" aria-hidden="true"></span>'
-    : renderBlock('admin-item__tp-sl-item--tp-small', smallTitle, tpSmallRaw, `${smallTitle}价格`);
+  let leftBlock;
+  let centerBlock;
+  if (takeProfitLargeOnLeft) {
+    // 追模式：止盈大 | 止盈 | 止损
+    leftBlock = renderBlock('admin-item__tp-sl-item--tp-small', '止盈大', tpLargeRaw, '止盈大价格');
+    centerBlock = renderBlock('admin-item__tp-sl-item--tp', smallTitle, tpSmallRaw, `${smallTitle}价格`);
+  } else if (hideTakeProfitLarge) {
+    leftBlock = '<span class="admin-item__tp-sl-item admin-item__tp-sl-item--placeholder" aria-hidden="true"></span>';
+    centerBlock = renderBlock('admin-item__tp-sl-item--tp', smallTitle, tpSmallRaw, `${smallTitle}价格`);
+  } else {
+    // 普通：止盈小 | 止盈大 | 止损
+    leftBlock = renderBlock('admin-item__tp-sl-item--tp-small', smallTitle, tpSmallRaw, `${smallTitle}价格`);
+    centerBlock = renderBlock('admin-item__tp-sl-item--tp', '止盈大', tpLargeRaw, '止盈大价格');
+  }
 
   return [
     '<div class="admin-item__tp-sl" aria-label="止盈止损">',
-    smallOrPlaceholder,
-    takeProfitBlock,
+    leftBlock,
+    centerBlock,
     renderBlock('admin-item__tp-sl-item--sl', '止损', slRaw, '止损价格'),
     '</div>',
   ].join('');
@@ -5597,21 +5608,18 @@ function buildAdminListItemHtml(row) {
   } else {
     concessions = buildAdminDisplayConcessions(row);
     const isChase = isChaseStrategyName(row?.strategyName);
-    // 止盈：普通 3R（止盈小），追模式 1.1R（仅展示「止盈」）
+    // 止盈：普通 3R（止盈小），追模式 1.1R（止盈）；止盈大均为 4.5R
     takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
       row?.entryPrice,
       row?.stopLossPrice,
       priceDecimalPlaces,
       { chase: isChase },
     );
-    if (!isChase) {
-      // 趋势立项止盈大：4.5R；追模式不展示止盈大
-      takeProfitLargeLabel = buildAdminBestTakeProfitLabel(
-        row?.entryPrice,
-        row?.stopLossPrice,
-        priceDecimalPlaces,
-      );
-    }
+    takeProfitLargeLabel = buildAdminBestTakeProfitLabel(
+      row?.entryPrice,
+      row?.stopLossPrice,
+      priceDecimalPlaces,
+    );
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
   }
   const isChaseTrendTp = Boolean(
@@ -5624,7 +5632,7 @@ function buildAdminListItemHtml(row) {
   const tpSlHtml = showCounterTrend
     ? ''
     : renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLabel, {
-      hideTakeProfitLarge: isChaseTrendTp,
+      takeProfitLargeOnLeft: isChaseTrendTp,
       takeProfitSmallTitle: isChaseTrendTp ? '止盈' : '止盈小',
     });
   const sideLabel = getPositionSideLabel(sideMod);
