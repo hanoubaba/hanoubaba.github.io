@@ -431,6 +431,8 @@ const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const BEST_TAKE_PROFIT_R = 4.5;
 const STRATEGY_DURATION_PERIODS = 9;
+/** 15m：结束时间 = 开始 + 19 个时间维度周期 */
+const STRATEGY_DURATION_PERIODS_15M = 19;
 /** 名称含「追」：时间范围 = 开始 + 1 个时间维度周期 */
 const CHASE_DURATION_PERIODS = 1;
 const ASSIST_DURATION_PERIODS = 3;
@@ -1112,8 +1114,10 @@ function getTierAssistRates() {
   return isDeveloperMode ? TIER_ASSIST_RATES : CONCESSION_RATES_BASIC;
 }
 
-function getStrategyDurationPeriods(name) {
-  return isChaseStrategyName(name) ? CHASE_DURATION_PERIODS : STRATEGY_DURATION_PERIODS;
+function getStrategyDurationPeriods(name, timeframe) {
+  if (isChaseStrategyName(name)) return CHASE_DURATION_PERIODS;
+  if (normalizeTimeframeMode(timeframe) === '15m') return STRATEGY_DURATION_PERIODS_15M;
+  return STRATEGY_DURATION_PERIODS;
 }
 
 function isKnownTierCount(tierCount) {
@@ -1504,7 +1508,7 @@ function getCounterTrendTimeRange(row) {
   const unitMin = Number(row?.timeframeMinutes) > 0
     ? Number(row.timeframeMinutes)
     : getTimeframeMinutes(row?.timeframe);
-  const spanMs = unitMin * STRATEGY_DURATION_PERIODS * 60 * 1000;
+  const spanMs = unitMin * getStrategyDurationPeriods(row?.strategyName, row?.timeframe) * 60 * 1000;
   const originalEnd = getStrategyEndAt(row);
   const originalStart = getStrategyStartAt(row);
   const startAt = originalEnd
@@ -1927,6 +1931,7 @@ const METHODOLOGY_SECTIONS = [
       '每天预计开单数量1-3单',
       '重要的是相信的力量',
       '连续2次失败考虑反思调整',
+      '大趋势参考(4h/1d)，小趋势切入(15m)，三线统一齐飞就是机会'
     ],
   },
   {
@@ -1956,7 +1961,8 @@ const METHODOLOGY_SECTIONS = [
       '在过程中迷失，然后选择浮亏结束',
       '时间明显不够，只能草草结束',
       '关键时间8点和16点没有提前准备',
-      '趋势模糊地带操作，分不清趋势方向，也就无法坚持，在试错中损失本金'
+      '趋势模糊地带操作，分不清趋势方向，也就无法坚持，在试错中损失本金',
+      '大小趋势方向不一致，力量矛盾冲突'
     ],
   },
   {
@@ -3197,7 +3203,7 @@ function enrichStrategyRecordForSubmit(record) {
   if (!record) return null;
   const timeframe = getTimeframeMode();
   const timeframeMinutes = getTimeframeMinutes(timeframe);
-  const validPeriods = getStrategyDurationPeriods(record?.strategyName);
+  const validPeriods = getStrategyDurationPeriods(record?.strategyName, timeframe);
   const durationMinutes = timeframeMinutes * validPeriods;
   const next = {
     ...record,
@@ -3732,7 +3738,7 @@ function buildTierAssistRecord({
   const timeframeMinutes = Number(parentRow?.timeframeMinutes) > 0
     ? Number(parentRow.timeframeMinutes)
     : getTimeframeMinutes(timeframe);
-  const validPeriods = STRATEGY_DURATION_PERIODS;
+  const validPeriods = getStrategyDurationPeriods(name, timeframe);
   const durationMinutes = timeframeMinutes * validPeriods;
   const rateNum = Number(rate);
   const description = String(parentRow?.description ?? '').trim();
@@ -4166,7 +4172,7 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
   const name = String(nameEl?.value ?? '').trim();
   const side = adjustedOpen > stop ? 'long' : 'short';
   const alarmName = name || 'test';
-  const validPeriods = getStrategyDurationPeriods(alarmName);
+  const validPeriods = getStrategyDurationPeriods(alarmName, timeframe);
   const spanMinutes = unitMin * validPeriods;
   const startAt = getStartDateTime(startTimeValue);
   const endAt = addPeriodToStart(startTimeValue, spanMinutes);
@@ -4765,15 +4771,17 @@ function getOutcomeStatusInfo(outcomeStatus) {
 }
 
 function getStrategyEndAt(row) {
+  const startAt = getStrategyStartAt(row);
+  const unitMin = Number(row?.timeframeMinutes) || getTimeframeMinutes(row?.timeframe);
   // 追单：展示/筛选统一按开始 + 1 个时间维度周期
   if (isChaseStrategyName(row?.strategyName)) {
-    const startAt = getStrategyStartAt(row);
-    if (startAt) {
-      const unitMin = Number(row?.timeframeMinutes) || getTimeframeMinutes(row?.timeframe);
-      if (Number.isFinite(unitMin) && unitMin > 0) {
-        return new Date(startAt.getTime() + unitMin * CHASE_DURATION_PERIODS * 60 * 1000);
-      }
+    if (startAt && Number.isFinite(unitMin) && unitMin > 0) {
+      return new Date(startAt.getTime() + unitMin * CHASE_DURATION_PERIODS * 60 * 1000);
     }
+  }
+  // 15m：展示/筛选统一按开始 + 19 个时间维度周期（兼容旧单 expires_at 仍为 +9）
+  if (normalizeTimeframeMode(row?.timeframe) === '15m' && startAt && Number.isFinite(unitMin) && unitMin > 0) {
+    return new Date(startAt.getTime() + unitMin * STRATEGY_DURATION_PERIODS_15M * 60 * 1000);
   }
   return parseDateValue(row?.expiresAt);
 }
