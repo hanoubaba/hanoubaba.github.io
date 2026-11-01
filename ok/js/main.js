@@ -326,8 +326,8 @@ const CHASE_CONCESSION_RATES = [
 const CHASE_DEV_ONLY_CONCESSION_RATE = -0.5;
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
 const REF_TAKE_PROFIT_R = 3;
-/** 追模式止盈：盈利 = 1.1 × 单位本金（即 1.1R）对应价格 */
-const CHASE_TAKE_PROFIT_SMALL_R = 1.1;
+/** 追模式止盈：盈利 = 0.9 × 单位本金（即 0.9R）对应价格 */
+const CHASE_TAKE_PROFIT_SMALL_R = 0.9;
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
 const TRADE_MODE_NORMAL = 'normal';
@@ -1937,6 +1937,19 @@ const METHODOLOGY_SECTIONS = [
       '正确方向上的真信号，最小止盈积累本金。不猜顶底，幅度小就挂计划委托，幅度大就等待反转。',
       '黄线为基准，提前准备数据',
       '不期待单边大行情，全作为震荡小行情，赚有限利润（现实点）',
+      '同质化行情，只选择交易量最大的标的',
+      '顺势多震荡，背离出单边（启动之前会酝酿洗盘）',
+      '机会太多不是好事，证明找错了方法',
+      '殊途同归，又拐回来了。15分钟和4h是同样的方法，不同的维度。',
+      '单纯迷恋15分钟短线是路线错误，没有4h的维度，15分钟短线无法持续盈利。',
+      '严进宽出，选择门槛严格一点。插针/陷阱/背离/通宵/挂不上都是很好的理由。太简单了反而不太正常。',
+      '形态>时间>空间',
+      '只有真的不在乎才能拿的住',
+      '顺序：黄红-白红-白黄（主要看黄红线趋势）',
+      '4小时初期的8小时连续性',
+      '三线齐飞简化是黄红线',
+      '一旦方法论跑通，盈利将是指数级的，哪怕是10刀本金也足够了。在此之前不必着急。',
+      '核心思想是：短线趋势形成与背离回归。'
     ],
   },
   {
@@ -1973,7 +1986,11 @@ const METHODOLOGY_SECTIONS = [
       '以前赢是因为三时间维度方向一致，输是因为有冲突',
       '后知后觉已经晚了，节奏感全乱',
       '行情连续性太差，合二为一了',
-      '行情同质化严重，不可同时开单，一次只能一个'
+      '行情同质化严重，不可同时开单，一次只能一个',
+      '6月份和8月份依靠4小时趋势赢得了胜利，后续由于机会变少路线错误导致了亏损',
+      '自动成交4小时内只开单不调整，拥有被杀的觉悟才有资格开枪。(不敢开枪瞎举什么)',
+      '80%的调整都是在摧毁最初正确的选择',
+      '在没行情的时候浪费了本金，行情出现了又丧失机会'
     ],
   },
   {
@@ -1994,6 +2011,7 @@ const METHODOLOGY_SECTIONS = [
       '前期：有利润保守止盈，小额积累实现本金增长。（稳健且实际，已经过实践验证）',
       '中期：时间空间指导，整体战略上可以实现收益最大化。',
       '后期：结果二元论，单次可能失败，总体收益很大且省事。',
+      '包含关系中寻找绝对安全'
     ],
   },
   {
@@ -3299,7 +3317,7 @@ function normalizeReferenceTakeProfitPrice(price) {
   return clampPriceAtZero(price);
 }
 
-/** 止盈：普通「止盈小」3R；追模式「止盈」1.1R（另有止盈大 4.5R） */
+/** 止盈：普通「止盈小」3R；追模式「止盈」0.9R（另有止盈大 4.5R） */
 function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces, { chase = false } = {}) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
@@ -5619,7 +5637,7 @@ function buildAdminListItemHtml(row) {
   } else {
     concessions = buildAdminDisplayConcessions(row);
     const isChase = isChaseStrategyName(row?.strategyName);
-    // 止盈：普通 3R（止盈小），追模式 1.1R（止盈）；止盈大均为 4.5R
+    // 止盈：普通 3R（止盈小），追模式 0.9R（止盈）；止盈大均为 4.5R
     takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
       row?.entryPrice,
       row?.stopLossPrice,
