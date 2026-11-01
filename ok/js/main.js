@@ -318,12 +318,15 @@ const CONCESSION_RATES_BASIC = [
   { rate: 0, display: true, costShare: 1 / 3 },
   { rate: -0.2, display: true, costShare: 1 / 3 },
 ];
-/** 名称含「追」：默认仅 00%；开发者模式额外显示 -50% */
+/** 追模式（15m）开发者模式：00% / -20% */
 const CHASE_CONCESSION_RATES = [
   { rate: 0, display: true },
-  { rate: -0.5, display: true },
+  { rate: -0.2, display: true },
 ];
-const CHASE_DEV_ONLY_CONCESSION_RATE = -0.5;
+/** 追模式（15m）非开发者：仅 -20% */
+const CHASE_CONCESSION_RATES_BASIC = [
+  { rate: -0.2, display: true },
+];
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
 const REF_TAKE_PROFIT_R = 3;
 /** 追模式止盈：盈利 = 0.9 × 单位本金（即 0.9R）对应价格 */
@@ -431,10 +434,8 @@ const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const BEST_TAKE_PROFIT_R = 4.5;
 const STRATEGY_DURATION_PERIODS = 9;
-/** 15m：结束时间 = 开始 + 19 个时间维度周期 */
+/** 追模式（15m）：结束时间 = 开始 + 19 个时间维度周期 */
 const STRATEGY_DURATION_PERIODS_15M = 19;
-/** 名称含「追」：时间范围 = 开始 + 1 个时间维度周期 */
-const CHASE_DURATION_PERIODS = 1;
 const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
 /** 反趋势：挂单档位 = 原策略 1/2/3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R–100R 价格（无数量） */
@@ -704,7 +705,7 @@ function applyDeveloperModeLocal(enabled) {
   updateHeaderClearButton();
   updateAdminSelectionControls();
   updateObsSelectionControls();
-  // ±50% / 追模式 -50% 随开发者模式显隐，后台列表需即时刷新
+  // ±50% / 追模式 00% 随开发者模式显隐，后台列表需即时刷新
   if (typeof currentPage !== 'undefined' && currentPage === 'admin') {
     renderAdminListItems();
   }
@@ -1080,42 +1081,32 @@ function getTrendPositionSide(rowOrSide) {
   return 'long';
 }
 
-function isChaseStrategyName(name) {
-  return String(name ?? '').includes('追');
+/** 追模式：时间维度为 15m；否则为普通模式（不再按名称关键字判断） */
+function isChaseMode(timeframe) {
+  return String(timeframe ?? '').trim() === '15m';
 }
 
-/** 追模式：前台开始时间选项 display:none（逻辑仍保留，便于随时改回） */
-function syncChaseStartTimeFieldVisibility() {
-  const field = document.getElementById('start-time-field');
-  const nameEl = document.getElementById('name-input');
-  if (!field) return;
-  const hide = isChaseStrategyName(nameEl?.value);
-  field.classList.toggle('is-chase-hidden', hide);
-  if (hide) closeMobileTimePicker();
+function isChaseStrategyRow(row) {
+  return isChaseMode(row?.timeframe);
 }
 
-function getConcessionRates(name) {
-  if (isChaseStrategyName(name)) {
-    // 追模式：非开发者模式隐藏 -50%
-    if (isDeveloperMode) return CHASE_CONCESSION_RATES;
-    return CHASE_CONCESSION_RATES.filter(
-      (item) => Math.abs(Number(item.rate) - CHASE_DEV_ONLY_CONCESSION_RATE) > 1e-9,
-    );
+function getConcessionRates(timeframe) {
+  if (isChaseMode(timeframe)) {
+    return isDeveloperMode ? CHASE_CONCESSION_RATES : CHASE_CONCESSION_RATES_BASIC;
   }
   // 普通趋势：非开发者模式隐藏 ±50%
   return isDeveloperMode ? CONCESSION_RATES : CONCESSION_RATES_BASIC;
 }
 
 function getConcessionRatesForRow(row) {
-  return getConcessionRates(row?.strategyName);
+  return getConcessionRates(row?.timeframe);
 }
 
 function getTierAssistRates() {
   return isDeveloperMode ? TIER_ASSIST_RATES : CONCESSION_RATES_BASIC;
 }
 
-function getStrategyDurationPeriods(name, timeframe) {
-  if (isChaseStrategyName(name)) return CHASE_DURATION_PERIODS;
+function getStrategyDurationPeriods(_name, timeframe) {
   if (normalizeTimeframeMode(timeframe) === '15m') return STRATEGY_DURATION_PERIODS_15M;
   return STRATEGY_DURATION_PERIODS;
 }
@@ -1215,9 +1206,9 @@ function getConfiguredDisplayRates(rateConfigs) {
     .sort((a, b) => a - b);
 }
 
-function isCurrentTrendConcessionSet(concessions, name) {
+function isCurrentTrendConcessionSet(concessions, timeframe) {
   const rates = getSortedDisplayRates(concessions);
-  return ratesMatch(rates, getConfiguredDisplayRates(getConcessionRates(name)));
+  return ratesMatch(rates, getConfiguredDisplayRates(getConcessionRates(timeframe)));
 }
 
 function isTierAssistRecord(row) {
@@ -1311,12 +1302,12 @@ function getAdminStrategyTypeInfo(row) {
 function buildAdminDisplayConcessions(row) {
   const savedConcessions = buildAdminConcessionsForRow(row);
   const stopLoss = toNumber(row?.stopLossPrice);
-  if (isCurrentTrendConcessionSet(savedConcessions, row?.strategyName)) {
+  if (isCurrentTrendConcessionSet(savedConcessions, row?.timeframe)) {
     return applyAdminFixedTierQuantities(savedConcessions, stopLoss);
   }
   const rebuilt = buildUnifiedConcessionsForRow(row);
   if (rebuilt) return rebuilt;
-  if (hasConcessions(savedConcessions) && !isChaseStrategyName(row?.strategyName)) {
+  if (hasConcessions(savedConcessions) && !isChaseStrategyRow(row)) {
     return applyAdminFixedTierQuantities(savedConcessions, stopLoss);
   }
   return buildTrendAdminConcessions(row);
@@ -1508,7 +1499,7 @@ function getCounterTrendTimeRange(row) {
   const unitMin = Number(row?.timeframeMinutes) > 0
     ? Number(row.timeframeMinutes)
     : getTimeframeMinutes(row?.timeframe);
-  const spanMs = unitMin * getStrategyDurationPeriods(row?.strategyName, row?.timeframe) * 60 * 1000;
+  const spanMs = unitMin * getStrategyDurationPeriods(null, row?.timeframe) * 60 * 1000;
   const originalEnd = getStrategyEndAt(row);
   const originalStart = getStrategyStartAt(row);
   const startAt = originalEnd
@@ -1522,8 +1513,8 @@ function getCounterTrendTimeRange(row) {
 
 function canShowCounterTrend(row) {
   if (getAdminStrategyTypeInfo(row).type !== 'trend') return false;
-  // 名称含「追」：禁止切到趋势力预测
-  if (isChaseStrategyName(row?.strategyName)) return false;
+  // 追模式（15m）：禁止切到趋势力预测
+  if (isChaseStrategyRow(row)) return false;
   const entryPrice = toNumber(row?.entryPrice);
   const stopLoss = toNumber(row?.stopLossPrice);
   if (entryPrice == null || stopLoss == null || entryPrice === stopLoss) return false;
@@ -1949,7 +1940,10 @@ const METHODOLOGY_SECTIONS = [
       '4小时初期的8小时连续性',
       '三线齐飞简化是黄红线',
       '一旦方法论跑通，盈利将是指数级的，哪怕是10刀本金也足够了。在此之前不必着急。',
-      '核心思想是：短线趋势形成与背离回归。'
+      '核心思想是：短线趋势形成与背离回归。',
+      '需要无视错误信号。（后来的错误信号并不能覆盖前置正确信号）',
+      '开单以后，理智就已经下线了。没必要再思考和调整了。',
+      '缺乏信念，投降输一半。不用尽全力是无法轻易取得胜利的。'
     ],
   },
   {
@@ -1990,7 +1984,8 @@ const METHODOLOGY_SECTIONS = [
       '6月份和8月份依靠4小时趋势赢得了胜利，后续由于机会变少路线错误导致了亏损',
       '自动成交4小时内只开单不调整，拥有被杀的觉悟才有资格开枪。(不敢开枪瞎举什么)',
       '80%的调整都是在摧毁最初正确的选择',
-      '在没行情的时候浪费了本金，行情出现了又丧失机会'
+      '在没行情的时候浪费了本金，行情出现了又丧失机会',
+      '价格太大的手续费太高，价格太小的磨损太高（止盈止损空间不宜太小）'
     ],
   },
   {
@@ -2011,7 +2006,7 @@ const METHODOLOGY_SECTIONS = [
       '前期：有利润保守止盈，小额积累实现本金增长。（稳健且实际，已经过实践验证）',
       '中期：时间空间指导，整体战略上可以实现收益最大化。',
       '后期：结果二元论，单次可能失败，总体收益很大且省事。',
-      '包含关系中寻找绝对安全'
+      '绝对安全感+种类不限+时间复利（可以踏空，不能冒险）'
     ],
   },
   {
@@ -3089,7 +3084,6 @@ function populateTrendFormFromRow(row) {
   const startSlot = getStartSlotValueFromRow(row);
   setStartTimeUserPicked(true, 'trend');
   rebuildStartTimeOptions(startSlot, { ensurePreferredSlot: true, scope: 'trend' });
-  syncChaseStartTimeFieldVisibility();
 }
 
 function populateAssistFormFromRow(row) {
@@ -3138,7 +3132,6 @@ function applyFrontFormDraft(draft, scope) {
     ensurePreferredSlot: Boolean(draft.startTimePicked),
     scope: isAssist ? 'assist' : 'trend',
   });
-  if (!isAssist) syncChaseStartTimeFieldVisibility();
 }
 
 function startEditStrategy(row, { focusId = '' } = {}) {
@@ -4212,7 +4205,7 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
   const name = String(nameEl?.value ?? '').trim();
   const side = adjustedOpen > stop ? 'long' : 'short';
   const alarmName = name || 'test';
-  const validPeriods = getStrategyDurationPeriods(alarmName, timeframe);
+  const validPeriods = getStrategyDurationPeriods(null, timeframe);
   const spanMinutes = unitMin * validPeriods;
   const startAt = getStartDateTime(startTimeValue);
   const endAt = addPeriodToStart(startTimeValue, spanMinutes);
@@ -4220,7 +4213,7 @@ function buildTrendFollowingStrategy(open, stop, startTimeValue, startTimeLabel,
   const priceLabel = formatTrimmedFixedDecimals(adjustedOpen, priceDecimalPlaces);
   const tpLabel = formatTrimmedFixedDecimals(tp, tpDecimals);
   const stopLabel = formatPrice(stop);
-  const concessionRates = getConcessionRates(alarmName);
+  const concessionRates = getConcessionRates(timeframe);
   const concessionItems = buildConcessionItems(adjustedOpen, stop, openCostTotal, priceDecimalPlaces, concessionRates, reverse);
   const primaryItem = concessionItems.find((item) => Math.abs(Number(item.rate) - PRICE_ADJUSTMENT_RATE) < 1e-9);
   const qty = primaryItem?.quantity ?? formatQuantity(quantity);
@@ -4386,7 +4379,6 @@ function resetFrontPage() {
   const errEl = document.getElementById('error');
   if (errEl) errEl.textContent = '';
   clearStrategyState();
-  syncChaseStartTimeFieldVisibility();
 }
 
 function clearAssistState() {
@@ -4570,11 +4562,9 @@ window.addEventListener('focus', syncStartTimeToNow);
 const nameInput = document.getElementById('name-input');
 if (nameInput) {
   nameInput.addEventListener('input', () => {
-    syncChaseStartTimeFieldVisibility();
     autoGenerateIfReady();
   });
 }
-syncChaseStartTimeFieldVisibility();
 
 function getLocalDayRange(date = new Date()) {
   const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
@@ -4813,14 +4803,8 @@ function getOutcomeStatusInfo(outcomeStatus) {
 function getStrategyEndAt(row) {
   const startAt = getStrategyStartAt(row);
   const unitMin = Number(row?.timeframeMinutes) || getTimeframeMinutes(row?.timeframe);
-  // 追单：展示/筛选统一按开始 + 1 个时间维度周期
-  if (isChaseStrategyName(row?.strategyName)) {
-    if (startAt && Number.isFinite(unitMin) && unitMin > 0) {
-      return new Date(startAt.getTime() + unitMin * CHASE_DURATION_PERIODS * 60 * 1000);
-    }
-  }
-  // 15m：展示/筛选统一按开始 + 19 个时间维度周期（兼容旧单 expires_at 仍为 +9）
-  if (normalizeTimeframeMode(row?.timeframe) === '15m' && startAt && Number.isFinite(unitMin) && unitMin > 0) {
+  // 追模式（15m）：展示/筛选统一按开始 + 19 个时间维度周期（兼容旧单 expires_at 仍为 +9）
+  if (isChaseStrategyRow(row) && startAt && Number.isFinite(unitMin) && unitMin > 0) {
     return new Date(startAt.getTime() + unitMin * STRATEGY_DURATION_PERIODS_15M * 60 * 1000);
   }
   return parseDateValue(row?.expiresAt);
@@ -5017,19 +5001,11 @@ function compareAdminRowsByExpiresAsc(a, b) {
   return aTs - bTs;
 }
 
-/** 追模式单据置顶；组内可再按截止时间排序 */
-function compareAdminRowsChaseFirst(a, b, { byExpires = false } = {}) {
-  const aChase = isChaseStrategyName(a?.strategyName) ? 0 : 1;
-  const bChase = isChaseStrategyName(b?.strategyName) ? 0 : 1;
-  if (aChase !== bChase) return aChase - bChase;
-  return byExpires ? compareAdminRowsByExpiresAsc(a, b) : 0;
-}
-
 function getDisplayAdminRows(rows = latestAdminRows) {
   const filtered = getFilteredAdminRows(rows);
-  const ordered = filtered.slice().sort((a, b) => (
-    compareAdminRowsChaseFirst(a, b, { byExpires: adminSortByExpiresAsc })
-  ));
+  const ordered = adminSortByExpiresAsc
+    ? filtered.slice().sort(compareAdminRowsByExpiresAsc)
+    : filtered.slice();
   return arrangeLinkedTierAssistRows(ordered);
 }
 
@@ -5636,7 +5612,7 @@ function buildAdminListItemHtml(row) {
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
   } else {
     concessions = buildAdminDisplayConcessions(row);
-    const isChase = isChaseStrategyName(row?.strategyName);
+    const isChase = isChaseStrategyRow(row);
     // 止盈：普通 3R（止盈小），追模式 0.9R（止盈）；止盈大均为 4.5R
     takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
       row?.entryPrice,
@@ -5652,16 +5628,18 @@ function buildAdminListItemHtml(row) {
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
   }
   const isChaseTrendTp = Boolean(
-    isChaseStrategyName(row?.strategyName)
+    isChaseStrategyRow(row)
     && strategyType.type === 'trend'
     && !showTierAssistView
     && !isAssistLikeStrategy
     && !isTierAssistStrategy,
   );
+  const hideChaseTakeProfitLarge = isChaseTrendTp && !isDeveloperMode;
   const tpSlHtml = showCounterTrend
     ? ''
     : renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLabel, {
-      takeProfitLargeOnLeft: isChaseTrendTp,
+      hideTakeProfitLarge: hideChaseTakeProfitLarge,
+      takeProfitLargeOnLeft: isChaseTrendTp && !hideChaseTakeProfitLarge,
       takeProfitSmallTitle: isChaseTrendTp ? '止盈' : '止盈小',
     });
   const sideLabel = getPositionSideLabel(sideMod);
@@ -5673,7 +5651,7 @@ function buildAdminListItemHtml(row) {
         : `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
     )
     : '';
-  const isChaseTrend = strategyType.type === 'trend' && isChaseStrategyName(row?.strategyName);
+  const isChaseTrend = strategyType.type === 'trend' && isChaseStrategyRow(row);
   const concessionsHtml = renderAdminConcessionsHtml(concessions, stopLabel, {
     priceDecimalPlaces,
     assistLabels: isAssistLikeStrategy,
