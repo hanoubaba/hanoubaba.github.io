@@ -628,6 +628,7 @@ check (
 -- kelly_ratio：凯利系数 1/30–1（分母=档位×n，默认 5×3=15，范围 1–30）；每档本金 = 总数 × 凯利
 -- default_timeframe：前台时间维度默认（15m/1h/4h/8h/1d）
 -- developer_mode：开发者模式
+-- trend_force：趋势力（small/medium/large），控制追模式档位与止盈
 -- ------------------------------------------------------------
 
 create table if not exists public.app_settings (
@@ -636,11 +637,13 @@ create table if not exists public.app_settings (
   kelly_ratio numeric not null default 0.0333,
   default_timeframe text not null default '4h',
   developer_mode boolean not null default false,
+  trend_force text not null default 'small',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint app_settings_unit_cost_nonneg_check check (unit_cost >= 0),
   constraint app_settings_kelly_ratio_check check (kelly_ratio >= 0.0333 and kelly_ratio <= 1),
-  constraint app_settings_default_timeframe_check check (default_timeframe in ('15m', '1h', '4h', '8h', '1d'))
+  constraint app_settings_default_timeframe_check check (default_timeframe in ('15m', '1h', '4h', '8h', '1d')),
+  constraint app_settings_trend_force_check check (trend_force in ('small', 'medium', 'large'))
 );
 
 alter table public.app_settings
@@ -654,6 +657,9 @@ add column if not exists default_timeframe text;
 
 alter table public.app_settings
 add column if not exists developer_mode boolean;
+
+alter table public.app_settings
+add column if not exists trend_force text;
 
 update public.app_settings
 set unit_cost = 0
@@ -671,6 +677,10 @@ update public.app_settings
 set developer_mode = false
 where developer_mode is null;
 
+update public.app_settings
+set trend_force = 'small'
+where trend_force is null or trend_force not in ('small', 'medium', 'large');
+
 alter table public.app_settings
 alter column unit_cost set default 0;
 
@@ -684,6 +694,9 @@ alter table public.app_settings
 alter column developer_mode set default false;
 
 alter table public.app_settings
+alter column trend_force set default 'small';
+
+alter table public.app_settings
 alter column unit_cost set not null;
 
 alter table public.app_settings
@@ -694,6 +707,9 @@ alter column default_timeframe set not null;
 
 alter table public.app_settings
 alter column developer_mode set not null;
+
+alter table public.app_settings
+alter column trend_force set not null;
 
 alter table public.app_settings
 drop constraint if exists app_settings_unit_cost_positive_check;
@@ -719,8 +735,15 @@ alter table public.app_settings
 add constraint app_settings_default_timeframe_check
 check (default_timeframe in ('15m', '1h', '4h', '8h', '1d'));
 
-insert into public.app_settings (id, unit_cost, kelly_ratio, default_timeframe, developer_mode)
-values ('default', 0, 0.0333, '4h', false)
+alter table public.app_settings
+drop constraint if exists app_settings_trend_force_check;
+
+alter table public.app_settings
+add constraint app_settings_trend_force_check
+check (trend_force in ('small', 'medium', 'large'));
+
+insert into public.app_settings (id, unit_cost, kelly_ratio, default_timeframe, developer_mode, trend_force)
+values ('default', 0, 0.0333, '4h', false, 'small')
 on conflict (id) do nothing;
 
 drop trigger if exists app_settings_set_updated_at on public.app_settings;

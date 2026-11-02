@@ -297,6 +297,88 @@ async function setDefaultTimeframe(mode) {
   return changed;
 }
 
+function normalizeTrendForce(value) {
+  const raw = String(value ?? '').trim();
+  if (TREND_FORCE_OPTIONS.includes(raw)) return raw;
+  if (raw === '大') return 'large';
+  if (raw === '中') return 'medium';
+  if (raw === '小') return 'small';
+  return BUILTIN_DEFAULT_TREND_FORCE;
+}
+
+function getConfiguredTrendForce() {
+  return normalizeTrendForce(trendForce);
+}
+
+function getTrendForceLabel(value = getConfiguredTrendForce()) {
+  return TREND_FORCE_LABELS[normalizeTrendForce(value)] || TREND_FORCE_LABELS[BUILTIN_DEFAULT_TREND_FORCE];
+}
+
+function getChaseConfigByTrendForce(force = getConfiguredTrendForce()) {
+  return CHASE_BY_TREND_FORCE[normalizeTrendForce(force)] || CHASE_BY_TREND_FORCE[BUILTIN_DEFAULT_TREND_FORCE];
+}
+
+function getChaseTakeProfitR() {
+  return Number(getChaseConfigByTrendForce().takeProfitR) || 0.8;
+}
+
+function getChaseConcessionRates() {
+  return getChaseConfigByTrendForce().rates;
+}
+
+function persistTrendForceFallback(value) {
+  try {
+    localStorage.setItem(TREND_FORCE_STORAGE_KEY, normalizeTrendForce(value));
+  } catch {
+    // ignore
+  }
+}
+
+function applyTrendForceLocal(value) {
+  const next = normalizeTrendForce(value);
+  const changed = next !== trendForce;
+  trendForce = next;
+  persistTrendForceFallback(next);
+  syncTrendForceUI();
+  // 追模式档位/止盈随趋势力变化，后台与前台需即时刷新
+  if (typeof currentPage !== 'undefined' && currentPage === 'admin') {
+    renderAdminListItems();
+  }
+  if (typeof isFrontTrendMode === 'function' && isFrontTrendMode() && isChaseMode(getTimeframeMode('trend'))) {
+    autoGenerateIfReady();
+  }
+  return changed;
+}
+
+function loadTrendForce() {
+  try {
+    applyTrendForceLocal(localStorage.getItem(TREND_FORCE_STORAGE_KEY));
+  } catch {
+    applyTrendForceLocal(BUILTIN_DEFAULT_TREND_FORCE);
+  }
+  return trendForce;
+}
+
+function syncTrendForceUI() {
+  const current = getConfiguredTrendForce();
+  document.querySelectorAll('[data-trend-force]').forEach((btn) => {
+    const active = btn.getAttribute('data-trend-force') === current;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
+async function setTrendForce(value) {
+  const next = normalizeTrendForce(value);
+  const changed = applyTrendForceLocal(next);
+  try {
+    await saveAppSettings({ trend_force: next });
+  } catch {
+    // 本地已更新；后端失败时仍可本机使用
+  }
+  return changed;
+}
+
 let trendTimeframeMode = DEFAULT_TIMEFRAME;
 let assistTimeframeMode = DEFAULT_ASSIST_TIMEFRAME;
 let startTimeUserPicked = false;
@@ -318,19 +400,23 @@ const CONCESSION_RATES_BASIC = [
   { rate: 0, display: true, costShare: 1 / 3 },
   { rate: -0.2, display: true, costShare: 1 / 3 },
 ];
-/** 追模式（15m）开发者模式：00% / -20% */
-const CHASE_CONCESSION_RATES = [
-  { rate: 0, display: true },
-  { rate: -0.2, display: true },
-];
-/** 追模式（15m）非开发者：仅 -20% */
-const CHASE_CONCESSION_RATES_BASIC = [
-  { rate: -0.2, display: true },
-];
+/** 趋势力：控制追模式档位与止盈 */
+const TREND_FORCE_OPTIONS = ['small', 'medium', 'large'];
+const TREND_FORCE_LABELS = {
+  small: '小',
+  medium: '中',
+  large: '大',
+};
+const BUILTIN_DEFAULT_TREND_FORCE = 'small';
+const TREND_FORCE_STORAGE_KEY = 'ok_trend_force';
+/** 追模式按趋势力：档位 + 止盈 R */
+const CHASE_BY_TREND_FORCE = {
+  small: { rates: [{ rate: -0.2, display: true, costShare: 1 }], takeProfitR: 0.8 },
+  medium: { rates: [{ rate: 0, display: true, costShare: 1 }], takeProfitR: 1 },
+  large: { rates: [{ rate: 0.2, display: true, costShare: 1 }], takeProfitR: 1.5 },
+};
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
 const REF_TAKE_PROFIT_R = 3;
-/** 追模式止盈：盈利 = 0.9 × 单位本金（即 0.9R）对应价格 */
-const CHASE_TAKE_PROFIT_SMALL_R = 0.9;
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
 const TRADE_MODE_NORMAL = 'normal';
@@ -359,7 +445,9 @@ let cachedKellyN = KELLY_N_DEFAULT;
 let kellyRatioColumnAvailable = true;
 let defaultTimeframeColumnAvailable = true;
 let developerModeColumnAvailable = true;
+let trendForceColumnAvailable = true;
 let isDeveloperMode = false;
+let trendForce = BUILTIN_DEFAULT_TREND_FORCE;
 
 function loadCachedKellyFactorsFallback() {
   try {
@@ -705,7 +793,7 @@ function applyDeveloperModeLocal(enabled) {
   updateHeaderClearButton();
   updateAdminSelectionControls();
   updateObsSelectionControls();
-  // ±50% / 追模式 00% 随开发者模式显隐，后台列表需即时刷新
+  // ±50% 随开发者模式显隐，后台列表需即时刷新
   if (typeof currentPage !== 'undefined' && currentPage === 'admin') {
     renderAdminListItems();
   }
@@ -762,6 +850,7 @@ function restoreConfigForm() {
   restoreKellyRatioInput();
   syncDeveloperModeUI();
   syncDefaultTimeframeUI();
+  syncTrendForceUI();
 }
 
 function isMissingSettingsColumnError(errorText, columnName) {
@@ -780,6 +869,7 @@ function getAppSettingsSnapshot() {
     kelly_ratio: cachedKellyRatio,
     default_timeframe: getConfiguredDefaultTimeframe(),
     developer_mode: Boolean(isDeveloperMode),
+    trend_force: getConfiguredTrendForce(),
   };
 }
 
@@ -788,6 +878,7 @@ function buildAppSettingsSelectFields() {
   if (kellyRatioColumnAvailable) fields.push('kelly_ratio');
   if (defaultTimeframeColumnAvailable) fields.push('default_timeframe');
   if (developerModeColumnAvailable) fields.push('developer_mode');
+  if (trendForceColumnAvailable) fields.push('trend_force');
   return fields.join(',');
 }
 
@@ -803,6 +894,10 @@ function markMissingSettingsColumn(errorText) {
   }
   if (developerModeColumnAvailable && isMissingSettingsColumnError(errorText, 'developer_mode')) {
     developerModeColumnAvailable = false;
+    changed = true;
+  }
+  if (trendForceColumnAvailable && isMissingSettingsColumnError(errorText, 'trend_force')) {
+    trendForceColumnAvailable = false;
     changed = true;
   }
   return changed;
@@ -851,6 +946,11 @@ async function fetchAppSettings() {
   } else {
     loadDeveloperMode();
   }
+  if (trendForceColumnAvailable && row?.trend_force != null) {
+    applyTrendForceLocal(row.trend_force);
+  } else {
+    loadTrendForce();
+  }
   restoreConfigForm();
   return getAdminTierFixedOpenCost();
 }
@@ -893,6 +993,14 @@ async function saveAppSettings(patch = {}) {
     if (developerModeColumnAvailable) payload.developer_mode = enabled;
     else {
       applyDeveloperModeLocal(enabled);
+      localOnlyApplied = true;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'trend_force')) {
+    const force = normalizeTrendForce(patch.trend_force);
+    if (trendForceColumnAvailable) payload.trend_force = force;
+    else {
+      applyTrendForceLocal(force);
       localOnlyApplied = true;
     }
   }
@@ -947,6 +1055,10 @@ async function saveAppSettings(patch = {}) {
         if (developerModeColumnAvailable) retryPatch.developer_mode = payload.developer_mode;
         else applyDeveloperModeLocal(payload.developer_mode);
       }
+      if (payload.trend_force != null) {
+        if (trendForceColumnAvailable) retryPatch.trend_force = payload.trend_force;
+        else applyTrendForceLocal(payload.trend_force);
+      }
       if (Object.keys(retryPatch).length) await saveAppSettings(retryPatch);
       return getAppSettingsSnapshot();
     }
@@ -964,6 +1076,9 @@ async function saveAppSettings(patch = {}) {
   }
   if (payload.developer_mode != null) {
     applyDeveloperModeLocal(payload.developer_mode);
+  }
+  if (payload.trend_force != null) {
+    applyTrendForceLocal(payload.trend_force);
   }
   return getAppSettingsSnapshot();
 }
@@ -1092,7 +1207,7 @@ function isChaseStrategyRow(row) {
 
 function getConcessionRates(timeframe) {
   if (isChaseMode(timeframe)) {
-    return isDeveloperMode ? CHASE_CONCESSION_RATES : CHASE_CONCESSION_RATES_BASIC;
+    return getChaseConcessionRates();
   }
   // 普通趋势：非开发者模式隐藏 ±50%
   return isDeveloperMode ? CONCESSION_RATES : CONCESSION_RATES_BASIC;
@@ -1943,7 +2058,8 @@ const METHODOLOGY_SECTIONS = [
       '核心思想是：短线趋势形成与背离回归。',
       '需要无视错误信号。（后来的错误信号并不能覆盖前置正确信号）',
       '开单以后，理智就已经下线了。没必要再思考和调整了。',
-      '缺乏信念，投降输一半。不用尽全力是无法轻易取得胜利的。'
+      '缺乏信念，投降输一半。不用尽全力是无法轻易取得胜利的。',
+      '指数升级指南：一次一个，连续3个成功则升级。失败则继续调整。进可攻退可守。'
     ],
   },
   {
@@ -2450,9 +2566,11 @@ async function enterAuthenticatedApp() {
   showApp();
   loadDeveloperMode();
   loadDefaultTimeframe();
+  loadTrendForce();
   loadCachedKellyRatioFallback();
   syncDeveloperModeUI();
   syncDefaultTimeframeUI();
+  syncTrendForceUI();
   try {
     await fetchAppSettings();
   } catch {
@@ -3310,12 +3428,12 @@ function normalizeReferenceTakeProfitPrice(price) {
   return clampPriceAtZero(price);
 }
 
-/** 止盈：普通「止盈小」3R；追模式「止盈」0.9R（另有止盈大 4.5R） */
+/** 止盈：普通「止盈小」3R；追模式「止盈」按趋势力 0.8R/1R/1.5R（另有止盈大 4.5R） */
 function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces, { chase = false } = {}) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
   if (entry == null || stop == null || entry === stop) return '—';
-  const tp = calcTakeProfit(entry, stop, chase ? CHASE_TAKE_PROFIT_SMALL_R : REF_TAKE_PROFIT_R);
+  const tp = calcTakeProfit(entry, stop, chase ? getChaseTakeProfitR() : REF_TAKE_PROFIT_R);
   if (tp == null) return '—';
   const normalized = normalizeReferenceTakeProfitPrice(tp);
   if (normalized == null) return '—';
@@ -3327,7 +3445,7 @@ function buildAdminReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces 
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
   if (entry == null || stop == null || entry === stop) return '—';
-  const tp = calcTakeProfit(entry, stop, chase ? CHASE_TAKE_PROFIT_SMALL_R : REF_TAKE_PROFIT_R);
+  const tp = calcTakeProfit(entry, stop, chase ? getChaseTakeProfitR() : REF_TAKE_PROFIT_R);
   if (tp == null) return '—';
   const normalized = normalizeReferenceTakeProfitPrice(tp);
   if (normalized == null) return '—';
@@ -5613,7 +5731,7 @@ function buildAdminListItemHtml(row) {
   } else {
     concessions = buildAdminDisplayConcessions(row);
     const isChase = isChaseStrategyRow(row);
-    // 止盈：普通 3R（止盈小），追模式 0.9R（止盈）；止盈大均为 4.5R
+    // 止盈：普通 3R（止盈小），追模式按趋势力 0.8R/1R/1.5R（止盈）；止盈大均为 4.5R
     takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
       row?.entryPrice,
       row?.stopLossPrice,
@@ -7271,6 +7389,16 @@ document.querySelectorAll('[data-default-timeframe]').forEach((btn) => {
     setDefaultTimeframe(next)
       .then((changed) => {
         if (changed) showToast(`前台默认时间维度已设为 ${normalizeDefaultTimeframe(next)}`);
+      })
+      .catch(() => {});
+  });
+});
+document.querySelectorAll('[data-trend-force]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const next = btn.getAttribute('data-trend-force');
+    setTrendForce(next)
+      .then((changed) => {
+        if (changed) showToast(`趋势力已设为${getTrendForceLabel(next)}`);
       })
       .catch(() => {});
   });

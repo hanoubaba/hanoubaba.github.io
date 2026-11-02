@@ -142,6 +142,16 @@
           </span>
         </div>
         <div class="config-row">
+          <span class="config-row__label" id="trend-force-label">趋势力</span>
+          <span class="config-row__control">
+            <div class="timeframe-switch config-timeframe-switch" role="tablist" aria-labelledby="trend-force-label">
+              <button type="button" class="timeframe-switch__btn is-active" role="tab" aria-selected="true" data-trend-force="small">小</button>
+              <button type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-trend-force="medium">中</button>
+              <button type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-trend-force="large">大</button>
+            </div>
+          </span>
+        </div>
+        <div class="config-row">
           <span class="config-row__label">开发者模式</span>
           <span class="config-row__control">
             <button id="developer-mode-toggle" type="button" class="config-switch" role="switch" aria-checked="false" aria-label="开发者模式">
