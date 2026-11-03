@@ -297,69 +297,87 @@ async function setDefaultTimeframe(mode) {
   return changed;
 }
 
-function normalizeTrendForce(value) {
-  const raw = String(value ?? '').trim();
-  if (TREND_FORCE_OPTIONS.includes(raw)) return raw;
-  if (raw === '大') return 'large';
-  if (raw === '中') return 'medium';
-  if (raw === '小') return 'small';
-  return BUILTIN_DEFAULT_TREND_FORCE;
+function normalizeChaseTierIds(value) {
+  let list = [];
+  if (Array.isArray(value)) {
+    list = value;
+  } else {
+    const raw = String(value ?? '').trim();
+    if (!raw) {
+      list = [];
+    } else if (raw.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(raw);
+        list = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        list = raw.split(/[,|]/);
+      }
+    } else if (raw === 'small' || raw === '小') {
+      list = ['m20'];
+    } else if (raw === 'medium' || raw === '中') {
+      list = ['p00'];
+    } else if (raw === 'large' || raw === '大') {
+      list = ['p20'];
+    } else {
+      list = raw.split(/[,|\s]+/);
+    }
+  }
+  const validIds = new Set(CHASE_TIER_DEFS.map((tier) => tier.id));
+  const ids = [];
+  const seen = new Set();
+  for (const item of list) {
+    const id = String(item ?? '').trim();
+    if (!validIds.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids.length ? ids : CHASE_TIER_DEFS.map((tier) => tier.id);
 }
 
-function getConfiguredTrendForce() {
-  return normalizeTrendForce(trendForce);
+function serializeChaseTierIds(ids) {
+  return normalizeChaseTierIds(ids).join(',');
 }
 
-function getTrendForceLabel(value = getConfiguredTrendForce()) {
-  return TREND_FORCE_LABELS[normalizeTrendForce(value)] || TREND_FORCE_LABELS[BUILTIN_DEFAULT_TREND_FORCE];
+function getConfiguredChaseTierIds() {
+  return normalizeChaseTierIds(chaseVisibleTier);
 }
 
-function getChaseConfigByTrendForce(force = getConfiguredTrendForce()) {
-  return CHASE_BY_TREND_FORCE[normalizeTrendForce(force)] || CHASE_BY_TREND_FORCE[BUILTIN_DEFAULT_TREND_FORCE];
+function getVisibleChaseTierDefs() {
+  const selected = new Set(getConfiguredChaseTierIds());
+  const visible = CHASE_TIER_DEFS.filter((tier) => selected.has(tier.id));
+  return visible.length ? visible : CHASE_TIER_DEFS.slice();
 }
 
-function getChaseTakeProfitR(force = getConfiguredTrendForce()) {
-  return Number(getChaseConfigByTrendForce(force).takeProfitR) || 0.8;
+function getChaseTakeProfitR() {
+  return Number(getVisibleChaseTierDefs()[0]?.takeProfitR) || 0.8;
 }
 
-/** 追模式始终展示趋势力小/中/大三档 */
+/** 追模式：按配置多选结果展示挡位 */
 function getChaseConcessionRates() {
-  const share = 1 / TREND_FORCE_OPTIONS.length;
-  return TREND_FORCE_OPTIONS.map((force) => {
-    const base = CHASE_BY_TREND_FORCE[force]?.rates?.[0] || { rate: 0, display: true };
-    return {
-      rate: Number(base.rate),
-      display: true,
-      costShare: share,
-    };
-  });
+  const tiers = getVisibleChaseTierDefs();
+  const share = 1 / tiers.length;
+  return tiers.map((tier) => ({
+    rate: Number(tier.rate),
+    display: true,
+    costShare: share,
+  }));
 }
 
-function getChaseRateForTrendForce(force = getConfiguredTrendForce()) {
-  return Number(getChaseConfigByTrendForce(force).rates?.[0]?.rate);
-}
-
-function isChaseHighlightConcessionRate(rate) {
-  const target = getChaseRateForTrendForce();
-  const n = Number(rate);
-  return Number.isFinite(n) && Number.isFinite(target) && Math.abs(n - target) < 1e-9;
-}
-
-function persistTrendForceFallback(value) {
+function persistChaseTierFallback(ids) {
   try {
-    localStorage.setItem(TREND_FORCE_STORAGE_KEY, normalizeTrendForce(value));
+    localStorage.setItem(CHASE_TIERS_STORAGE_KEY, serializeChaseTierIds(ids));
   } catch {
     // ignore
   }
 }
 
-function applyTrendForceLocal(value) {
-  const next = normalizeTrendForce(value);
-  const changed = next !== trendForce;
-  trendForce = next;
-  persistTrendForceFallback(next);
-  syncTrendForceUI();
-  // 追模式档位/止盈随趋势力变化，后台与前台需即时刷新
+function applyChaseTierLocal(value) {
+  const next = normalizeChaseTierIds(value);
+  const prev = serializeChaseTierIds(chaseVisibleTier);
+  const changed = serializeChaseTierIds(next) !== prev;
+  chaseVisibleTier = next;
+  persistChaseTierFallback(next);
+  syncChaseTierUI();
   if (typeof currentPage !== 'undefined' && currentPage === 'admin') {
     renderAdminListItems();
   }
@@ -369,29 +387,40 @@ function applyTrendForceLocal(value) {
   return changed;
 }
 
-function loadTrendForce() {
+function loadChaseTier() {
   try {
-    applyTrendForceLocal(localStorage.getItem(TREND_FORCE_STORAGE_KEY));
+    const stored = localStorage.getItem(CHASE_TIERS_STORAGE_KEY);
+    if (stored) applyChaseTierLocal(stored);
+    else applyChaseTierLocal(CHASE_TIER_DEFS.map((tier) => tier.id));
   } catch {
-    applyTrendForceLocal(BUILTIN_DEFAULT_TREND_FORCE);
+    applyChaseTierLocal(CHASE_TIER_DEFS.map((tier) => tier.id));
   }
-  return trendForce;
+  return chaseVisibleTier;
 }
 
-function syncTrendForceUI() {
-  const current = getConfiguredTrendForce();
-  document.querySelectorAll('[data-trend-force]').forEach((btn) => {
-    const active = btn.getAttribute('data-trend-force') === current;
+function syncChaseTierUI() {
+  const selected = new Set(getConfiguredChaseTierIds());
+  document.querySelectorAll('[data-chase-tier]').forEach((btn) => {
+    const id = btn.getAttribute('data-chase-tier');
+    const active = selected.has(id);
     btn.classList.toggle('is-active', active);
-    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
   });
 }
 
-async function setTrendForce(value) {
-  const next = normalizeTrendForce(value);
-  const changed = applyTrendForceLocal(next);
+async function toggleChaseTier(tierId) {
+  const id = String(tierId ?? '').trim();
+  if (!CHASE_TIER_DEFS.some((tier) => tier.id === id)) return false;
+  const current = getConfiguredChaseTierIds();
+  const exists = current.includes(id);
+  if (exists && current.length <= 1) {
+    showToast('至少保留一个追模式挡位');
+    return false;
+  }
+  const next = exists ? current.filter((item) => item !== id) : current.concat(id);
+  const changed = applyChaseTierLocal(next);
   try {
-    await saveAppSettings({ trend_force: next });
+    await saveAppSettings({ chase_tiers: serializeChaseTierIds(next) });
   } catch {
     // 本地已更新；后端失败时仍可本机使用
   }
@@ -419,21 +448,14 @@ const CONCESSION_RATES_BASIC = [
   { rate: 0, display: true, costShare: 1 / 3 },
   { rate: -0.2, display: true, costShare: 1 / 3 },
 ];
-/** 趋势力：控制追模式档位与止盈 */
-const TREND_FORCE_OPTIONS = ['small', 'medium', 'large'];
-const TREND_FORCE_LABELS = {
-  small: '小',
-  medium: '中',
-  large: '大',
-};
-const BUILTIN_DEFAULT_TREND_FORCE = 'small';
-const TREND_FORCE_STORAGE_KEY = 'ok_trend_force';
-/** 追模式三档（小/中/大）同时展示：档位 + 止盈 R；配置趋势力用于高亮当前档 */
-const CHASE_BY_TREND_FORCE = {
-  small: { rates: [{ rate: -0.2, display: true, costShare: 1 / 3 }], takeProfitR: 0.8 },
-  medium: { rates: [{ rate: 0, display: true, costShare: 1 / 3 }], takeProfitR: 1 },
-  large: { rates: [{ rate: 0.2, display: true, costShare: 1 / 3 }], takeProfitR: 1.5 },
-};
+/** 追模式挡位：让利 + 止盈 R；配置菜单多选决定展示哪些 */
+const CHASE_TIER_DEFS = [
+  { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%' },
+  { id: 'p00', rate: 0, takeProfitR: 1, label: '00%' },
+  { id: 'p10', rate: 0.1, takeProfitR: 1.2, label: '10%' },
+  { id: 'p20', rate: 0.2, takeProfitR: 1.5, label: '20%' },
+];
+const CHASE_TIERS_STORAGE_KEY = 'ok_chase_tiers';
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
 const REF_TAKE_PROFIT_R = 3;
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
@@ -464,9 +486,9 @@ let cachedKellyN = KELLY_N_DEFAULT;
 let kellyRatioColumnAvailable = true;
 let defaultTimeframeColumnAvailable = true;
 let developerModeColumnAvailable = true;
-let trendForceColumnAvailable = true;
+let chaseTiersColumnAvailable = true;
 let isDeveloperMode = false;
-let trendForce = BUILTIN_DEFAULT_TREND_FORCE;
+let chaseVisibleTier = CHASE_TIER_DEFS.map((tier) => tier.id);
 
 function loadCachedKellyFactorsFallback() {
   try {
@@ -869,7 +891,7 @@ function restoreConfigForm() {
   restoreKellyRatioInput();
   syncDeveloperModeUI();
   syncDefaultTimeframeUI();
-  syncTrendForceUI();
+  syncChaseTierUI();
 }
 
 function isMissingSettingsColumnError(errorText, columnName) {
@@ -888,7 +910,7 @@ function getAppSettingsSnapshot() {
     kelly_ratio: cachedKellyRatio,
     default_timeframe: getConfiguredDefaultTimeframe(),
     developer_mode: Boolean(isDeveloperMode),
-    trend_force: getConfiguredTrendForce(),
+    chase_tiers: serializeChaseTierIds(getConfiguredChaseTierIds()),
   };
 }
 
@@ -897,7 +919,7 @@ function buildAppSettingsSelectFields() {
   if (kellyRatioColumnAvailable) fields.push('kelly_ratio');
   if (defaultTimeframeColumnAvailable) fields.push('default_timeframe');
   if (developerModeColumnAvailable) fields.push('developer_mode');
-  if (trendForceColumnAvailable) fields.push('trend_force');
+  if (chaseTiersColumnAvailable) fields.push('chase_tiers');
   return fields.join(',');
 }
 
@@ -915,8 +937,8 @@ function markMissingSettingsColumn(errorText) {
     developerModeColumnAvailable = false;
     changed = true;
   }
-  if (trendForceColumnAvailable && isMissingSettingsColumnError(errorText, 'trend_force')) {
-    trendForceColumnAvailable = false;
+  if (chaseTiersColumnAvailable && isMissingSettingsColumnError(errorText, 'chase_tiers')) {
+    chaseTiersColumnAvailable = false;
     changed = true;
   }
   return changed;
@@ -965,10 +987,10 @@ async function fetchAppSettings() {
   } else {
     loadDeveloperMode();
   }
-  if (trendForceColumnAvailable && row?.trend_force != null) {
-    applyTrendForceLocal(row.trend_force);
+  if (chaseTiersColumnAvailable && row?.chase_tiers != null) {
+    applyChaseTierLocal(row.chase_tiers);
   } else {
-    loadTrendForce();
+    loadChaseTier();
   }
   restoreConfigForm();
   return getAdminTierFixedOpenCost();
@@ -1015,11 +1037,11 @@ async function saveAppSettings(patch = {}) {
       localOnlyApplied = true;
     }
   }
-  if (Object.prototype.hasOwnProperty.call(patch, 'trend_force')) {
-    const force = normalizeTrendForce(patch.trend_force);
-    if (trendForceColumnAvailable) payload.trend_force = force;
+  if (Object.prototype.hasOwnProperty.call(patch, 'chase_tiers')) {
+    const tiers = serializeChaseTierIds(patch.chase_tiers);
+    if (chaseTiersColumnAvailable) payload.chase_tiers = tiers;
     else {
-      applyTrendForceLocal(force);
+      applyChaseTierLocal(tiers);
       localOnlyApplied = true;
     }
   }
@@ -1074,9 +1096,9 @@ async function saveAppSettings(patch = {}) {
         if (developerModeColumnAvailable) retryPatch.developer_mode = payload.developer_mode;
         else applyDeveloperModeLocal(payload.developer_mode);
       }
-      if (payload.trend_force != null) {
-        if (trendForceColumnAvailable) retryPatch.trend_force = payload.trend_force;
-        else applyTrendForceLocal(payload.trend_force);
+      if (payload.chase_tiers != null) {
+        if (chaseTiersColumnAvailable) retryPatch.chase_tiers = payload.chase_tiers;
+        else applyChaseTierLocal(payload.chase_tiers);
       }
       if (Object.keys(retryPatch).length) await saveAppSettings(retryPatch);
       return getAppSettingsSnapshot();
@@ -1096,8 +1118,8 @@ async function saveAppSettings(patch = {}) {
   if (payload.developer_mode != null) {
     applyDeveloperModeLocal(payload.developer_mode);
   }
-  if (payload.trend_force != null) {
-    applyTrendForceLocal(payload.trend_force);
+  if (payload.chase_tiers != null) {
+    applyChaseTierLocal(payload.chase_tiers);
   }
   return getAppSettingsSnapshot();
 }
@@ -1764,8 +1786,8 @@ function isAdminConcessionCurrentItem(item, row) {
     return isCounterTrendItemCurrentTierAssist(item, row);
   }
   if (getAdminStrategyTypeInfo(row).type === 'trend') {
-    // 追模式：高亮当前配置的趋势力对应档位
-    if (isChaseStrategyRow(row)) return isChaseHighlightConcessionRate(item?.rate);
+    // 追模式：不展示趋势力选中高亮
+    if (isChaseStrategyRow(row)) return false;
     return isTrendHighlightConcessionRate(item?.rate);
   }
   return false;
@@ -2081,7 +2103,8 @@ const METHODOLOGY_SECTIONS = [
       '开单以后，理智就已经下线了。没必要再思考和调整了。',
       '缺乏信念，投降输一半。不用尽全力是无法轻易取得胜利的。',
       '指数升级指南：一次一个，连续3个成功则升级。失败则继续调整。进可攻退可守。',
-      '无视过程的曲折性，只看结果的必然性。'
+      '无视过程的曲折性，只看结果的必然性。没输就是赢，拿到大结果。',
+      '能否重复操作的指标：形态/时间/空间三占其二'
     ],
   },
   {
@@ -2089,8 +2112,19 @@ const METHODOLOGY_SECTIONS = [
     items: [
       '趋势方向不一致不做',
       '与大盘方向相反也不做（非常规很不稳）',
-      '趋势未形成不做（前三个不稳）',
+      '趋势未形成不做（前5个不稳）',
       '未回调不做（错过可以接受，不能亏损）',
+      '时间20个单位以外不做（太久远了）',
+      '已结束的不做，没结束的不改。自动操作已经证明是最好的操作。',
+      '趋势力决策：挂3赢1，挂1赢3',
+    ],
+  },
+  {
+    title: '思考点',
+    items: [
+      '形态/时间/空间',
+      '三线齐飞 大中小趋势一致',
+      '有效止损/最小止盈',
     ],
   },
   {
@@ -2602,11 +2636,11 @@ async function enterAuthenticatedApp() {
   showApp();
   loadDeveloperMode();
   loadDefaultTimeframe();
-  loadTrendForce();
+  loadChaseTier();
   loadCachedKellyRatioFallback();
   syncDeveloperModeUI();
   syncDefaultTimeframeUI();
-  syncTrendForceUI();
+  syncChaseTierUI();
   try {
     await fetchAppSettings();
   } catch {
@@ -3464,7 +3498,7 @@ function normalizeReferenceTakeProfitPrice(price) {
   return clampPriceAtZero(price);
 }
 
-/** 止盈：普通「止盈小」3R；追模式按趋势力展示 0.8R/1R/1.5R */
+/** 止盈：普通「止盈小」3R；追模式按挡位展示 0.8R/1R/1.2R/1.5R */
 function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces, { chase = false } = {}) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
@@ -3530,29 +3564,34 @@ function renderAdminTpSlBlock(modClass, label, value, ariaLabel, { copyable = tr
   return `<${tag} class="${className}"${copyAttrs}><span class="admin-item__tp-sl-label">${escapeHtml(label)}</span><span class="admin-item__tp-sl-value">${escapeHtml(text)}</span></${tag}>`;
 }
 
-/** 追模式：沿用原「让利档 + 止盈止损」两行布局，按小/中/大复制三份 */
+/** 追模式：沿用原「让利档 + 止盈止损」两行布局；按配置多选展示，数量从小到大 */
 function renderAdminChaseTiersHtml(row, concessions, stopLabel, priceDecimalPlaces = 0) {
-  const currentForce = getConfiguredTrendForce();
   const items = getDisplayConcessionItems(concessions);
-  const blocks = TREND_FORCE_OPTIONS.map((force) => {
-    const cfg = CHASE_BY_TREND_FORCE[force] || CHASE_BY_TREND_FORCE[BUILTIN_DEFAULT_TREND_FORCE];
-    const targetRate = Number(cfg.rates?.[0]?.rate);
+  const tierEntries = getVisibleChaseTierDefs().map((tier) => {
+    const targetRate = Number(tier.rate);
     const tierItems = items.filter((it) => Math.abs(Number(it.rate) - targetRate) < 1e-9);
+    const qty = toNumber(String(tierItems[0]?.quantity ?? '').replace(/,/g, ''));
+    return { tier, tierItems, qty };
+  }).sort((a, b) => {
+    if (a.qty != null && b.qty != null && Math.abs(a.qty - b.qty) > 1e-12) return a.qty - b.qty;
+    if (a.qty != null && b.qty == null) return -1;
+    if (a.qty == null && b.qty != null) return 1;
+    return Number(b.tier.rate) - Number(a.tier.rate);
+  });
+  const blocks = tierEntries.map(({ tier, tierItems }) => {
     const takeProfitLabel = buildAdminChaseTakeProfitLabel(
       row?.entryPrice,
       row?.stopLossPrice,
-      cfg.takeProfitR,
+      tier.takeProfitR,
       priceDecimalPlaces,
     );
-    const isCurrent = force === currentForce;
     return [
-      `<div class="admin-item__chase-copy${isCurrent ? ' is-current' : ''}" data-trend-force="${escapeHtml(force)}">`,
+      `<div class="admin-item__chase-copy" data-chase-tier="${escapeHtml(tier.id)}" data-chase-rate="${escapeHtml(String(tier.rate))}">`,
       renderAdminConcessionsHtml(tierItems, stopLabel, {
         priceDecimalPlaces,
         hideStopColumn: true,
         selectableStrategyId: '',
         groupBestPeers: false,
-        isCurrentItem: () => isCurrent,
       }),
       // 与原先追模式一致：止盈 | 止损（不显示止盈大）
       renderAdminTakeProfitStopHtml(takeProfitLabel, '', stopLabel, {
@@ -3563,7 +3602,7 @@ function renderAdminChaseTiersHtml(row, concessions, stopLabel, priceDecimalPlac
     ].join('');
   });
   return [
-    '<div class="admin-item__chase-copies" aria-label="趋势力档位">',
+    '<div class="admin-item__chase-copies" aria-label="追模式挡位">',
     ...blocks,
     '</div>',
   ].join('');
@@ -5822,7 +5861,7 @@ function buildAdminListItemHtml(row) {
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
   } else {
     concessions = buildAdminDisplayConcessions(row);
-    // 止盈：普通 3R（止盈小）+ 4.5R（止盈大）；追模式三档止盈见下方 chase 布局
+    // 止盈：普通 3R（止盈小）+ 4.5R（止盈大）；追模式多挡止盈见下方 chase 布局
     takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
       row?.entryPrice,
       row?.stopLossPrice,
@@ -7479,14 +7518,10 @@ document.querySelectorAll('[data-default-timeframe]').forEach((btn) => {
       .catch(() => {});
   });
 });
-document.querySelectorAll('[data-trend-force]').forEach((btn) => {
+document.querySelectorAll('[data-chase-tier]').forEach((btn) => {
   btn.addEventListener('click', () => {
-    const next = btn.getAttribute('data-trend-force');
-    setTrendForce(next)
-      .then((changed) => {
-        if (changed) showToast(`趋势力已设为${getTrendForceLabel(next)}`);
-      })
-      .catch(() => {});
+    const id = btn.getAttribute('data-chase-tier');
+    toggleChaseTier(id).catch(() => {});
   });
 });
 const btnTabMethodology = document.getElementById('btn-tab-methodology');

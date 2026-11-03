@@ -2250,11 +2250,6 @@ button.admin-time-status__tag:focus-visible {
   border-top: 1px solid #cbd5e1;
 }
 
-.admin-item__chase-copy.is-current {
-  background: #f0fdf4;
-  box-shadow: inset 3px 0 0 #22c55e;
-}
-
 .admin-item__tp-sl-item--placeholder {
   visibility: hidden;
   pointer-events: none;
