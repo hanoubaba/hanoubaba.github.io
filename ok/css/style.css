@@ -2239,7 +2239,7 @@ button.admin-time-status__tag:focus-visible {
   line-height: 1.3;
 }
 
-/* 追模式：原两行布局复制三份（小/中/大） */
+/* 追模式：原两行布局按配置多选复制 */
 .admin-item__chase-copies {
   display: flex;
   flex-direction: column;
@@ -2248,6 +2248,13 @@ button.admin-time-status__tag:focus-visible {
 
 .admin-item__chase-copy + .admin-item__chase-copy {
   border-top: 1px solid #cbd5e1;
+}
+
+/* 表头原「让利」位改为挡位百分比 */
+.admin-item__chase-copy .admin-concession--head .admin-concession__rate {
+  color: var(--primary-strong);
+  font-size: 15px;
+  font-weight: 800;
 }
 
 .admin-item__tp-sl-item--placeholder {
@@ -2396,17 +2403,54 @@ button.admin-time-status__tag:focus-visible {
 
 .admin-concession__price.admin-copy-value,
 .admin-concession__qty.admin-copy-value {
-  color: var(--primary-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #64748b;
   font-weight: 700;
+  line-height: 1.2;
 }
 
 .admin-concession__price.admin-copy-value {
   text-align: center;
+  justify-content: center;
 }
 
 .admin-concession__qty.admin-copy-value,
 .admin-concession__stop.admin-copy-value {
   text-align: right;
+  justify-content: flex-end;
+}
+
+/* 追模式挡位：价格/数量点击区域与止盈止损对齐 */
+.admin-item__chase-copy .admin-concession {
+  align-items: stretch;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.admin-item__chase-copy .admin-concession__price.admin-copy-value,
+.admin-item__chase-copy .admin-concession__qty.admin-copy-value {
+  min-height: 40px;
+  padding: 8px 10px;
+  font-size: 15px;
+  color: #64748b;
+  border-color: #e2e8f0;
+  background: #f8fafc;
+}
+
+.admin-item__chase-copy .admin-concession__price.admin-copy-value:hover,
+.admin-item__chase-copy .admin-concession__qty.admin-copy-value:hover,
+.admin-item__chase-copy .admin-concession__price.admin-copy-value:focus-visible,
+.admin-item__chase-copy .admin-concession__qty.admin-copy-value:focus-visible {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+  box-shadow: 0 0 0 2px rgba(100, 116, 139, 0.16);
 }
 
 .admin-copy-value:hover,
@@ -3711,6 +3755,18 @@ button.admin-time-status__tag:focus-visible {
   .admin-item__tp-sl-item,
   .admin-item__tp-sl-item.admin-copy-value {
     padding: 2px 5px;
+  }
+
+  .admin-concession__price.admin-copy-value,
+  .admin-concession__qty.admin-copy-value {
+    min-height: 34px;
+    padding: 5px 6px;
+  }
+
+  .admin-item__chase-copy .admin-concession__price.admin-copy-value,
+  .admin-item__chase-copy .admin-concession__qty.admin-copy-value {
+    min-height: 38px;
+    padding: 7px 8px;
   }
 
   .admin-item__tp-sl-copy-wrap {

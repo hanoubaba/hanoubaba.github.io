@@ -2123,7 +2123,7 @@ const METHODOLOGY_SECTIONS = [
     title: '思考点',
     items: [
       '形态/时间/空间',
-      '三线齐飞 大中小趋势一致',
+      '三线齐飞（尾线计时） 大中小趋势一致',
       '有效止损/最小止盈',
     ],
   },
@@ -2168,7 +2168,7 @@ const METHODOLOGY_SECTIONS = [
       '在没行情的时候浪费了本金，行情出现了又丧失机会',
       '价格太大的手续费太高，价格太小的磨损太高（止盈止损空间不宜太小）',
       '太焦虑就会冒进，太迫切想要速胜反而错过了应该把握住的机会。从现在开始也不晚。',
-      '直面踏空是终身的课题'
+      '直面踏空是终身的课题,不怕等不到，就怕不标准提前进。',
     ],
   },
   {
@@ -3387,6 +3387,8 @@ function getPositionSideLabel(side) {
 }
 
 function getTimeframeTagHtml(timeframe) {
+  // 追模式（15m）不展示时间维度标签
+  if (normalizeTimeframeMode(timeframe) === '15m') return '';
   const label = getTimeframeShortLabel(timeframe);
   if (!label) return '';
   return `<span class="admin-item__timeframe admin-item__timeframe--${escapeHtml(label)}" aria-label="时间维度 ${label}">${escapeHtml(label)}</span>`;
@@ -3579,6 +3581,9 @@ function renderAdminChaseTiersHtml(row, concessions, stopLabel, priceDecimalPlac
     return Number(b.tier.rate) - Number(a.tier.rate);
   });
   const blocks = tierEntries.map(({ tier, tierItems }) => {
+    const rateHeader = String(tier.label ?? formatConcessionPercent(tier.rate)).trim() || '—';
+    // 挡位数值放到原「让利」表头位置；行内不再重复显示百分比
+    const labeledItems = tierItems.map((item) => ({ ...item, rateLabel: '' }));
     const takeProfitLabel = buildAdminChaseTakeProfitLabel(
       row?.entryPrice,
       row?.stopLossPrice,
@@ -3587,11 +3592,12 @@ function renderAdminChaseTiersHtml(row, concessions, stopLabel, priceDecimalPlac
     );
     return [
       `<div class="admin-item__chase-copy" data-chase-tier="${escapeHtml(tier.id)}" data-chase-rate="${escapeHtml(String(tier.rate))}">`,
-      renderAdminConcessionsHtml(tierItems, stopLabel, {
+      renderAdminConcessionsHtml(labeledItems, stopLabel, {
         priceDecimalPlaces,
         hideStopColumn: true,
         selectableStrategyId: '',
         groupBestPeers: false,
+        rateHeaderLabel: rateHeader,
       }),
       // 与原先追模式一致：止盈 | 止损（不显示止盈大）
       renderAdminTakeProfitStopHtml(takeProfitLabel, '', stopLabel, {
@@ -4283,9 +4289,10 @@ function renderConcessionsHtml({
   const selectId = String(selectableStrategyId || sideActionsStrategyId || '').trim();
 
   const buildRow = (item) => {
+    const hasCustomRateLabel = item != null && Object.prototype.hasOwnProperty.call(item, 'rateLabel');
     const formatted = item?.isMidpoint
       ? ''
-      : (item?.rateLabel ? String(item.rateLabel) : rateFormatter(item.rate));
+      : (hasCustomRateLabel ? String(item.rateLabel ?? '') : rateFormatter(item.rate));
     const rateLabel = prefix === 'admin'
       ? stripRateAnnotation(formatted)
       : withBestConcessionLabel(formatted, item.rate);
