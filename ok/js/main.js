@@ -3566,7 +3566,7 @@ function renderAdminTpSlBlock(modClass, label, value, ariaLabel, { copyable = tr
   return `<${tag} class="${className}"${copyAttrs}><span class="admin-item__tp-sl-label">${escapeHtml(label)}</span><span class="admin-item__tp-sl-value">${escapeHtml(text)}</span></${tag}>`;
 }
 
-/** 追模式：沿用原「让利档 + 止盈止损」两行布局；按配置多选展示，数量从小到大 */
+/** 追模式：沿用原「让利档 + 止盈止损」两行布局；按配置多选展示，数量从大到小 */
 function renderAdminChaseTiersHtml(row, concessions, stopLabel, priceDecimalPlaces = 0) {
   const items = getDisplayConcessionItems(concessions);
   const tierEntries = getVisibleChaseTierDefs().map((tier) => {
@@ -3575,10 +3575,10 @@ function renderAdminChaseTiersHtml(row, concessions, stopLabel, priceDecimalPlac
     const qty = toNumber(String(tierItems[0]?.quantity ?? '').replace(/,/g, ''));
     return { tier, tierItems, qty };
   }).sort((a, b) => {
-    if (a.qty != null && b.qty != null && Math.abs(a.qty - b.qty) > 1e-12) return a.qty - b.qty;
+    if (a.qty != null && b.qty != null && Math.abs(a.qty - b.qty) > 1e-12) return b.qty - a.qty;
     if (a.qty != null && b.qty == null) return -1;
     if (a.qty == null && b.qty != null) return 1;
-    return Number(b.tier.rate) - Number(a.tier.rate);
+    return Number(a.tier.rate) - Number(b.tier.rate);
   });
   const blocks = tierEntries.map(({ tier, tierItems }) => {
     const rateHeader = String(tier.label ?? formatConcessionPercent(tier.rate)).trim() || '—';
