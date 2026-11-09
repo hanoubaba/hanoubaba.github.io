@@ -412,6 +412,7 @@ body.login-mode {
 #admin-page[hidden],
 #stats-page[hidden],
 #methodology-page[hidden],
+#playbook-page[hidden],
 #cases-page[hidden],
 #observations-page[hidden],
 #front-trend-panel[hidden] {
@@ -3430,7 +3431,7 @@ button.admin-time-status__tag:focus-visible {
     flex-shrink: 0;
   }
 
-  .panel:not(.admin-page):not(.stats-page):not(.methodology-page):not(.cases-page):not(.obs-page) {
+  .panel:not(.admin-page):not(.stats-page):not(.methodology-page):not(.playbook-page):not(.cases-page):not(.obs-page) {
     flex-shrink: 0;
   }
 

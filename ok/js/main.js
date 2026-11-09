@@ -453,7 +453,7 @@ const CHASE_TIER_DEFS = [
   { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%' },
   { id: 'p00', rate: 0, takeProfitR: 1, label: '00%' },
   { id: 'p10', rate: 0.1, takeProfitR: 1.2, label: '10%' },
-  { id: 'p20', rate: 0.2, takeProfitR: 1.5, label: '20%' },
+  { id: 'p20', rate: 0.2, takeProfitR: 10, label: '20%' },
 ];
 const CHASE_TIERS_STORAGE_KEY = 'ok_chase_tiers';
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
@@ -2367,6 +2367,34 @@ const METHODOLOGY_SECTIONS = [
   },
 ];
 
+const PLAYBOOK_SECTIONS = [
+  {
+    title: '规则',
+    items: [
+      '顺势而为',
+      '三线齐飞',
+      '形态＞时间＞空间',
+      '只做常规，看以太做其他',
+      '到时间操作(撤挂单，止盈，形态坚持)',
+    ],
+  },
+  {
+    title: '信念',
+    items: [
+      '没输就能赢',
+      '最小收益绝对行',
+    ],
+  },
+  {
+    title: '分仓',
+    items: [
+      '-20%提前量',
+      '00%稳健',
+      '20%凶险',
+    ],
+  },
+];
+
 let authSession = null;
 let isLoggingIn = false;
 let isAuthReady = false;
@@ -2524,6 +2552,7 @@ function showLoginPage(message = '') {
   if (errorEl) errorEl.textContent = message;
   isAuthReady = false;
   clearMethodologyPage();
+  clearPlaybookPage();
   requestAnimationFrame(() => accountEl?.focus());
 }
 
@@ -3152,6 +3181,11 @@ function clearMethodologyPage() {
   if (container) container.innerHTML = '';
 }
 
+function clearPlaybookPage() {
+  const container = document.querySelector('#playbook-page .playbook-content');
+  if (container) container.innerHTML = '';
+}
+
 function renderMethodologyBalanceBannerHtml() {
   return [
     '<aside class="methodology-balance" aria-label="生命周期理论">',
@@ -3174,11 +3208,8 @@ function renderMethodologyBalanceBannerHtml() {
   ].join('');
 }
 
-function renderMethodologyPage() {
-  if (!isAuthReady) return;
-  const container = document.querySelector('#methodology-page .methodology-content');
-  if (!container) return;
-  const sectionsHtml = METHODOLOGY_SECTIONS.map((section) => {
+function renderMethodologySectionsHtml(sections) {
+  return (Array.isArray(sections) ? sections : []).map((section) => {
     let body = '';
     if (section.paragraphs?.length) {
       body = section.paragraphs
@@ -3191,7 +3222,20 @@ function renderMethodologyPage() {
     }
     return `<article class="methodology-section"><h3 class="methodology-section__title">${escapeHtml(section.title)}</h3><div class="methodology-section__body">${body}</div></article>`;
   }).join('');
-  container.innerHTML = `${renderMethodologyBalanceBannerHtml()}${sectionsHtml}`;
+}
+
+function renderMethodologyPage() {
+  if (!isAuthReady) return;
+  const container = document.querySelector('#methodology-page .methodology-content');
+  if (!container) return;
+  container.innerHTML = `${renderMethodologyBalanceBannerHtml()}${renderMethodologySectionsHtml(METHODOLOGY_SECTIONS)}`;
+}
+
+function renderPlaybookPage() {
+  if (!isAuthReady) return;
+  const container = document.querySelector('#playbook-page .playbook-content');
+  if (!container) return;
+  container.innerHTML = renderMethodologySectionsHtml(PLAYBOOK_SECTIONS);
 }
 
 let currentStrategyCopyText = '';
@@ -3500,7 +3544,7 @@ function normalizeReferenceTakeProfitPrice(price) {
   return clampPriceAtZero(price);
 }
 
-/** 止盈：普通「止盈小」3R；追模式按挡位展示 0.8R/1R/1.2R/1.5R */
+/** 止盈：普通「止盈小」3R；追模式按挡位展示 0.8R/1R/1.2R/10R */
 function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces, { chase = false } = {}) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
@@ -7119,15 +7163,17 @@ function setPage(mode, options = {}) {
   const admin = document.getElementById('admin-page');
   const stats = document.getElementById('stats-page');
   const methodology = document.getElementById('methodology-page');
+  const playbook = document.getElementById('playbook-page');
   const cases = document.getElementById('cases-page');
   const observations = document.getElementById('observations-page');
   const btnFront = document.getElementById('btn-tab-front');
   const btnAdmin = document.getElementById('btn-tab-admin');
   const btnStats = document.getElementById('btn-tab-stats');
   const btnMethodology = document.getElementById('btn-tab-methodology');
+  const btnPlaybook = document.getElementById('btn-tab-playbook');
   const btnCases = document.getElementById('btn-tab-cases');
   const btnObservations = document.getElementById('btn-tab-observations');
-  if (!front || !admin || !stats || !methodology || !cases || !observations || !btnFront || !btnAdmin || !btnStats || !btnMethodology || !btnCases || !btnObservations) return;
+  if (!front || !admin || !stats || !methodology || !playbook || !cases || !observations || !btnFront || !btnAdmin || !btnStats || !btnMethodology || !btnPlaybook || !btnCases || !btnObservations) return;
 
   // 兼容旧入口：trend / assist 都归入前台
   let requestedMode = mode;
@@ -7137,13 +7183,14 @@ function setPage(mode, options = {}) {
     requestedFrontMode = FRONT_MODE_TREND;
   }
 
-  const allowedPages = ['admin', 'stats', 'methodology', 'cases', 'observations', 'front'];
+  const allowedPages = ['admin', 'stats', 'methodology', 'playbook', 'cases', 'observations', 'front'];
   const normalizedMode = allowedPages.includes(requestedMode) ? requestedMode : 'front';
   const wasFront = isFrontPage(currentPage);
   const wasEditing = Boolean(editingStrategyId);
   const toAdmin = normalizedMode === 'admin';
   const toStats = normalizedMode === 'stats';
   const toMethodology = normalizedMode === 'methodology';
+  const toPlaybook = normalizedMode === 'playbook';
   const toCases = normalizedMode === 'cases';
   const toObservations = normalizedMode === 'observations';
   const toFront = normalizedMode === 'front';
@@ -7154,6 +7201,7 @@ function setPage(mode, options = {}) {
   admin.hidden = !toAdmin;
   stats.hidden = !toStats;
   methodology.hidden = !toMethodology;
+  playbook.hidden = !toPlaybook;
   cases.hidden = !toCases;
   observations.hidden = !toObservations;
 
@@ -7163,6 +7211,8 @@ function setPage(mode, options = {}) {
   btnAdmin.setAttribute('aria-selected', toAdmin ? 'true' : 'false');
   btnStats.classList.toggle('is-active', toStats);
   btnStats.setAttribute('aria-selected', toStats ? 'true' : 'false');
+  btnPlaybook.classList.toggle('is-active', toPlaybook);
+  btnPlaybook.setAttribute('aria-selected', toPlaybook ? 'true' : 'false');
   btnMethodology.classList.toggle('is-active', toMethodology);
   btnCases.classList.toggle('is-active', toCases);
   btnObservations.classList.toggle('is-active', toObservations);
@@ -7203,6 +7253,12 @@ function setPage(mode, options = {}) {
     resetAssistPage();
     resetAdminPageState();
     renderMethodologyPage();
+  } else if (toPlaybook) {
+    pendingAdminFocusId = '';
+    resetFrontPage();
+    resetAssistPage();
+    resetAdminPageState();
+    renderPlaybookPage();
   } else if (toCases) {
     pendingAdminFocusId = '';
     resetFrontPage();
@@ -7533,6 +7589,8 @@ document.querySelectorAll('[data-chase-tier]').forEach((btn) => {
 });
 const btnTabMethodology = document.getElementById('btn-tab-methodology');
 if (btnTabMethodology) btnTabMethodology.addEventListener('click', () => setPage('methodology'));
+const btnTabPlaybook = document.getElementById('btn-tab-playbook');
+if (btnTabPlaybook) btnTabPlaybook.addEventListener('click', () => setPage('playbook'));
 const btnTabCases = document.getElementById('btn-tab-cases');
 if (btnTabCases) btnTabCases.addEventListener('click', () => setPage('cases'));
 const btnTabObservations = document.getElementById('btn-tab-observations');
