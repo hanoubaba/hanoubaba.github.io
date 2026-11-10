@@ -2383,11 +2383,16 @@ const PLAYBOOK_SECTIONS = [
   {
     title: '信念',
     items: [
-      '没输就能赢',
+      '没输就能赢，没有触发止损就还有机会（哪怕就差1%也没有关系）',
       '最小收益绝对行',
       '接受有效止损，不接受无效放弃',
-      '下决心不回收，堵上一切才能取胜',
-      '绝大部分的手动干预都是错的，自动成交是对的'
+      '落子无悔不回收，堵上一切才能取胜',
+      '98%的手动干预都是错的，自动成交是对的',
+      '扛不住过程的曲折就改为绝不回收，绝不二次进场',
+      '绝不改变，绝不手动止损。唯一需要操作的是手动撤单。',
+      '目前的方案综合来说已经是最好的了，基本没有可以改进的地方了。不需要再优化了，只需要贯彻执行。',
+      '除了挂单和撤单，其他的一切不必要操作都是可以避免的',
+      '不操作就是最好的操作，不要低估人性的恐惧和贪婪。',
     ],
   },
   {
@@ -3624,7 +3629,7 @@ function renderAdminTpSlBlock(modClass, label, value, ariaLabel, { copyable = tr
   return `<${tag} class="${className}"${copyAttrs}><span class="admin-item__tp-sl-label">${escapeHtml(label)}</span><span class="admin-item__tp-sl-value">${escapeHtml(text)}</span></${tag}>`;
 }
 
-/** 追模式：沿用原「让利档 + 止盈止损」两行布局；按配置多选展示，数量从大到小 */
+/** 追模式：沿用原「让利档 + 止盈止损」两行布局；按配置多选展示，数量从小到大 */
 function renderAdminChaseTiersHtml(row, concessions, stopLabel, priceDecimalPlaces = 0) {
   const items = getDisplayConcessionItems(concessions);
   const tierEntries = getVisibleChaseTierDefs().map((tier) => {
@@ -3633,7 +3638,7 @@ function renderAdminChaseTiersHtml(row, concessions, stopLabel, priceDecimalPlac
     const qty = toNumber(String(tierItems[0]?.quantity ?? '').replace(/,/g, ''));
     return { tier, tierItems, qty };
   }).sort((a, b) => {
-    if (a.qty != null && b.qty != null && Math.abs(a.qty - b.qty) > 1e-12) return b.qty - a.qty;
+    if (a.qty != null && b.qty != null && Math.abs(a.qty - b.qty) > 1e-12) return a.qty - b.qty;
     if (a.qty != null && b.qty == null) return -1;
     if (a.qty == null && b.qty != null) return 1;
     return Number(a.tier.rate) - Number(b.tier.rate);
