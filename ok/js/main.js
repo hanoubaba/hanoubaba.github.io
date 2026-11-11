@@ -450,6 +450,7 @@ const CONCESSION_RATES_BASIC = [
 ];
 /** 追模式挡位：让利 + 止盈 R；配置菜单多选决定展示哪些 */
 const CHASE_TIER_DEFS = [
+  { id: 'm90', rate: -0.9, takeProfitR: 1, label: '-90%' },
   { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%' },
   { id: 'p00', rate: 0, takeProfitR: 1, label: '00%' },
   { id: 'p10', rate: 0.1, takeProfitR: 1.2, label: '10%' },
@@ -3563,7 +3564,7 @@ function normalizeReferenceTakeProfitPrice(price) {
   return clampPriceAtZero(price);
 }
 
-/** 止盈：普通「止盈小」3R；追模式按挡位展示 0.8R/1R/1.2R/4.5R */
+/** 止盈：普通「止盈小」3R；追模式按挡位展示 1R/0.8R/1R/1.2R/4.5R */
 function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces, { chase = false } = {}) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
@@ -3643,7 +3644,7 @@ function renderAdminChaseTiersHtml(row, concessions, stopLabel, priceDecimalPlac
     if (a.qty == null && b.qty != null) return 1;
     return Number(a.tier.rate) - Number(b.tier.rate);
   });
-  const blocks = tierEntries.map(({ tier, tierItems }) => {
+  const blocks = tierEntries.map(({ tier, tierItems }, index) => {
     const rateHeader = String(tier.label ?? formatConcessionPercent(tier.rate)).trim() || '—';
     // 挡位数值放到原「让利」表头位置；行内不再重复显示百分比
     const labeledItems = tierItems.map((item) => ({ ...item, rateLabel: '' }));
@@ -3653,6 +3654,7 @@ function renderAdminChaseTiersHtml(row, concessions, stopLabel, priceDecimalPlac
       tier.takeProfitR,
       priceDecimalPlaces,
     );
+    const isTopTier = index === 0;
     return [
       `<div class="admin-item__chase-copy" data-chase-tier="${escapeHtml(tier.id)}" data-chase-rate="${escapeHtml(String(tier.rate))}">`,
       renderAdminConcessionsHtml(labeledItems, stopLabel, {
@@ -3661,6 +3663,9 @@ function renderAdminChaseTiersHtml(row, concessions, stopLabel, priceDecimalPlac
         selectableStrategyId: '',
         groupBestPeers: false,
         rateHeaderLabel: rateHeader,
+        // 仅顶部档位展示「价格」「数量」列名
+        priceHeaderLabel: isTopTier ? '价格' : '',
+        qtyHeaderLabel: isTopTier ? '数量' : '',
       }),
       // 与原先追模式一致：止盈 | 止损（不显示止盈大）
       renderAdminTakeProfitStopHtml(takeProfitLabel, '', stopLabel, {
@@ -4307,6 +4312,7 @@ function renderConcessionsHtml({
   stopHeaderLabel = '止损价格',
   rateHeaderLabel = '让利',
   rateHeaderSuffixHtml = '',
+  priceHeaderLabel = '价格',
   qtyHeaderPrefixHtml = '',
   qtyHeaderLabel = null,
   wrapperClass,
@@ -4428,6 +4434,7 @@ function renderConcessionsHtml({
   const rateHeaderInner = suffixHtml
     ? `${rateHeader}${suffixHtml}`
     : rateHeader;
+  const priceHeaderInner = escapeHtml(String(priceHeaderLabel ?? '').trim());
   const qtyPrefixHtml = String(qtyHeaderPrefixHtml ?? '').trim();
   const qtyHeaderInner = qtyHeaderLabel != null
     ? escapeHtml(String(qtyHeaderLabel))
@@ -4437,7 +4444,7 @@ function renderConcessionsHtml({
     `<div class="${wrapper}" aria-label="${assistLabels ? '顺势而为位置' : '让利档位'}">`,
     `<div class="${rowClass} ${rowClass}--head">`,
     `<span class="${rowClass}__rate">${rateHeaderInner}</span>`,
-    `<span class="${rowClass}__price">价格</span>`,
+    `<span class="${rowClass}__price">${priceHeaderInner}</span>`,
     sideActionsMode
       ? `<span class="${rowClass}__actions">${String(actionsHeaderHtml ?? '').trim() || qtyHeaderInner}</span>`
       : `<span class="${rowClass}__qty">${qtyHeaderInner}</span>`,
@@ -4468,6 +4475,7 @@ function renderAdminConcessionsHtml(concessions, stopLabel, options = {}) {
     stopHeaderLabel: options.stopHeaderLabel,
     rateHeaderLabel: options.rateHeaderLabel,
     rateHeaderSuffixHtml: options.rateHeaderSuffixHtml,
+    priceHeaderLabel: options.priceHeaderLabel,
     qtyHeaderPrefixHtml: options.qtyHeaderPrefixHtml,
     qtyHeaderLabel: options.qtyHeaderLabel,
     wrapperClass: 'admin-item__concessions',

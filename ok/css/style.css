@@ -2409,10 +2409,7 @@ button.admin-time-status__tag:focus-visible {
   justify-content: center;
   min-height: 36px;
   padding: 6px 8px;
-  border: 1px solid #e2e8f0;
   border-radius: 6px;
-  background: #f8fafc;
-  color: #64748b;
   font-weight: 700;
   line-height: 1.2;
 }
@@ -2420,12 +2417,25 @@ button.admin-time-status__tag:focus-visible {
 .admin-concession__price.admin-copy-value {
   text-align: center;
   justify-content: center;
+  border: 1px solid #cbd5e1;
+  background: #f1f5f9;
+  color: #475569;
 }
 
-.admin-concession__qty.admin-copy-value,
+.admin-concession__qty.admin-copy-value {
+  text-align: right;
+  justify-content: flex-end;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
+}
+
 .admin-concession__stop.admin-copy-value {
   text-align: right;
   justify-content: flex-end;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
 }
 
 /* 追模式挡位：价格/数量点击区域与止盈止损对齐 */
@@ -2440,18 +2450,32 @@ button.admin-time-status__tag:focus-visible {
   min-height: 40px;
   padding: 8px 10px;
   font-size: 15px;
-  color: #64748b;
-  border-color: #e2e8f0;
-  background: #f8fafc;
+}
+
+.admin-item__chase-copy .admin-concession__price.admin-copy-value {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.admin-item__chase-copy .admin-concession__qty.admin-copy-value {
+  border-color: #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
 }
 
 .admin-item__chase-copy .admin-concession__price.admin-copy-value:hover,
-.admin-item__chase-copy .admin-concession__qty.admin-copy-value:hover,
-.admin-item__chase-copy .admin-concession__price.admin-copy-value:focus-visible,
-.admin-item__chase-copy .admin-concession__qty.admin-copy-value:focus-visible {
-  border-color: #cbd5e1;
-  background: #f1f5f9;
+.admin-item__chase-copy .admin-concession__price.admin-copy-value:focus-visible {
+  border-color: #94a3b8;
+  background: #e2e8f0;
   box-shadow: 0 0 0 2px rgba(100, 116, 139, 0.16);
+}
+
+.admin-item__chase-copy .admin-concession__qty.admin-copy-value:hover,
+.admin-item__chase-copy .admin-concession__qty.admin-copy-value:focus-visible {
+  border-color: #fbbf24;
+  background: #fef3c7;
+  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.18);
 }
 
 .admin-copy-value:hover,
