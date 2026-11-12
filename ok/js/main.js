@@ -467,11 +467,11 @@ const CONCESSION_RATES_BASIC = [
 ];
 /** 追模式挡位：让利 + 止盈 R；配置菜单多选决定展示哪些；useTotalCapital=本金直接用可用本金 */
 const CHASE_TIER_DEFS = [
-  { id: 'm90', rate: -0.9, takeProfitR: 1, label: '-90%' },
-  { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%', useTotalCapital: true },
+  { id: 'm90', rate: -0.9, takeProfitR: 0, label: '-90%(极限)' },
+  { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%(核心)', useTotalCapital: true },
   { id: 'p00', rate: 0, takeProfitR: 1, label: '00%' },
   { id: 'p10', rate: 0.1, takeProfitR: 1.2, label: '10%' },
-  { id: 'p20', rate: 0.2, takeProfitR: 4.5, label: '20%' },
+  { id: 'p20', rate: 0.2, takeProfitR: 4.5, label: '20%(长线)' },
 ];
 const CHASE_TIERS_STORAGE_KEY = 'ok_chase_tiers';
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
@@ -2405,6 +2405,7 @@ const PLAYBOOK_SECTIONS = [
       '到时间操作(撤挂单，止盈，形态坚持)',
       '普适性',
       '在限定的时间空间形态下速战速决，延续不可控。',
+      '前期次顶峰，后期少操作',
     ],
   },
   {
@@ -3547,11 +3548,12 @@ function clampPriceAtZero(value) {
   return n < 0 ? 0 : n;
 }
 
-/** 止盈价：盈利 = multiplier×开仓成本 → 价差移动 = multiplier×|价格-止损| */
+/** 止盈价：盈利 = multiplier×开仓成本 → 价差移动 = multiplier×|价格-止损|；0R=开仓价 */
 function calcTakeProfit(open, stop, multiplier = 1) {
   const stopDiff = Math.abs(open - stop);
   const m = Number(multiplier);
-  if (!(stopDiff > 0) || !Number.isFinite(m) || m <= 0) return null;
+  if (!(stopDiff > 0) || !Number.isFinite(m) || m < 0) return null;
+  if (m === 0) return clampPriceAtZero(open);
   const move = stopDiff * m;
   const raw = open > stop ? open + move : open - move;
   return clampPriceAtZero(raw);
@@ -3591,7 +3593,7 @@ function normalizeReferenceTakeProfitPrice(price) {
   return clampPriceAtZero(price);
 }
 
-/** 止盈：普通「止盈小」3R；追模式按挡位展示 1R/0.8R/1R/1.2R/4.5R */
+/** 止盈：普通「止盈小」3R；追模式按挡位展示 0R/0.8R/1R/1.2R/4.5R */
 function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces, { chase = false } = {}) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
