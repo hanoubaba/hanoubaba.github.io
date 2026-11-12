@@ -581,8 +581,8 @@ const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const BEST_TAKE_PROFIT_R = 4.5;
 const STRATEGY_DURATION_PERIODS = 9;
-/** 追模式（15m）：结束时间 = 开始 + 19 个时间维度周期 */
-const STRATEGY_DURATION_PERIODS_15M = 19;
+/** 追模式（15m）：结束时间 = 开始 + 16 个时间维度周期 */
+const STRATEGY_DURATION_PERIODS_15M = 16;
 const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
 /** 反趋势：挂单档位 = 原策略 1/2/3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R–100R 价格（无数量） */
@@ -2406,6 +2406,8 @@ const PLAYBOOK_SECTIONS = [
       '普适性',
       '在限定的时间空间形态下速战速决，延续不可控。',
       '前期次顶峰，后期少操作',
+      '热度榜和星球需要关注，保持最佳节奏',
+      '开始挂单，到点撤单，不需要手动操作',
     ],
   },
   {
@@ -5165,7 +5167,7 @@ function getOutcomeStatusInfo(outcomeStatus) {
 function getStrategyEndAt(row) {
   const startAt = getStrategyStartAt(row);
   const unitMin = Number(row?.timeframeMinutes) || getTimeframeMinutes(row?.timeframe);
-  // 追模式（15m）：展示/筛选统一按开始 + 19 个时间维度周期（兼容旧单 expires_at 仍为 +9）
+  // 追模式（15m）：展示/筛选统一按开始 + 16 个时间维度周期（兼容旧单 expires_at 仍为 +9）
   if (isChaseStrategyRow(row) && startAt && Number.isFinite(unitMin) && unitMin > 0) {
     return new Date(startAt.getTime() + unitMin * STRATEGY_DURATION_PERIODS_15M * 60 * 1000);
   }
