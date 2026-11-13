@@ -468,10 +468,10 @@ const CONCESSION_RATES_BASIC = [
 /** 追模式挡位：让利 + 止盈 R；配置菜单多选决定展示哪些；useTotalCapital=本金直接用可用本金 */
 const CHASE_TIER_DEFS = [
   { id: 'm90', rate: -0.9, takeProfitR: 0, label: '-90%(极限)' },
-  { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%(核心)', useTotalCapital: true },
+  { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%(最佳)', useTotalCapital: true },
   { id: 'p00', rate: 0, takeProfitR: 1, label: '00%' },
   { id: 'p10', rate: 0.1, takeProfitR: 1.2, label: '10%' },
-  { id: 'p20', rate: 0.2, takeProfitR: 4.5, label: '20%(长线)' },
+  { id: 'p20', rate: 0.2, takeProfitR: 3, label: '20%(手动)' },
 ];
 const CHASE_TIERS_STORAGE_KEY = 'ok_chase_tiers';
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
@@ -581,8 +581,8 @@ const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const BEST_TAKE_PROFIT_R = 4.5;
 const STRATEGY_DURATION_PERIODS = 9;
-/** 追模式（15m）：结束时间 = 开始 + 16 个时间维度周期 */
-const STRATEGY_DURATION_PERIODS_15M = 16;
+/** 追模式（15m）：结束时间 = 开始 + 20 个时间维度周期 */
+const STRATEGY_DURATION_PERIODS_15M = 20;
 const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
 /** 反趋势：挂单档位 = 原策略 1/2/3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R–100R 价格（无数量） */
@@ -2430,8 +2430,8 @@ const PLAYBOOK_SECTIONS = [
   {
     title: '分仓',
     items: [
-      '20%长线',
-      '-20%核心',
+      '20%手动',
+      '-20%最佳',
       '-90%极限',
     ],
   },
@@ -3596,7 +3596,7 @@ function normalizeReferenceTakeProfitPrice(price) {
   return clampPriceAtZero(price);
 }
 
-/** 止盈：普通「止盈小」3R；追模式按挡位展示 0R/0.8R/1R/1.2R/4.5R */
+/** 止盈：普通「止盈小」3R；追模式按挡位展示 0R/0.8R/1R/1.2R/3R */
 function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces, { chase = false } = {}) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
@@ -5168,7 +5168,7 @@ function getOutcomeStatusInfo(outcomeStatus) {
 function getStrategyEndAt(row) {
   const startAt = getStrategyStartAt(row);
   const unitMin = Number(row?.timeframeMinutes) || getTimeframeMinutes(row?.timeframe);
-  // 追模式（15m）：展示/筛选统一按开始 + 16 个时间维度周期（兼容旧单 expires_at 仍为 +9）
+  // 追模式（15m）：展示/筛选统一按开始 + 20 个时间维度周期（兼容旧单 expires_at 仍为 +9）
   if (isChaseStrategyRow(row) && startAt && Number.isFinite(unitMin) && unitMin > 0) {
     return new Date(startAt.getTime() + unitMin * STRATEGY_DURATION_PERIODS_15M * 60 * 1000);
   }
