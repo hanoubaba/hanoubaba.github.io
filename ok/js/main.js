@@ -471,7 +471,7 @@ const CHASE_TIER_DEFS = [
   { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%(最佳)', useTotalCapital: true },
   { id: 'p00', rate: 0, takeProfitR: 1, label: '00%' },
   { id: 'p10', rate: 0.1, takeProfitR: 1.2, label: '10%' },
-  { id: 'p20', rate: 0.2, takeProfitR: 3, label: '20%(手动)' },
+  { id: 'p20', rate: 0.2, takeProfitR: 2.5, label: '20%(手动)' },
 ];
 const CHASE_TIERS_STORAGE_KEY = 'ok_chase_tiers';
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
@@ -3596,7 +3596,7 @@ function normalizeReferenceTakeProfitPrice(price) {
   return clampPriceAtZero(price);
 }
 
-/** 止盈：普通「止盈小」3R；追模式按挡位展示 0R/0.8R/1R/1.2R/3R */
+/** 止盈：普通「止盈小」3R；追模式按挡位展示 0R/0.8R/1R/1.2R/2.5R */
 function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces, { chase = false } = {}) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
