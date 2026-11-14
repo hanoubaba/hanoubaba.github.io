@@ -352,7 +352,7 @@ function getChaseTakeProfitR() {
   return Number(getVisibleChaseTierDefs()[0]?.takeProfitR) || 0.8;
 }
 
-/** 追模式：按配置多选结果展示挡位；-20% 核心档本金=可用本金 */
+/** 追模式：按配置多选结果展示挡位 */
 function getChaseConcessionRates() {
   const tiers = getVisibleChaseTierDefs();
   const share = 1 / tiers.length;
@@ -360,24 +360,7 @@ function getChaseConcessionRates() {
     rate: Number(tier.rate),
     display: true,
     costShare: share,
-    useTotalCapital: tier.useTotalCapital === true,
   }));
-}
-
-function isChaseFullCapitalRate(rate) {
-  return CHASE_TIER_DEFS.some(
-    (tier) => tier.useTotalCapital === true && Math.abs(Number(tier.rate) - Number(rate)) < 1e-9,
-  );
-}
-
-/** 追模式档位本金：核心档用可用本金，其余仍用可用本金×凯利 */
-function resolveChaseTierOpenCost(rate, fallback = getAdminTierFixedOpenCost()) {
-  if (isChaseFullCapitalRate(rate)) {
-    const total = Number(getTotalCapital());
-    if (Number.isFinite(total) && total > 0) return total;
-  }
-  const fixed = Number(fallback);
-  return Number.isFinite(fixed) && fixed > 0 ? fixed : null;
 }
 
 function persistChaseTierFallback(ids) {
@@ -465,13 +448,13 @@ const CONCESSION_RATES_BASIC = [
   { rate: 0, display: true, costShare: 1 / 3 },
   { rate: -0.2, display: true, costShare: 1 / 3 },
 ];
-/** 追模式挡位：让利 + 止盈 R；配置菜单多选决定展示哪些；useTotalCapital=本金直接用可用本金 */
+/** 追模式挡位：让利 + 止盈 R；配置菜单多选决定展示哪些 */
 const CHASE_TIER_DEFS = [
-  { id: 'm90', rate: -0.9, takeProfitR: 0, label: '-90%(极限)' },
-  { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%(最佳)', useTotalCapital: true },
+  { id: 'm90', rate: -0.9, takeProfitR: 0, label: '-90%' },
+  { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%' },
   { id: 'p00', rate: 0, takeProfitR: 1, label: '00%' },
   { id: 'p10', rate: 0.1, takeProfitR: 1.2, label: '10%' },
-  { id: 'p20', rate: 0.2, takeProfitR: 2.5, label: '20%(手动)' },
+  { id: 'p20', rate: 0.2, takeProfitR: 2.5, label: '20%' },
 ];
 const CHASE_TIERS_STORAGE_KEY = 'ok_chase_tiers';
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
@@ -1232,19 +1215,14 @@ function hasAdminTierCostBudget(openCostTotal = null, fixedTierOpenCost = null) 
 function applyAdminFixedTierQuantities(concessions, stopLoss, {
   isAssist: _isAssist = false,
   fixedTierOpenCost = null,
-  chaseFullCapital = false,
 } = {}) {
   if (!hasConcessions(concessions)) return [];
   const stop = toNumber(stopLoss);
-  const defaultCost = Number(fixedTierOpenCost ?? getAdminTierFixedOpenCost());
-  if (stop == null || !(defaultCost > 0)) return concessions.slice();
+  const tierCost = Number(fixedTierOpenCost ?? getAdminTierFixedOpenCost());
+  if (stop == null || !(tierCost > 0)) return concessions.slice();
   const rawQtys = concessions.map((item) => {
     const price = toNumber(item.price);
     if (price == null || price === stop) return null;
-    const tierCost = chaseFullCapital
-      ? resolveChaseTierOpenCost(item.rate, defaultCost)
-      : defaultCost;
-    if (!(Number(tierCost) > 0)) return null;
     const qty = calcQuantityByRisk(tierCost, price, stop);
     return qty != null && qty > 0 ? qty : null;
   });
@@ -1484,9 +1462,8 @@ function getAdminStrategyTypeInfo(row) {
 function buildAdminDisplayConcessions(row) {
   const savedConcessions = buildAdminConcessionsForRow(row);
   const stopLoss = toNumber(row?.stopLossPrice);
-  const chaseOpts = isChaseStrategyRow(row) ? { chaseFullCapital: true } : {};
   if (isCurrentTrendConcessionSet(savedConcessions, row?.timeframe)) {
-    return applyAdminFixedTierQuantities(savedConcessions, stopLoss, chaseOpts);
+    return applyAdminFixedTierQuantities(savedConcessions, stopLoss);
   }
   const rebuilt = buildUnifiedConcessionsForRow(row);
   if (rebuilt) return rebuilt;
@@ -2409,6 +2386,7 @@ const PLAYBOOK_SECTIONS = [
       '热度榜和星球需要关注，保持最佳节奏',
       '开始挂单，到点撤单，不需要手动操作',
       '实际最佳仓位是10%，超过10%就是贪婪，低于10%就是恐惧',
+      '长期主义，渐进增长。螺旋上升已证明不可用',
     ],
   },
   {
@@ -2422,15 +2400,14 @@ const PLAYBOOK_SECTIONS = [
       '扛不住过程的曲折就改为绝不回收，绝不二次进场',
       '绝不改变，绝不手动止损。唯一需要操作的是手动撤单。',
       '目前的方案综合来说已经是最好的了，基本没有可以改进的地方了。不需要再优化了，只需要贯彻执行。',
-      '除了挂单和撤单，其他的一切不必要操作都是可以避免的',
-      '不操作就是最好的操作，不要低估人性的恐惧和贪婪。',
-      '稳住，我们能赢'
+      '手动操作缺乏信念，破坏了计划的完整性',
+      '每个月赚的钱够用了，多想想自己想要什么。合约不需要太多时间，step是5小时左右，保持节奏'
     ],
   },
   {
     title: '分仓',
     items: [
-      '20%手动',
+      '20%长线',
       '-20%最佳',
       '-90%极限',
     ],
@@ -2442,6 +2419,9 @@ const PLAYBOOK_SECTIONS = [
       '时间很快',
       '空间很小',
       '胜率很高',
+      '第一时间、一次性策略、必然结果、胜率80%以上',
+      '分析无用，本质上是高概率重复性操作。',
+      '难度越大，后期盈利越大。难度越小，前期越要止盈',
     ],
   },
 ];
@@ -3538,7 +3518,14 @@ function enrichStrategyRecordForSubmit(record) {
     next.outcomeStatus = editingStrategyPreserve.outcomeStatus ?? next.outcomeStatus;
     next.outcomeRemark = editingStrategyPreserve.outcomeRemark ?? '';
     next.viewMode = editingStrategyPreserve.viewMode ?? next.viewMode;
-    next.viewState = editingStrategyPreserve.viewState ?? next.viewState;
+    // 修改复用：重置一次性延期标记（时间范围已按新开始时间重算）
+    const preservedViewState = normalizeViewState(editingStrategyPreserve.viewState);
+    if ('timeExtended' in preservedViewState) {
+      const { timeExtended: _ignored, ...restViewState } = preservedViewState;
+      next.viewState = restViewState;
+    } else {
+      next.viewState = preservedViewState;
+    }
     next.starred = editingStrategyPreserve.starred === true;
   }
   return next;
@@ -3889,7 +3876,6 @@ function normalizeConcessionRateConfig(rateConfig) {
       display: rateConfig.display === true,
       costShare: Number.isFinite(costShare) && costShare > 0 ? costShare : null,
       reuseMinTierCost: rateConfig.reuseMinTierCost === true,
-      useTotalCapital: rateConfig.useTotalCapital === true,
     };
   }
   return {
@@ -3897,7 +3883,6 @@ function normalizeConcessionRateConfig(rateConfig) {
     display: false,
     costShare: null,
     reuseMinTierCost: false,
-    useTotalCapital: false,
   };
 }
 
@@ -3908,18 +3893,14 @@ function buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces
   const items = [];
   const rawQtys = [];
   for (const rateConfig of rates) {
-    const { rate, display, costShare, reuseMinTierCost, useTotalCapital } = normalizeConcessionRateConfig(rateConfig);
+    const { rate, display, costShare, reuseMinTierCost } = normalizeConcessionRateConfig(rateConfig);
     const price = calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces, reverse);
     const share = reuseMinTierCost
       ? minFundedShare
       : (costShare != null ? costShare : (fundedCount > 0 ? 1 / fundedCount : null));
-    let tierOpenCost = null;
-    if (useTotalCapital) {
-      // 追模式核心档：本金直接取可用本金
-      tierOpenCost = resolveChaseTierOpenCost(rate, fixedTierOpenCost ?? getAdminTierFixedOpenCost());
-    } else if (share != null && share > 0) {
-      tierOpenCost = resolveTierOpenCost(openCostTotal, share, fixedTierOpenCost);
-    }
+    const tierOpenCost = share != null && share > 0
+      ? resolveTierOpenCost(openCostTotal, share, fixedTierOpenCost)
+      : null;
     const qty = price == null ? null : calcQuantityByRisk(tierOpenCost, price, stopLoss);
     if (price == null || qty == null) continue;
     const item = {
@@ -5165,14 +5146,105 @@ function getOutcomeStatusInfo(outcomeStatus) {
   return { label: '待定', type: 'pending' };
 }
 
+function isStrategyTimeExtended(row) {
+  return normalizeViewState(row?.viewState).timeExtended === true;
+}
+
 function getStrategyEndAt(row) {
   const startAt = getStrategyStartAt(row);
   const unitMin = Number(row?.timeframeMinutes) || getTimeframeMinutes(row?.timeframe);
-  // 追模式（15m）：展示/筛选统一按开始 + 20 个时间维度周期（兼容旧单 expires_at 仍为 +9）
+  // 追模式（15m）：展示/筛选统一按开始 + 20 个时间维度周期（兼容旧单 expires_at 仍为 +9）；延期一次再 +20
   if (isChaseStrategyRow(row) && startAt && Number.isFinite(unitMin) && unitMin > 0) {
-    return new Date(startAt.getTime() + unitMin * STRATEGY_DURATION_PERIODS_15M * 60 * 1000);
+    const periods = STRATEGY_DURATION_PERIODS_15M * (isStrategyTimeExtended(row) ? 2 : 1);
+    return new Date(startAt.getTime() + unitMin * periods * 60 * 1000);
   }
   return parseDateValue(row?.expiresAt);
+}
+
+function canExtendStrategyTime(row) {
+  if (!row || isStrategyTimeExtended(row)) return false;
+  if (getAdminStrategyTypeInfo(row).type !== 'trend') return false;
+  const startAt = getStrategyStartAt(row);
+  const endAt = getStrategyEndAt(row);
+  if (!startAt || !endAt) return false;
+  return getTimeRangeStatusByEndAt(endAt) === 'ended';
+}
+
+function renderAdminTimeExtendHtml(strategyId) {
+  const id = escapeHtml(String(strategyId ?? '').trim());
+  if (!id) return '';
+  return [
+    '<div class="admin-time-status admin-time-status--extend">',
+    `<button type="button" class="admin-time-status__tag" data-admin-time-extend data-id="${id}" title="结束时间再延后一倍时长" aria-label="延期">延期</button>`,
+    '</div>',
+  ].join('');
+}
+
+let isExtendingStrategyTime = false;
+
+async function extendStrategyTime(id) {
+  const rawId = String(id ?? '').trim();
+  if (!rawId || isExtendingStrategyTime) return;
+  const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === rawId);
+  if (!canExtendStrategyTime(row)) {
+    showToast('无法延期');
+    return;
+  }
+  const startAt = getStrategyStartAt(row);
+  const endAt = getStrategyEndAt(row);
+  const unitMin = Number(row?.timeframeMinutes) || getTimeframeMinutes(row?.timeframe);
+  if (!startAt || !endAt || !(unitMin > 0)) {
+    showToast('无法延期');
+    return;
+  }
+  const currentDurationMin = Math.max(
+    unitMin,
+    Math.round((endAt.getTime() - startAt.getTime()) / (60 * 1000)),
+  );
+  const newValidPeriods = Math.max(1, Math.round((currentDurationMin * 2) / unitMin));
+  const durationMinutes = unitMin * newValidPeriods;
+  const expiresAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
+  const nextViewState = {
+    ...normalizeViewState(row.viewState),
+    timeExtended: true,
+  };
+  const prevRow = row;
+  isExtendingStrategyTime = true;
+  latestAdminRows = latestAdminRows.map((item) => (
+    String(item?.id ?? '').trim() === rawId
+      ? {
+        ...item,
+        validPeriods: newValidPeriods,
+        durationMinutes,
+        expiresAt: expiresAt.toISOString(),
+        viewState: nextViewState,
+      }
+      : item
+  ));
+  renderAdminListItems();
+  try {
+    const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodeURIComponent(rawId)}`, {
+      method: 'PATCH',
+      headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
+      body: JSON.stringify({
+        valid_periods: newValidPeriods,
+        duration_minutes: durationMinutes,
+        expires_at: expiresAt.toISOString(),
+        view_state: nextViewState,
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('已延期');
+  } catch (err) {
+    latestAdminRows = latestAdminRows.map((item) => (
+      String(item?.id ?? '').trim() === rawId ? prevRow : item
+    ));
+    renderAdminListItems();
+    showToast('延期失败');
+    console.error('[extend-strategy-time]', err);
+  } finally {
+    isExtendingStrategyTime = false;
+  }
 }
 
 function getStrategyStartAt(row) {
@@ -6079,6 +6151,9 @@ function buildAdminListItemHtml(row) {
       '</div>',
     ].join('')
     : '';
+  const timeExtendHtml = (!timeBadgeHtml && showTimeMeta && rawId && canExtendStrategyTime(row))
+    ? renderAdminTimeExtendHtml(rawId)
+    : '';
   const currentModeTagHtml = getAdminCurrentModeTagHtml(row);
   const timeframeTagHtml = strategyType.type === 'trend'
     ? getTimeframeTagHtml(row?.timeframe)
@@ -6096,8 +6171,9 @@ function buildAdminListItemHtml(row) {
     starHtml,
     '</div>',
   ].join('');
-  const headRightHtml = timeBadgeHtml
-    ? `<div class="admin-item__head-right">${timeBadgeHtml}</div>`
+  const headRightInner = timeBadgeHtml || timeExtendHtml;
+  const headRightHtml = headRightInner
+    ? `<div class="admin-item__head-right">${headRightInner}</div>`
     : '';
   return [
     `<article class="admin-item admin-item--${sideMod}${showCounterTrend ? ' admin-item--counter-trend' : ''}${isAssistStrategy ? ' admin-item--assist' : ''}${showTierAssistView || isTierAssistStrategy ? ' admin-item--tier-assist' : ''}" data-id="${id}">`,
@@ -6155,7 +6231,18 @@ function updateAdminCountdowns() {
     const endAt = parseDateValue(el.getAttribute('data-expires-at'));
     const container = el.closest('.admin-time-status');
     if (!endAt || getTimeRangeStatusByEndAt(endAt) === 'ended') {
-      container?.remove();
+      const item = el.closest('.admin-item');
+      const headRight = item?.querySelector('.admin-item__head-right');
+      const id = String(item?.getAttribute('data-id') ?? '').trim();
+      const row = id
+        ? latestAdminRows.find((itemRow) => String(itemRow?.id ?? '').trim() === id)
+        : null;
+      if (headRight && row && canExtendStrategyTime(row)) {
+        headRight.innerHTML = renderAdminTimeExtendHtml(id);
+      } else {
+        container?.remove();
+        if (headRight && !headRight.childElementCount) headRight.remove();
+      }
       return;
     }
     const nextLabel = formatCountdownTo(endAt, now);
@@ -7886,6 +7973,17 @@ if (adminListEl) {
       if (!text) return;
       const ok = await copyTextToClipboard(text);
       showToast(ok ? '已复制' : '复制失败');
+      return;
+    }
+
+    const extendBtn = target.closest('[data-admin-time-extend]');
+    if (extendBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isAdminSelectionMode || isDeletingStrategies || isExtendingStrategyTime) return;
+      const id = String(extendBtn.getAttribute('data-id') ?? '').trim();
+      if (!id) return;
+      extendStrategyTime(id).catch(() => {});
       return;
     }
 

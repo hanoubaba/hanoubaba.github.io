@@ -1377,6 +1377,24 @@ button.admin-time-status__tag:focus-visible {
   animation: admin-time-status-blink 1.2s ease-in-out infinite;
 }
 
+.admin-time-status--extend .admin-time-status__tag {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #93c5fd;
+  animation: none;
+  cursor: pointer;
+}
+
+.admin-time-status--extend .admin-time-status__tag:hover,
+.admin-time-status--extend .admin-time-status__tag:focus-visible {
+  background: #dbeafe;
+  border-color: #60a5fa;
+}
+
+.admin-time-status--extend .admin-time-status__tag:active {
+  background: #bfdbfe;
+}
+
 .admin-time-status--urgent .admin-time-status__value.is-ticking {
   animation: admin-time-status-tick 0.35s ease, admin-time-status-blink 1.2s ease-in-out infinite;
 }
