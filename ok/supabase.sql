@@ -629,7 +629,7 @@ check (
 -- default_timeframe：前台时间维度默认（15m/1h/4h/8h/1d）
 -- developer_mode：开发者模式
 -- trend_force：旧版趋势力单选（兼容保留）
--- chase_tiers：追模式挡位多选（如 m20,p00,p10,p20）
+-- chase_tiers：趋势力多选（小 m20=-20% / 中 p00=00% / 大 p20=20%）；默认仅小
 -- ------------------------------------------------------------
 
 create table if not exists public.app_settings (
@@ -639,7 +639,7 @@ create table if not exists public.app_settings (
   default_timeframe text not null default '4h',
   developer_mode boolean not null default false,
   trend_force text not null default 'small',
-  chase_tiers text not null default 'm20,p00,p10,p20',
+  chase_tiers text not null default 'm20',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint app_settings_unit_cost_nonneg_check check (unit_cost >= 0),
@@ -691,7 +691,7 @@ set chase_tiers = case trend_force
   when 'small' then 'm20'
   when 'medium' then 'p00'
   when 'large' then 'p20'
-  else 'm20,p00,p10,p20'
+  else 'm20'
 end
 where chase_tiers is null or btrim(chase_tiers) = '';
 
@@ -711,7 +711,7 @@ alter table public.app_settings
 alter column trend_force set default 'small';
 
 alter table public.app_settings
-alter column chase_tiers set default 'm20,p00,p10,p20';
+alter column chase_tiers set default 'm20';
 
 alter table public.app_settings
 alter column unit_cost set not null;
@@ -763,7 +763,7 @@ add constraint app_settings_trend_force_check
 check (trend_force in ('small', 'medium', 'large'));
 
 insert into public.app_settings (id, unit_cost, kelly_ratio, default_timeframe, developer_mode, trend_force, chase_tiers)
-values ('default', 0, 0.0333, '4h', false, 'small', 'm20,p00,p10,p20')
+values ('default', 0, 0.0333, '4h', false, 'small', 'm20')
 on conflict (id) do nothing;
 
 drop trigger if exists app_settings_set_updated_at on public.app_settings;

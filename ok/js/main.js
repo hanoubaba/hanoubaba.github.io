@@ -331,7 +331,7 @@ function normalizeChaseTierIds(value) {
     seen.add(id);
     ids.push(id);
   }
-  return ids.length ? ids : CHASE_TIER_DEFS.map((tier) => tier.id);
+  return ids.length ? ids : CHASE_TIER_DEFAULT_IDS.slice();
 }
 
 function serializeChaseTierIds(ids) {
@@ -345,14 +345,16 @@ function getConfiguredChaseTierIds() {
 function getVisibleChaseTierDefs() {
   const selected = new Set(getConfiguredChaseTierIds());
   const visible = CHASE_TIER_DEFS.filter((tier) => selected.has(tier.id));
-  return visible.length ? visible : CHASE_TIER_DEFS.slice();
+  return visible.length
+    ? visible
+    : CHASE_TIER_DEFS.filter((tier) => CHASE_TIER_DEFAULT_IDS.includes(tier.id));
 }
 
 function getChaseTakeProfitR() {
   return Number(getVisibleChaseTierDefs()[0]?.takeProfitR) || 0.8;
 }
 
-/** 追模式：按配置多选结果展示挡位 */
+/** 追模式：按配置所选趋势力档位展示 */
 function getChaseConcessionRates() {
   const tiers = getVisibleChaseTierDefs();
   const share = 1 / tiers.length;
@@ -391,9 +393,9 @@ function loadChaseTier() {
   try {
     const stored = localStorage.getItem(CHASE_TIERS_STORAGE_KEY);
     if (stored) applyChaseTierLocal(stored);
-    else applyChaseTierLocal(CHASE_TIER_DEFS.map((tier) => tier.id));
+    else applyChaseTierLocal(CHASE_TIER_DEFAULT_IDS);
   } catch {
-    applyChaseTierLocal(CHASE_TIER_DEFS.map((tier) => tier.id));
+    applyChaseTierLocal(CHASE_TIER_DEFAULT_IDS);
   }
   return chaseVisibleTier;
 }
@@ -414,7 +416,7 @@ async function toggleChaseTier(tierId) {
   const current = getConfiguredChaseTierIds();
   const exists = current.includes(id);
   if (exists && current.length <= 1) {
-    showToast('至少保留一个追模式挡位');
+    showToast('至少保留一个趋势力档位');
     return false;
   }
   const next = exists ? current.filter((item) => item !== id) : current.concat(id);
@@ -448,14 +450,13 @@ const CONCESSION_RATES_BASIC = [
   { rate: 0, display: true, costShare: 1 / 3 },
   { rate: -0.2, display: true, costShare: 1 / 3 },
 ];
-/** 追模式挡位：让利 + 止盈 R；配置菜单多选决定展示哪些 */
+/** 追模式趋势力：小 -20% / 中 00% / 大 20%；配置菜单多选，默认仅小 */
 const CHASE_TIER_DEFS = [
-  { id: 'm90', rate: -0.9, takeProfitR: 0, label: '-90%' },
-  { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%' },
-  { id: 'p00', rate: 0, takeProfitR: 1, label: '00%' },
-  { id: 'p10', rate: 0.1, takeProfitR: 1.2, label: '10%' },
-  { id: 'p20', rate: 0.2, takeProfitR: 2.5, label: '20%' },
+  { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '趋势力小' },
+  { id: 'p00', rate: 0, takeProfitR: 1, label: '趋势力中' },
+  { id: 'p20', rate: 0.2, takeProfitR: 2.5, label: '趋势力大' },
 ];
+const CHASE_TIER_DEFAULT_IDS = ['m20'];
 const CHASE_TIERS_STORAGE_KEY = 'ok_chase_tiers';
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
 const REF_TAKE_PROFIT_R = 3;
@@ -489,7 +490,7 @@ let defaultTimeframeColumnAvailable = true;
 let developerModeColumnAvailable = true;
 let chaseTiersColumnAvailable = true;
 let isDeveloperMode = false;
-let chaseVisibleTier = CHASE_TIER_DEFS.map((tier) => tier.id);
+let chaseVisibleTier = CHASE_TIER_DEFAULT_IDS.slice();
 
 function loadCachedKellyFactorsFallback() {
   try {
@@ -2408,9 +2409,9 @@ const PLAYBOOK_SECTIONS = [
   {
     title: '分仓',
     items: [
-      '20%长线',
-      '-20%最佳',
-      '-90%极限',
+      '趋势力大：20%',
+      '趋势力小：-20%',
+      '趋势力中：00%',
     ],
   },
   {
@@ -3650,7 +3651,7 @@ function renderAdminTpSlBlock(modClass, label, value, ariaLabel, { copyable = tr
   return `<${tag} class="${className}"${copyAttrs}><span class="admin-item__tp-sl-label">${escapeHtml(label)}</span><span class="admin-item__tp-sl-value">${escapeHtml(text)}</span></${tag}>`;
 }
 
-/** 追模式：沿用原「让利档 + 止盈止损」两行布局；按配置多选展示，数量从小到大 */
+/** 追模式：沿用原「让利档 + 止盈止损」两行布局；按所选趋势力档位展示，数量从小到大 */
 function renderAdminChaseTiersHtml(row, concessions, stopLabel, priceDecimalPlaces = 0) {
   const items = getDisplayConcessionItems(concessions);
   const tierEntries = getVisibleChaseTierDefs().map((tier) => {
@@ -3696,7 +3697,7 @@ function renderAdminChaseTiersHtml(row, concessions, stopLabel, priceDecimalPlac
     ].join('');
   });
   return [
-    '<div class="admin-item__chase-copies" aria-label="追模式挡位">',
+    '<div class="admin-item__chase-copies" aria-label="趋势力档位">',
     ...blocks,
     '</div>',
   ].join('');
