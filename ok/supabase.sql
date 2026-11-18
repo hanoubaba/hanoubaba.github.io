@@ -629,7 +629,7 @@ check (
 -- default_timeframe：前台时间维度默认（15m/1h/4h/8h/1d）
 -- developer_mode：开发者模式
 -- trend_force：旧版趋势力单选（兼容保留）
--- chase_tiers：趋势力多选（小 m20=-20% / 中 p00=00% / 大 p20=20%）；默认仅小
+-- chase_tiers：趋势力单选存储（小 m20；大 m20,p20）；默认小
 -- ------------------------------------------------------------
 
 create table if not exists public.app_settings (
@@ -689,8 +689,8 @@ where trend_force is null or trend_force not in ('small', 'medium', 'large');
 update public.app_settings
 set chase_tiers = case trend_force
   when 'small' then 'm20'
-  when 'medium' then 'p00'
-  when 'large' then 'p20'
+  when 'medium' then 'm20'
+  when 'large' then 'm20,p20'
   else 'm20'
 end
 where chase_tiers is null or btrim(chase_tiers) = '';

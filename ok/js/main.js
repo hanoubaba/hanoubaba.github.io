@@ -297,64 +297,62 @@ async function setDefaultTimeframe(mode) {
   return changed;
 }
 
-function normalizeChaseTierIds(value) {
-  let list = [];
+/** 趋势力单选：small=仅 -20%；large=-20% + 20% */
+function normalizeChaseForce(value) {
   if (Array.isArray(value)) {
-    list = value;
-  } else {
-    const raw = String(value ?? '').trim();
-    if (!raw) {
-      list = [];
-    } else if (raw.startsWith('[')) {
-      try {
-        const parsed = JSON.parse(raw);
-        list = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        list = raw.split(/[,|]/);
+    return value.some((item) => String(item ?? '').trim() === 'p20') ? 'large' : 'small';
+  }
+  const raw = String(value ?? '').trim();
+  if (!raw) return CHASE_FORCE_DEFAULT;
+  if (raw === 'large' || raw === '大') return 'large';
+  if (raw === 'small' || raw === '小' || raw === 'medium' || raw === '中') return 'small';
+  if (raw.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.some((item) => String(item ?? '').trim() === 'p20') ? 'large' : 'small';
       }
-    } else if (raw === 'small' || raw === '小') {
-      list = ['m20'];
-    } else if (raw === 'medium' || raw === '中') {
-      list = ['p00'];
-    } else if (raw === 'large' || raw === '大') {
-      list = ['p20'];
-    } else {
-      list = raw.split(/[,|\s]+/);
+    } catch {
+      // fall through
     }
   }
-  const validIds = new Set(CHASE_TIER_DEFS.map((tier) => tier.id));
-  const ids = [];
-  const seen = new Set();
-  for (const item of list) {
-    const id = String(item ?? '').trim();
-    if (!validIds.has(id) || seen.has(id)) continue;
-    seen.add(id);
-    ids.push(id);
-  }
-  return ids.length ? ids : CHASE_TIER_DEFAULT_IDS.slice();
+  // 兼容旧多选存储：含 p20 视为大，其余（含仅 m20 / p00）视为小
+  const parts = raw.split(/[,|\s]+/).map((item) => item.trim()).filter(Boolean);
+  if (parts.includes('p20') || parts.includes('large') || parts.includes('大')) return 'large';
+  return 'small';
 }
 
-function serializeChaseTierIds(ids) {
-  return normalizeChaseTierIds(ids).join(',');
+function getChaseForceTierIds(force = getConfiguredChaseForce()) {
+  return force === 'large' ? ['m20', 'p20'] : ['m20'];
+}
+
+function serializeChaseForce(force = getConfiguredChaseForce()) {
+  return getChaseForceTierIds(normalizeChaseForce(force)).join(',');
+}
+
+function getConfiguredChaseForce() {
+  return normalizeChaseForce(chaseForceMode);
 }
 
 function getConfiguredChaseTierIds() {
-  return normalizeChaseTierIds(chaseVisibleTier);
+  return getChaseForceTierIds();
+}
+
+function serializeChaseTierIds(ids) {
+  return serializeChaseForce(normalizeChaseForce(ids));
 }
 
 function getVisibleChaseTierDefs() {
-  const selected = new Set(getConfiguredChaseTierIds());
-  const visible = CHASE_TIER_DEFS.filter((tier) => selected.has(tier.id));
-  return visible.length
-    ? visible
-    : CHASE_TIER_DEFS.filter((tier) => CHASE_TIER_DEFAULT_IDS.includes(tier.id));
+  const selected = new Set(getChaseForceTierIds());
+  // 后台展示统一用 -20% / 20%；配置菜单文案仍为「小 / 大」
+  return CHASE_TIER_DEFS.filter((tier) => selected.has(tier.id));
 }
 
 function getChaseTakeProfitR() {
   return Number(getVisibleChaseTierDefs()[0]?.takeProfitR) || 0.8;
 }
 
-/** 追模式：按配置所选趋势力档位展示 */
+/** 追模式：按趋势力单选结果展示档位 */
 function getChaseConcessionRates() {
   const tiers = getVisibleChaseTierDefs();
   const share = 1 / tiers.length;
@@ -365,20 +363,19 @@ function getChaseConcessionRates() {
   }));
 }
 
-function persistChaseTierFallback(ids) {
+function persistChaseForceFallback(force) {
   try {
-    localStorage.setItem(CHASE_TIERS_STORAGE_KEY, serializeChaseTierIds(ids));
+    localStorage.setItem(CHASE_TIERS_STORAGE_KEY, serializeChaseForce(force));
   } catch {
     // ignore
   }
 }
 
 function applyChaseTierLocal(value) {
-  const next = normalizeChaseTierIds(value);
-  const prev = serializeChaseTierIds(chaseVisibleTier);
-  const changed = serializeChaseTierIds(next) !== prev;
-  chaseVisibleTier = next;
-  persistChaseTierFallback(next);
+  const next = normalizeChaseForce(value);
+  const changed = next !== chaseForceMode;
+  chaseForceMode = next;
+  persistChaseForceFallback(next);
   syncChaseTierUI();
   if (typeof currentPage !== 'undefined' && currentPage === 'admin') {
     renderAdminListItems();
@@ -393,36 +390,31 @@ function loadChaseTier() {
   try {
     const stored = localStorage.getItem(CHASE_TIERS_STORAGE_KEY);
     if (stored) applyChaseTierLocal(stored);
-    else applyChaseTierLocal(CHASE_TIER_DEFAULT_IDS);
+    else applyChaseTierLocal(CHASE_FORCE_DEFAULT);
   } catch {
-    applyChaseTierLocal(CHASE_TIER_DEFAULT_IDS);
+    applyChaseTierLocal(CHASE_FORCE_DEFAULT);
   }
-  return chaseVisibleTier;
+  return chaseForceMode;
 }
 
 function syncChaseTierUI() {
-  const selected = new Set(getConfiguredChaseTierIds());
-  document.querySelectorAll('[data-chase-tier]').forEach((btn) => {
-    const id = btn.getAttribute('data-chase-tier');
-    const active = selected.has(id);
+  const selected = getConfiguredChaseForce();
+  document.querySelectorAll('[data-chase-force]').forEach((btn) => {
+    const id = normalizeChaseForce(btn.getAttribute('data-chase-force'));
+    const active = id === selected;
     btn.classList.toggle('is-active', active);
     btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    btn.setAttribute('aria-checked', active ? 'true' : 'false');
   });
 }
 
-async function toggleChaseTier(tierId) {
-  const id = String(tierId ?? '').trim();
-  if (!CHASE_TIER_DEFS.some((tier) => tier.id === id)) return false;
-  const current = getConfiguredChaseTierIds();
-  const exists = current.includes(id);
-  if (exists && current.length <= 1) {
-    showToast('至少保留一个趋势力档位');
-    return false;
-  }
-  const next = exists ? current.filter((item) => item !== id) : current.concat(id);
+async function setChaseForce(forceId) {
+  const next = normalizeChaseForce(forceId);
+  if (next !== 'small' && next !== 'large') return false;
+  if (next === getConfiguredChaseForce()) return false;
   const changed = applyChaseTierLocal(next);
   try {
-    await saveAppSettings({ chase_tiers: serializeChaseTierIds(next) });
+    await saveAppSettings({ chase_tiers: serializeChaseForce(next) });
   } catch {
     // 本地已更新；后端失败时仍可本机使用
   }
@@ -450,13 +442,12 @@ const CONCESSION_RATES_BASIC = [
   { rate: 0, display: true, costShare: 1 / 3 },
   { rate: -0.2, display: true, costShare: 1 / 3 },
 ];
-/** 追模式趋势力：小 -20% / 中 00% / 大 20%；配置菜单多选，默认仅小 */
+/** 追模式趋势力：小=仅 -20%；大=-20% + 20%；配置菜单显示小/大，后台展示百分比 */
 const CHASE_TIER_DEFS = [
-  { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '趋势力小' },
-  { id: 'p00', rate: 0, takeProfitR: 1, label: '趋势力中' },
-  { id: 'p20', rate: 0.2, takeProfitR: 2.5, label: '趋势力大' },
+  { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%' },
+  { id: 'p20', rate: 0.2, takeProfitR: 2.5, label: '20%' },
 ];
-const CHASE_TIER_DEFAULT_IDS = ['m20'];
+const CHASE_FORCE_DEFAULT = 'small';
 const CHASE_TIERS_STORAGE_KEY = 'ok_chase_tiers';
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
 const REF_TAKE_PROFIT_R = 3;
@@ -490,7 +481,7 @@ let defaultTimeframeColumnAvailable = true;
 let developerModeColumnAvailable = true;
 let chaseTiersColumnAvailable = true;
 let isDeveloperMode = false;
-let chaseVisibleTier = CHASE_TIER_DEFAULT_IDS.slice();
+let chaseForceMode = CHASE_FORCE_DEFAULT;
 
 function loadCachedKellyFactorsFallback() {
   try {
@@ -2416,6 +2407,14 @@ const PLAYBOOK_SECTIONS = [
       '趋势力大：20%',
       '趋势力小：-20%',
       '趋势力中：00%',
+    ],
+  },
+  {
+    title: '趋势力大小判断',
+    items: [
+      'ETH是行情风向标，三线齐飞趋势力大，否则趋势力小。',
+      '趋势力小的情况，保守只做第一轮。',
+      '趋势力大可坚持到后续必成交。',
     ],
   },
   {
@@ -7368,7 +7367,7 @@ function setPage(mode, options = {}) {
 
   const moreToggle = document.getElementById('admin-more-toggle');
   if (moreToggle) {
-    moreToggle.classList.toggle('is-active', toObservations || toMethodology || toCases);
+    moreToggle.classList.toggle('is-active', toObservations || toMethodology || toPlaybook || toCases);
   }
   closeAdminMoreMenu();
 
@@ -7730,10 +7729,10 @@ document.querySelectorAll('[data-default-timeframe]').forEach((btn) => {
       .catch(() => {});
   });
 });
-document.querySelectorAll('[data-chase-tier]').forEach((btn) => {
+document.querySelectorAll('[data-chase-force]').forEach((btn) => {
   btn.addEventListener('click', () => {
-    const id = btn.getAttribute('data-chase-tier');
-    toggleChaseTier(id).catch(() => {});
+    const id = btn.getAttribute('data-chase-force');
+    setChaseForce(id).catch(() => {});
   });
 });
 const btnTabMethodology = document.getElementById('btn-tab-methodology');
