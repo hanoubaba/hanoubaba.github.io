@@ -2420,6 +2420,16 @@ button.admin-time-status__tag:focus-visible {
   box-sizing: border-box;
 }
 
+/* 后台单据：最近一次复制的按钮高亮（切换 tab / 初始化时清除） */
+.admin-copy-value.is-current,
+.admin-time-status__value.is-current {
+  position: relative;
+  z-index: 2;
+  outline: 2px solid rgba(56, 189, 248, 0.95);
+  outline-offset: 1px;
+  animation: admin-concession-locate-pulse 1.4s ease-in-out infinite;
+}
+
 .admin-concession__price.admin-copy-value,
 .admin-concession__qty.admin-copy-value {
   display: flex;

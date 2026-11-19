@@ -445,7 +445,7 @@ const CONCESSION_RATES_BASIC = [
 /** 追模式趋势力：小=仅 -20%；大=-20% + 20%；配置菜单显示小/大，后台展示百分比 */
 const CHASE_TIER_DEFS = [
   { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%' },
-  { id: 'p20', rate: 0.2, takeProfitR: 2.5, label: '20%' },
+  { id: 'p20', rate: 0.2, takeProfitR: 2.5, label: '20%(核心)' },
 ];
 const CHASE_FORCE_DEFAULT = 'small';
 const CHASE_TIERS_STORAGE_KEY = 'ok_chase_tiers';
@@ -2383,7 +2383,14 @@ const PLAYBOOK_SECTIONS = [
       '不回撤就是最快的前进',
       '不要拘泥于自选币种，同时期的选择形态最佳的、交易量最大的',
       '最佳介入机会是第3至第5',
-      '本金渐进增强，3连升级'
+      '本金渐进增强，3连升级',
+      '一次性策略，已完成的不再关注（放弃的艺术：已成交的挂单、趋势力实现止盈的不再关注）',
+      '主要关注ETH,每天大概3次机会，保持良好的节奏。8/16/24点附近，前后2小时',
+      '最重要的是根据操作准则，该坚持的坚持，该放弃的放弃,该原地止损的就原地止损。短线只需要1个15分钟线就能改变一切',
+      '等价交易胜率最大，不贪图额外收益',
+      '把握节奏，放大止损，最小收益，严格操作。',
+      '解决输多赢少问题：档位二合一，视情况转换。两极划线辅助观测。',
+      '核心看黄线，提前量至少要黄线完成交叉'
     ],
   },
   {
@@ -2407,14 +2414,6 @@ const PLAYBOOK_SECTIONS = [
       '趋势力大：20%',
       '趋势力小：-20%',
       '趋势力中：00%',
-    ],
-  },
-  {
-    title: '趋势力大小判断',
-    items: [
-      'ETH是行情风向标，三线齐飞趋势力大，否则趋势力小。',
-      '趋势力小的情况，保守只做第一轮。',
-      '趋势力大可坚持到后续必成交。',
     ],
   },
   {
@@ -5563,8 +5562,23 @@ function scrollAdminItemIntoView(rawId) {
   }, 1800);
 }
 
+function clearAdminCopyCurrent() {
+  document.querySelectorAll(
+    '#admin-list .admin-copy-value.is-current, #admin-list .admin-time-status__value.is-current',
+  ).forEach((el) => {
+    el.classList.remove('is-current');
+  });
+}
+
+function markAdminCopyCurrent(el) {
+  if (!(el instanceof HTMLElement)) return;
+  clearAdminCopyCurrent();
+  el.classList.add('is-current');
+}
+
 function resetAdminPageState() {
   closeOutcomeStatusPicker();
+  clearAdminCopyCurrent();
   adminTimeFilter = DEFAULT_ADMIN_TIME_FILTER;
   adminNameSearch = '';
   adminNameFilter = '';
@@ -7344,6 +7358,7 @@ function setPage(mode, options = {}) {
   const toFront = normalizedMode === 'front';
 
   currentPage = normalizedMode;
+  clearAdminCopyCurrent();
 
   front.hidden = !toFront;
   admin.hidden = !toAdmin;
@@ -7968,6 +7983,7 @@ if (adminListEl) {
       const text = String(copyBtn.getAttribute('data-copy-text') ?? '').trim();
       if (!text) return;
       const ok = await copyTextToClipboard(text);
+      if (ok) markAdminCopyCurrent(copyBtn);
       showToast(ok ? '已复制' : '复制失败');
       return;
     }
