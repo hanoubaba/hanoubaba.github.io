@@ -297,53 +297,63 @@ async function setDefaultTimeframe(mode) {
   return changed;
 }
 
-/** 趋势力单选：small=仅 -20%；large=-20% + 20% */
-function normalizeChaseForce(value) {
+/** 趋势力多选：小=m20（-20%），大=p20（20%），选项与档位一对一 */
+function canonicalizeChaseTierIds(list) {
+  const alias = {
+    small: 'm20',
+    小: 'm20',
+    m20: 'm20',
+    '-20%': 'm20',
+    large: 'p20',
+    大: 'p20',
+    p20: 'p20',
+    '20%': 'p20',
+  };
+  const picked = new Set();
+  (Array.isArray(list) ? list : []).forEach((item) => {
+    const key = String(item ?? '').trim();
+    const mapped = alias[key];
+    if (mapped) picked.add(mapped);
+  });
+  return CHASE_TIER_DEFS.map((tier) => tier.id).filter((id) => picked.has(id));
+}
+
+function normalizeChaseTierIds(value) {
   if (Array.isArray(value)) {
-    return value.some((item) => String(item ?? '').trim() === 'p20') ? 'large' : 'small';
+    const ids = canonicalizeChaseTierIds(value);
+    return ids.length ? ids : CHASE_TIER_DEFAULT_IDS.slice();
   }
   const raw = String(value ?? '').trim();
-  if (!raw) return CHASE_FORCE_DEFAULT;
-  if (raw === 'large' || raw === '大') return 'large';
-  if (raw === 'small' || raw === '小' || raw === 'medium' || raw === '中') return 'small';
+  if (!raw) return CHASE_TIER_DEFAULT_IDS.slice();
+  if (raw === 'small' || raw === '小') return ['m20'];
+  // 旧单选「大」同时包含 -20% 与 20%，展开成两个已选项
+  if (raw === 'large' || raw === '大') return ['m20', 'p20'];
+  if (raw === 'medium' || raw === '中') return CHASE_TIER_DEFAULT_IDS.slice();
+  let list = [];
   if (raw.startsWith('[')) {
     try {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed.some((item) => String(item ?? '').trim() === 'p20') ? 'large' : 'small';
-      }
+      list = Array.isArray(parsed) ? parsed : raw.split(/[,|]/);
     } catch {
-      // fall through
+      list = raw.split(/[,|]/);
     }
+  } else {
+    list = raw.split(/[,|\s]+/);
   }
-  // 兼容旧多选存储：含 p20 视为大，其余（含仅 m20 / p00）视为小
-  const parts = raw.split(/[,|\s]+/).map((item) => item.trim()).filter(Boolean);
-  if (parts.includes('p20') || parts.includes('large') || parts.includes('大')) return 'large';
-  return 'small';
-}
-
-function getChaseForceTierIds(force = getConfiguredChaseForce()) {
-  return force === 'large' ? ['m20', 'p20'] : ['m20'];
-}
-
-function serializeChaseForce(force = getConfiguredChaseForce()) {
-  return getChaseForceTierIds(normalizeChaseForce(force)).join(',');
-}
-
-function getConfiguredChaseForce() {
-  return normalizeChaseForce(chaseForceMode);
+  const ids = canonicalizeChaseTierIds(list);
+  return ids.length ? ids : CHASE_TIER_DEFAULT_IDS.slice();
 }
 
 function getConfiguredChaseTierIds() {
-  return getChaseForceTierIds();
+  return normalizeChaseTierIds(chaseVisibleTierIds);
 }
 
 function serializeChaseTierIds(ids) {
-  return serializeChaseForce(normalizeChaseForce(ids));
+  return normalizeChaseTierIds(ids).join(',');
 }
 
 function getVisibleChaseTierDefs() {
-  const selected = new Set(getChaseForceTierIds());
+  const selected = new Set(getConfiguredChaseTierIds());
   // 后台展示统一用 -20% / 20%；配置菜单文案仍为「小 / 大」
   return CHASE_TIER_DEFS.filter((tier) => selected.has(tier.id));
 }
@@ -352,7 +362,7 @@ function getChaseTakeProfitR() {
   return Number(getVisibleChaseTierDefs()[0]?.takeProfitR) || 0.8;
 }
 
-/** 追模式：按趋势力单选结果展示档位 */
+/** 追模式：按趋势力多选结果展示档位，每个选项对应一个档位 */
 function getChaseConcessionRates() {
   const tiers = getVisibleChaseTierDefs();
   const share = 1 / tiers.length;
@@ -363,19 +373,19 @@ function getChaseConcessionRates() {
   }));
 }
 
-function persistChaseForceFallback(force) {
+function persistChaseTierFallback(ids) {
   try {
-    localStorage.setItem(CHASE_TIERS_STORAGE_KEY, serializeChaseForce(force));
+    localStorage.setItem(CHASE_TIERS_STORAGE_KEY, serializeChaseTierIds(ids));
   } catch {
     // ignore
   }
 }
 
 function applyChaseTierLocal(value) {
-  const next = normalizeChaseForce(value);
-  const changed = next !== chaseForceMode;
-  chaseForceMode = next;
-  persistChaseForceFallback(next);
+  const next = normalizeChaseTierIds(value);
+  const changed = serializeChaseTierIds(next) !== serializeChaseTierIds(chaseVisibleTierIds);
+  chaseVisibleTierIds = next;
+  persistChaseTierFallback(next);
   syncChaseTierUI();
   if (typeof currentPage !== 'undefined' && currentPage === 'admin') {
     renderAdminListItems();
@@ -390,31 +400,36 @@ function loadChaseTier() {
   try {
     const stored = localStorage.getItem(CHASE_TIERS_STORAGE_KEY);
     if (stored) applyChaseTierLocal(stored);
-    else applyChaseTierLocal(CHASE_FORCE_DEFAULT);
+    else applyChaseTierLocal(CHASE_TIER_DEFAULT_IDS);
   } catch {
-    applyChaseTierLocal(CHASE_FORCE_DEFAULT);
+    applyChaseTierLocal(CHASE_TIER_DEFAULT_IDS);
   }
-  return chaseForceMode;
+  return getConfiguredChaseTierIds();
 }
 
 function syncChaseTierUI() {
-  const selected = getConfiguredChaseForce();
-  document.querySelectorAll('[data-chase-force]').forEach((btn) => {
-    const id = normalizeChaseForce(btn.getAttribute('data-chase-force'));
-    const active = id === selected;
+  const selected = new Set(getConfiguredChaseTierIds());
+  document.querySelectorAll('[data-chase-option]').forEach((btn) => {
+    const id = btn.getAttribute('data-chase-option');
+    const active = selected.has(id);
     btn.classList.toggle('is-active', active);
     btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-    btn.setAttribute('aria-checked', active ? 'true' : 'false');
   });
 }
 
-async function setChaseForce(forceId) {
-  const next = normalizeChaseForce(forceId);
-  if (next !== 'small' && next !== 'large') return false;
-  if (next === getConfiguredChaseForce()) return false;
+async function toggleChaseTier(tierId) {
+  const id = String(tierId ?? '').trim();
+  if (!CHASE_TIER_DEFS.some((tier) => tier.id === id)) return false;
+  const current = getConfiguredChaseTierIds();
+  const exists = current.includes(id);
+  if (exists && current.length <= 1) {
+    showToast('至少保留一个趋势力');
+    return false;
+  }
+  const next = exists ? current.filter((item) => item !== id) : current.concat(id);
   const changed = applyChaseTierLocal(next);
   try {
-    await saveAppSettings({ chase_tiers: serializeChaseForce(next) });
+    await saveAppSettings({ chase_tiers: serializeChaseTierIds(next) });
   } catch {
     // 本地已更新；后端失败时仍可本机使用
   }
@@ -442,12 +457,12 @@ const CONCESSION_RATES_BASIC = [
   { rate: 0, display: true, costShare: 1 / 3 },
   { rate: -0.2, display: true, costShare: 1 / 3 },
 ];
-/** 追模式趋势力：小=仅 -20%；大=-20% + 20%；配置菜单显示小/大，后台展示百分比 */
+/** 追模式趋势力：小=-20%，大=20%；配置菜单多选，选项与档位一对一 */
 const CHASE_TIER_DEFS = [
-  { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%' },
-  { id: 'p20', rate: 0.2, takeProfitR: 2.5, label: '20%(核心)' },
+  { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%(震荡)' },
+  { id: 'p20', rate: 0.2, takeProfitR: 2.5, label: '20%(趋势)' },
 ];
-const CHASE_FORCE_DEFAULT = 'small';
+const CHASE_TIER_DEFAULT_IDS = ['m20'];
 const CHASE_TIERS_STORAGE_KEY = 'ok_chase_tiers';
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
 const REF_TAKE_PROFIT_R = 3;
@@ -481,7 +496,7 @@ let defaultTimeframeColumnAvailable = true;
 let developerModeColumnAvailable = true;
 let chaseTiersColumnAvailable = true;
 let isDeveloperMode = false;
-let chaseForceMode = CHASE_FORCE_DEFAULT;
+let chaseVisibleTierIds = CHASE_TIER_DEFAULT_IDS.slice();
 
 function loadCachedKellyFactorsFallback() {
   try {
@@ -2389,8 +2404,7 @@ const PLAYBOOK_SECTIONS = [
       '最重要的是根据操作准则，该坚持的坚持，该放弃的放弃,该原地止损的就原地止损。短线只需要1个15分钟线就能改变一切',
       '等价交易胜率最大，不贪图额外收益',
       '把握节奏，放大止损，最小收益，严格操作。',
-      '解决输多赢少问题：档位二合一，视情况转换。两极划线辅助观测。',
-      '核心看黄线，提前量至少要黄线完成交叉'
+      '解决输多赢少问题：档位二合一，视情况转换。两极划线辅助观测。'
     ],
   },
   {
@@ -3522,14 +3536,7 @@ function enrichStrategyRecordForSubmit(record) {
     next.outcomeStatus = editingStrategyPreserve.outcomeStatus ?? next.outcomeStatus;
     next.outcomeRemark = editingStrategyPreserve.outcomeRemark ?? '';
     next.viewMode = editingStrategyPreserve.viewMode ?? next.viewMode;
-    // 修改复用：重置一次性延期标记（时间范围已按新开始时间重算）
-    const preservedViewState = normalizeViewState(editingStrategyPreserve.viewState);
-    if ('timeExtended' in preservedViewState) {
-      const { timeExtended: _ignored, ...restViewState } = preservedViewState;
-      next.viewState = restViewState;
-    } else {
-      next.viewState = preservedViewState;
-    }
+    next.viewState = normalizeViewState(editingStrategyPreserve.viewState);
     next.starred = editingStrategyPreserve.starred === true;
   }
   return next;
@@ -5150,105 +5157,14 @@ function getOutcomeStatusInfo(outcomeStatus) {
   return { label: '待定', type: 'pending' };
 }
 
-function isStrategyTimeExtended(row) {
-  return normalizeViewState(row?.viewState).timeExtended === true;
-}
-
 function getStrategyEndAt(row) {
   const startAt = getStrategyStartAt(row);
   const unitMin = Number(row?.timeframeMinutes) || getTimeframeMinutes(row?.timeframe);
-  // 追模式（15m）：展示/筛选统一按开始 + 20 个时间维度周期（兼容旧单 expires_at 仍为 +9）；延期一次再 +20
+  // 追模式（15m）：展示/筛选统一按开始 + 20 个时间维度周期（兼容旧单 expires_at 仍为 +9）
   if (isChaseStrategyRow(row) && startAt && Number.isFinite(unitMin) && unitMin > 0) {
-    const periods = STRATEGY_DURATION_PERIODS_15M * (isStrategyTimeExtended(row) ? 2 : 1);
-    return new Date(startAt.getTime() + unitMin * periods * 60 * 1000);
+    return new Date(startAt.getTime() + unitMin * STRATEGY_DURATION_PERIODS_15M * 60 * 1000);
   }
   return parseDateValue(row?.expiresAt);
-}
-
-function canExtendStrategyTime(row) {
-  if (!row || isStrategyTimeExtended(row)) return false;
-  if (getAdminStrategyTypeInfo(row).type !== 'trend') return false;
-  const startAt = getStrategyStartAt(row);
-  const endAt = getStrategyEndAt(row);
-  if (!startAt || !endAt) return false;
-  return getTimeRangeStatusByEndAt(endAt) === 'ended';
-}
-
-function renderAdminTimeExtendHtml(strategyId) {
-  const id = escapeHtml(String(strategyId ?? '').trim());
-  if (!id) return '';
-  return [
-    '<div class="admin-time-status admin-time-status--extend">',
-    `<button type="button" class="admin-time-status__tag" data-admin-time-extend data-id="${id}" title="结束时间再延后一倍时长" aria-label="延期">延期</button>`,
-    '</div>',
-  ].join('');
-}
-
-let isExtendingStrategyTime = false;
-
-async function extendStrategyTime(id) {
-  const rawId = String(id ?? '').trim();
-  if (!rawId || isExtendingStrategyTime) return;
-  const row = latestAdminRows.find((item) => String(item?.id ?? '').trim() === rawId);
-  if (!canExtendStrategyTime(row)) {
-    showToast('无法延期');
-    return;
-  }
-  const startAt = getStrategyStartAt(row);
-  const endAt = getStrategyEndAt(row);
-  const unitMin = Number(row?.timeframeMinutes) || getTimeframeMinutes(row?.timeframe);
-  if (!startAt || !endAt || !(unitMin > 0)) {
-    showToast('无法延期');
-    return;
-  }
-  const currentDurationMin = Math.max(
-    unitMin,
-    Math.round((endAt.getTime() - startAt.getTime()) / (60 * 1000)),
-  );
-  const newValidPeriods = Math.max(1, Math.round((currentDurationMin * 2) / unitMin));
-  const durationMinutes = unitMin * newValidPeriods;
-  const expiresAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
-  const nextViewState = {
-    ...normalizeViewState(row.viewState),
-    timeExtended: true,
-  };
-  const prevRow = row;
-  isExtendingStrategyTime = true;
-  latestAdminRows = latestAdminRows.map((item) => (
-    String(item?.id ?? '').trim() === rawId
-      ? {
-        ...item,
-        validPeriods: newValidPeriods,
-        durationMinutes,
-        expiresAt: expiresAt.toISOString(),
-        viewState: nextViewState,
-      }
-      : item
-  ));
-  renderAdminListItems();
-  try {
-    const res = await supabaseFetch(`${STRATEGIES_ENDPOINT}?id=eq.${encodeURIComponent(rawId)}`, {
-      method: 'PATCH',
-      headers: getSupabaseHeaders({ Prefer: 'return=minimal' }),
-      body: JSON.stringify({
-        valid_periods: newValidPeriods,
-        duration_minutes: durationMinutes,
-        expires_at: expiresAt.toISOString(),
-        view_state: nextViewState,
-      }),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    showToast('已延期');
-  } catch (err) {
-    latestAdminRows = latestAdminRows.map((item) => (
-      String(item?.id ?? '').trim() === rawId ? prevRow : item
-    ));
-    renderAdminListItems();
-    showToast('延期失败');
-    console.error('[extend-strategy-time]', err);
-  } finally {
-    isExtendingStrategyTime = false;
-  }
 }
 
 function getStrategyStartAt(row) {
@@ -6161,9 +6077,6 @@ function buildAdminListItemHtml(row) {
       '</div>',
     ].join('')
     : '';
-  const timeExtendHtml = (!timeBadgeHtml && showTimeMeta && rawId && canExtendStrategyTime(row))
-    ? renderAdminTimeExtendHtml(rawId)
-    : '';
   const currentModeTagHtml = getAdminCurrentModeTagHtml(row);
   const timeframeTagHtml = strategyType.type === 'trend'
     ? getTimeframeTagHtml(row?.timeframe)
@@ -6181,7 +6094,7 @@ function buildAdminListItemHtml(row) {
     starHtml,
     '</div>',
   ].join('');
-  const headRightInner = timeBadgeHtml || timeExtendHtml;
+  const headRightInner = timeBadgeHtml;
   const headRightHtml = headRightInner
     ? `<div class="admin-item__head-right">${headRightInner}</div>`
     : '';
@@ -6241,18 +6154,9 @@ function updateAdminCountdowns() {
     const endAt = parseDateValue(el.getAttribute('data-expires-at'));
     const container = el.closest('.admin-time-status');
     if (!endAt || getTimeRangeStatusByEndAt(endAt) === 'ended') {
-      const item = el.closest('.admin-item');
-      const headRight = item?.querySelector('.admin-item__head-right');
-      const id = String(item?.getAttribute('data-id') ?? '').trim();
-      const row = id
-        ? latestAdminRows.find((itemRow) => String(itemRow?.id ?? '').trim() === id)
-        : null;
-      if (headRight && row && canExtendStrategyTime(row)) {
-        headRight.innerHTML = renderAdminTimeExtendHtml(id);
-      } else {
-        container?.remove();
-        if (headRight && !headRight.childElementCount) headRight.remove();
-      }
+      const headRight = el.closest('.admin-item')?.querySelector('.admin-item__head-right');
+      container?.remove();
+      if (headRight && !headRight.childElementCount) headRight.remove();
       return;
     }
     const nextLabel = formatCountdownTo(endAt, now);
@@ -7744,10 +7648,10 @@ document.querySelectorAll('[data-default-timeframe]').forEach((btn) => {
       .catch(() => {});
   });
 });
-document.querySelectorAll('[data-chase-force]').forEach((btn) => {
+document.querySelectorAll('[data-chase-option]').forEach((btn) => {
   btn.addEventListener('click', () => {
-    const id = btn.getAttribute('data-chase-force');
-    setChaseForce(id).catch(() => {});
+    const id = btn.getAttribute('data-chase-option');
+    toggleChaseTier(id).catch(() => {});
   });
 });
 const btnTabMethodology = document.getElementById('btn-tab-methodology');
@@ -7985,17 +7889,6 @@ if (adminListEl) {
       const ok = await copyTextToClipboard(text);
       if (ok) markAdminCopyCurrent(copyBtn);
       showToast(ok ? '已复制' : '复制失败');
-      return;
-    }
-
-    const extendBtn = target.closest('[data-admin-time-extend]');
-    if (extendBtn) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (isAdminSelectionMode || isDeletingStrategies || isExtendingStrategyTime) return;
-      const id = String(extendBtn.getAttribute('data-id') ?? '').trim();
-      if (!id) return;
-      extendStrategyTime(id).catch(() => {});
       return;
     }
 

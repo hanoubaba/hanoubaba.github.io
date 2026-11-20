@@ -629,7 +629,7 @@ check (
 -- default_timeframe：前台时间维度默认（15m/1h/4h/8h/1d）
 -- developer_mode：开发者模式
 -- trend_force：旧版趋势力单选（兼容保留）
--- chase_tiers：趋势力单选存储（小 m20；大 m20,p20）；默认小
+-- chase_tiers：趋势力多选（小 m20=-20%；大 p20=20%），逗号分隔，选项与档位一对一；默认小
 -- ------------------------------------------------------------
 
 create table if not exists public.app_settings (
