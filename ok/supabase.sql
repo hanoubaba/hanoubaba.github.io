@@ -624,8 +624,8 @@ check (
 
 -- ------------------------------------------------------------
 -- 6. 应用设置（多端同步）
--- unit_cost：可用本金（非负即可，无最低/默认下限）
--- kelly_ratio：凯利系数 1/30–1（分母=档位×n，默认 5×3=15，范围 1–30）；每档本金 = 总数 × 凯利
+-- unit_cost：单位本金，仅 30 / 50 / 100；每档本金 = 单位本金 × 倍数
+-- kelly_ratio：倍数，1–10 的整数，步长 1；每档本金 = 单位本金 × 倍数
 -- default_timeframe：前台时间维度默认（15m/1h/4h/8h/1d）
 -- developer_mode：开发者模式
 -- trend_force：旧版趋势力单选（兼容保留）
@@ -634,16 +634,16 @@ check (
 
 create table if not exists public.app_settings (
   id text primary key default 'default',
-  unit_cost numeric not null default 0,
-  kelly_ratio numeric not null default 0.0333,
+  unit_cost numeric not null default 100,
+  kelly_ratio numeric not null default 1,
   default_timeframe text not null default '4h',
   developer_mode boolean not null default false,
   trend_force text not null default 'small',
   chase_tiers text not null default 'm20',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint app_settings_unit_cost_nonneg_check check (unit_cost >= 0),
-  constraint app_settings_kelly_ratio_check check (kelly_ratio >= 0.0333 and kelly_ratio <= 1),
+  constraint app_settings_unit_cost_check check (unit_cost in (30, 50, 100)),
+  constraint app_settings_kelly_ratio_check check (kelly_ratio in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)),
   constraint app_settings_default_timeframe_check check (default_timeframe in ('15m', '1h', '4h', '8h', '1d')),
   constraint app_settings_trend_force_check check (trend_force in ('small', 'medium', 'large'))
 );
@@ -667,12 +667,17 @@ alter table public.app_settings
 add column if not exists chase_tiers text;
 
 update public.app_settings
-set unit_cost = 0
-where unit_cost is null or unit_cost < 0;
+set unit_cost = case
+  when unit_cost is null or unit_cost <= 0 then 100
+  when unit_cost < 40 then 30
+  when unit_cost < 75 then 50
+  else 100
+end
+where unit_cost is null or unit_cost not in (30, 50, 100);
 
 update public.app_settings
-set kelly_ratio = 0.0333
-where kelly_ratio is null or kelly_ratio < 0.0333 or kelly_ratio > 1;
+set kelly_ratio = least(10, greatest(1, round(kelly_ratio)))
+where kelly_ratio is null or kelly_ratio not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
 
 update public.app_settings
 set default_timeframe = '4h'
@@ -696,10 +701,10 @@ end
 where chase_tiers is null or btrim(chase_tiers) = '';
 
 alter table public.app_settings
-alter column unit_cost set default 0;
+alter column unit_cost set default 100;
 
 alter table public.app_settings
-alter column kelly_ratio set default 0.0333;
+alter column kelly_ratio set default 1;
 
 alter table public.app_settings
 alter column default_timeframe set default '4h';
@@ -738,15 +743,18 @@ alter table public.app_settings
 drop constraint if exists app_settings_unit_cost_nonneg_check;
 
 alter table public.app_settings
-add constraint app_settings_unit_cost_nonneg_check
-check (unit_cost >= 0);
+drop constraint if exists app_settings_unit_cost_check;
+
+alter table public.app_settings
+add constraint app_settings_unit_cost_check
+check (unit_cost in (30, 50, 100));
 
 alter table public.app_settings
 drop constraint if exists app_settings_kelly_ratio_check;
 
 alter table public.app_settings
 add constraint app_settings_kelly_ratio_check
-check (kelly_ratio >= 0.0333 and kelly_ratio <= 1);
+check (kelly_ratio in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
 
 alter table public.app_settings
 drop constraint if exists app_settings_default_timeframe_check;
@@ -763,7 +771,7 @@ add constraint app_settings_trend_force_check
 check (trend_force in ('small', 'medium', 'large'));
 
 insert into public.app_settings (id, unit_cost, kelly_ratio, default_timeframe, developer_mode, trend_force, chase_tiers)
-values ('default', 0, 0.0333, '4h', false, 'small', 'm20')
+values ('default', 100, 1, '4h', false, 'small', 'm20')
 on conflict (id) do nothing;
 
 drop trigger if exists app_settings_set_updated_at on public.app_settings;

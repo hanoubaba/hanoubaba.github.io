@@ -473,24 +473,18 @@ const OPEN_COST_BASE = 100;
 const OPEN_COST_MULTIPLIER_MIN = 1;
 const OPEN_COST_MULTIPLIER_MAX = 10;
 const OPEN_COST_MULTIPLIER_DEFAULT = 3;
-/** 后台管理：输入框为可用本金（总资金），落库 unit_cost；每档本金 = 可用本金 × 凯利系数（无最低/默认下限） */
-const ADMIN_TOTAL_CAPITAL_FALLBACK = 0;
-const KELLY_RATIO_MIN = 1 / 30;
-const KELLY_RATIO_MAX = 1;
-const KELLY_DENOM_MIN = 1;
-const KELLY_DENOM_MAX = 30;
-/** 分母 = 档位 × n；档位与 n 均可编辑；默认 5 × 3 = 15 */
-const KELLY_TIER_DEFAULT = 5;
-const KELLY_N_DEFAULT = 3;
-const KELLY_DENOM_DEFAULT = KELLY_TIER_DEFAULT * KELLY_N_DEFAULT;
-const KELLY_RATIO_DEFAULT = 1 / KELLY_DENOM_DEFAULT;
+/** 配置菜单单位本金：30 / 50 / 100，落库 unit_cost；每档本金 = 单位本金 × 倍数 */
+const UNIT_COST_OPTIONS = [30, 50, 100];
+const UNIT_COST_DEFAULT = 100;
+/** 倍数：1–10 的整数，步长 1；每档本金 = 单位本金 × 倍数 */
+const KELLY_RATIO_MIN = 1;
+const KELLY_RATIO_MAX = 10;
+const KELLY_RATIO_STEP = 1;
+const KELLY_RATIO_DEFAULT = 1;
 const KELLY_RATIO_STORAGE_KEY = 'ok_kelly_ratio';
-const KELLY_FACTORS_STORAGE_KEY = 'ok_kelly_factors';
 const DEVELOPER_MODE_STORAGE_KEY = 'ok_developer_mode';
-let cachedUnitCostInput = ADMIN_TOTAL_CAPITAL_FALLBACK;
+let cachedUnitCostInput = UNIT_COST_DEFAULT;
 let cachedKellyRatio = KELLY_RATIO_DEFAULT;
-let cachedKellyTier = KELLY_TIER_DEFAULT;
-let cachedKellyN = KELLY_N_DEFAULT;
 let kellyRatioColumnAvailable = true;
 let defaultTimeframeColumnAvailable = true;
 let developerModeColumnAvailable = true;
@@ -498,46 +492,10 @@ let chaseTiersColumnAvailable = true;
 let isDeveloperMode = false;
 let chaseVisibleTierIds = CHASE_TIER_DEFAULT_IDS.slice();
 
-function loadCachedKellyFactorsFallback() {
-  try {
-    const raw = localStorage.getItem(KELLY_FACTORS_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const factors = normalizeKellyFactors(parsed?.tier, parsed?.n);
-    if (factors == null) return null;
-    cachedKellyTier = factors.tier;
-    cachedKellyN = factors.n;
-    return factors;
-  } catch {
-    return null;
-  }
-}
-
-function persistKellyFactorsFallback(tier, n) {
-  try {
-    const factors = normalizeKellyFactors(tier, n);
-    if (factors == null) return;
-    localStorage.setItem(
-      KELLY_FACTORS_STORAGE_KEY,
-      JSON.stringify({ tier: factors.tier, n: factors.n }),
-    );
-  } catch {
-    // ignore
-  }
-}
-
 function loadCachedKellyRatioFallback() {
   try {
     const kelly = normalizeKellyRatio(localStorage.getItem(KELLY_RATIO_STORAGE_KEY));
     if (kelly != null) cachedKellyRatio = kelly;
-    const factors = loadCachedKellyFactorsFallback();
-    if (factors != null) {
-      const denom = factors.tier * factors.n;
-      const fromFactors = kellyRatioFromDenominator(denom);
-      if (fromFactors != null) cachedKellyRatio = fromFactors;
-      return;
-    }
-    applyKellyFactorsFromDenominator(kellyDenominatorFromRatio(cachedKellyRatio));
   } catch {
     // ignore
   }
@@ -551,22 +509,6 @@ function persistKellyRatioFallback(kelly) {
   }
 }
 
-function applyKellyFactors(tier, n) {
-  const factors = normalizeKellyFactors(tier, n);
-  if (factors == null) return null;
-  cachedKellyTier = factors.tier;
-  cachedKellyN = factors.n;
-  persistKellyFactorsFallback(factors.tier, factors.n);
-  return factors;
-}
-
-function applyKellyFactorsFromDenominator(denom) {
-  const factors = decomposeKellyFactors(denom);
-  cachedKellyTier = factors.tier;
-  cachedKellyN = factors.n;
-  persistKellyFactorsFallback(factors.tier, factors.n);
-  return factors;
-}
 const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const BEST_TAKE_PROFIT_R = 4.5;
@@ -716,107 +658,55 @@ function getOpenCostTotal(multiplier = OPEN_COST_MULTIPLIER_DEFAULT) {
 
 function normalizeUnitCost(value) {
   const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) return null;
-  return n;
-}
-
-function getUnitCostInputValue() {
-  const el = document.getElementById('unit-cost-input');
-  return String(el?.value ?? '').trim();
+  if (!Number.isFinite(n) || n <= 0) return UNIT_COST_DEFAULT;
+  if (UNIT_COST_OPTIONS.includes(n)) return n;
+  return UNIT_COST_OPTIONS.reduce((best, option) => (
+    Math.abs(option - n) <= Math.abs(best - n) ? option : best
+  ));
 }
 
 function getTotalCapital() {
-  return normalizeUnitCost(cachedUnitCostInput) ?? ADMIN_TOTAL_CAPITAL_FALLBACK;
+  return normalizeUnitCost(cachedUnitCostInput);
+}
+
+function syncUnitCostUI() {
+  const selected = getTotalCapital();
+  document.querySelectorAll('[data-unit-cost]').forEach((btn) => {
+    const active = Number(btn.getAttribute('data-unit-cost')) === selected;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
+async function setUnitCost(value) {
+  const next = normalizeUnitCost(value);
+  if (next === getTotalCapital()) return false;
+  cachedUnitCostInput = next;
+  syncUnitCostUI();
+  if (typeof currentPage !== 'undefined' && currentPage === 'admin') {
+    renderAdminListItems();
+  }
+  try {
+    await saveAppSettings({ unit_cost: next });
+  } catch {
+    // 本地已更新；后端失败时仍可本机使用
+  }
+  return true;
 }
 
 function normalizeKellyRatio(value) {
   const n = Number(value);
-  if (!Number.isFinite(n)) return null;
-  const rounded = Math.round(n * 10000) / 10000;
-  const min = Math.round(KELLY_RATIO_MIN * 10000) / 10000;
-  const max = Math.round(KELLY_RATIO_MAX * 10000) / 10000;
-  if (rounded < min - 1e-9 || rounded > max + 1e-9) return null;
-  return rounded;
+  if (!Number.isFinite(n)) return KELLY_RATIO_DEFAULT;
+  const rounded = Math.round(n / KELLY_RATIO_STEP) * KELLY_RATIO_STEP;
+  return Math.min(KELLY_RATIO_MAX, Math.max(KELLY_RATIO_MIN, rounded));
 }
 
-function normalizeKellyDenominator(value) {
-  const n = Math.round(Number(value));
-  if (!Number.isFinite(n) || n < KELLY_DENOM_MIN || n > KELLY_DENOM_MAX) return null;
-  return n;
-}
-
-function normalizeKellyFactorPart(value) {
-  const n = Math.round(Number(value));
-  if (!Number.isFinite(n) || n < 1 || n > KELLY_DENOM_MAX) return null;
-  return n;
-}
-
-/** 分母 = 档位 × n，须落在允许区间 */
-function normalizeKellyFactors(tierValue, nValue) {
-  const tier = normalizeKellyFactorPart(tierValue);
-  const n = normalizeKellyFactorPart(nValue);
-  if (tier == null || n == null) return null;
-  const denom = normalizeKellyDenominator(tier * n);
-  if (denom == null) return null;
-  return { tier, n, denom };
-}
-
-/** 从分母拆回档位 × n；优先沿用当前档位，其次默认 5，再找任意合法因式 */
-function decomposeKellyFactors(denomValue) {
-  const denom = normalizeKellyDenominator(denomValue) ?? KELLY_DENOM_DEFAULT;
-  const preferredTiers = [
-    normalizeKellyFactorPart(cachedKellyTier),
-    KELLY_TIER_DEFAULT,
-  ].filter((tier, index, list) => tier != null && list.indexOf(tier) === index);
-
-  for (const tier of preferredTiers) {
-    if (denom % tier !== 0) continue;
-    const factors = normalizeKellyFactors(tier, denom / tier);
-    if (factors != null) return factors;
-  }
-
-  for (let tier = 1; tier <= denom; tier += 1) {
-    if (denom % tier !== 0) continue;
-    const factors = normalizeKellyFactors(tier, denom / tier);
-    if (factors != null) return factors;
-  }
-
-  return {
-    tier: KELLY_TIER_DEFAULT,
-    n: KELLY_N_DEFAULT,
-    denom: KELLY_DENOM_DEFAULT,
-  };
-}
-
-function kellyRatioFromDenominator(denom) {
-  const n = normalizeKellyDenominator(denom);
-  if (n == null) return null;
-  return normalizeKellyRatio(1 / n);
-}
-
-function kellyDenominatorFromRatio(ratio) {
-  const kelly = normalizeKellyRatio(ratio);
-  if (kelly == null || !(kelly > 0)) return KELLY_DENOM_DEFAULT;
-  const denom = Math.round(1 / kelly);
-  return normalizeKellyDenominator(denom) ?? KELLY_DENOM_DEFAULT;
-}
-
-function getKellyRatio() {
+function getMultiplier() {
   return normalizeKellyRatio(cachedKellyRatio) ?? KELLY_RATIO_DEFAULT;
 }
 
-function getKellyDenominator() {
-  return kellyDenominatorFromRatio(getKellyRatio());
-}
-
-function getKellyFactors() {
-  const fromCache = normalizeKellyFactors(cachedKellyTier, cachedKellyN);
-  if (fromCache != null && fromCache.denom === getKellyDenominator()) return fromCache;
-  return decomposeKellyFactors(getKellyDenominator());
-}
-
 function getAdminTierFixedOpenCost() {
-  return getTotalCapital() * getKellyRatio();
+  return getTotalCapital() * getMultiplier();
 }
 
 function getAssistDisplayTierOpenCost(_row) {
@@ -878,25 +768,49 @@ function syncDeveloperModeUI() {
   document.body.classList.toggle('developer-mode', isDeveloperMode);
 }
 
-/** 仅从已保存值恢复输入框（加载数据） */
 function restoreUnitCostInput() {
-  const el = document.getElementById('unit-cost-input');
-  if (!el || document.activeElement === el) return;
-  el.value = String(getTotalCapital());
+  syncUnitCostUI();
 }
 
-function restoreKellyRatioInput() {
-  const tierEl = document.getElementById('kelly-tier-input');
-  const nEl = document.getElementById('kelly-n-input');
-  if (!tierEl && !nEl) return;
-  const factors = getKellyFactors();
-  if (tierEl && document.activeElement !== tierEl) tierEl.value = String(factors.tier);
-  if (nEl && document.activeElement !== nEl) nEl.value = String(factors.n);
+function syncMultiplierUI() {
+  const value = getMultiplier();
+  const label = document.getElementById('multiplier-value');
+  if (label) label.textContent = String(value);
+  const dec = document.getElementById('multiplier-dec');
+  const inc = document.getElementById('multiplier-inc');
+  if (dec) dec.disabled = value <= KELLY_RATIO_MIN;
+  if (inc) inc.disabled = value >= KELLY_RATIO_MAX;
+}
+
+function restoreMultiplierInput() {
+  syncMultiplierUI();
+}
+
+async function setMultiplier(value) {
+  const next = normalizeKellyRatio(value);
+  if (next === getMultiplier()) return false;
+  cachedKellyRatio = next;
+  syncMultiplierUI();
+  if (typeof currentPage !== 'undefined' && currentPage === 'admin') {
+    renderAdminListItems();
+  }
+  try {
+    await saveAppSettings({ kelly_ratio: next });
+  } catch {
+    // 本地已更新；后端失败时仍可本机使用
+  }
+  return true;
+}
+
+async function stepMultiplier(delta) {
+  const next = getMultiplier() + delta * KELLY_RATIO_STEP;
+  if (next < KELLY_RATIO_MIN || next > KELLY_RATIO_MAX) return false;
+  return setMultiplier(next);
 }
 
 function restoreConfigForm() {
   restoreUnitCostInput();
-  restoreKellyRatioInput();
+  restoreMultiplierInput();
   syncDeveloperModeUI();
   syncDefaultTimeframeUI();
   syncChaseTierUI();
@@ -914,8 +828,8 @@ function isMissingKellyRatioColumnError(errorText) {
 
 function getAppSettingsSnapshot() {
   return {
-    unit_cost: cachedUnitCostInput,
-    kelly_ratio: cachedKellyRatio,
+    unit_cost: getTotalCapital(),
+    kelly_ratio: getMultiplier(),
     default_timeframe: getConfiguredDefaultTimeframe(),
     developer_mode: Boolean(isDeveloperMode),
     chase_tiers: serializeChaseTierIds(getConfiguredChaseTierIds()),
@@ -964,21 +878,12 @@ async function fetchAppSettings() {
   }
   const rows = await res.json();
   const row = Array.isArray(rows) ? rows[0] : null;
-  const inputValue = normalizeUnitCost(row?.unit_cost);
-  if (inputValue != null) cachedUnitCostInput = inputValue;
+  if (row?.unit_cost != null) cachedUnitCostInput = normalizeUnitCost(row.unit_cost);
   if (kellyRatioColumnAvailable) {
     const kelly = normalizeKellyRatio(row?.kelly_ratio);
     if (kelly != null) {
       cachedKellyRatio = kelly;
       persistKellyRatioFallback(kelly);
-      const storedFactors = loadCachedKellyFactorsFallback();
-      const denom = kellyDenominatorFromRatio(kelly);
-      if (storedFactors != null && storedFactors.tier * storedFactors.n === denom) {
-        cachedKellyTier = storedFactors.tier;
-        cachedKellyN = storedFactors.n;
-      } else {
-        applyKellyFactorsFromDenominator(denom);
-      }
     } else {
       loadCachedKellyRatioFallback();
     }
@@ -1007,25 +912,16 @@ async function fetchAppSettings() {
 async function saveAppSettings(patch = {}) {
   const payload = { id: APP_SETTINGS_ID };
   let localOnlyApplied = false;
-  let pendingKellyFactors = null;
 
   if (Object.prototype.hasOwnProperty.call(patch, 'unit_cost')) {
-    const cost = normalizeUnitCost(patch.unit_cost);
-    if (cost == null) throw new Error('请输入有效的可用本金（须为非负数字）');
-    payload.unit_cost = cost;
+    payload.unit_cost = normalizeUnitCost(patch.unit_cost);
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'kelly_ratio')) {
     const kelly = normalizeKellyRatio(patch.kelly_ratio);
-    if (kelly == null) throw new Error(`分母须为 ${KELLY_DENOM_MIN}–${KELLY_DENOM_MAX} 的整数（即 1/${KELLY_DENOM_MAX}–1/${KELLY_DENOM_MIN}），由档位×个数得到`);
-    pendingKellyFactors = patch.kelly_factors != null
-      ? normalizeKellyFactors(patch.kelly_factors.tier, patch.kelly_factors.n)
-      : null;
     if (kellyRatioColumnAvailable) payload.kelly_ratio = kelly;
     else {
       cachedKellyRatio = kelly;
       persistKellyRatioFallback(kelly);
-      if (pendingKellyFactors != null) applyKellyFactors(pendingKellyFactors.tier, pendingKellyFactors.n);
-      else applyKellyFactorsFromDenominator(kellyDenominatorFromRatio(kelly));
       localOnlyApplied = true;
     }
   }
@@ -1086,14 +982,10 @@ async function saveAppSettings(patch = {}) {
       const retryPatch = {};
       if (payload.unit_cost != null) retryPatch.unit_cost = payload.unit_cost;
       if (payload.kelly_ratio != null) {
-        if (kellyRatioColumnAvailable) {
-          retryPatch.kelly_ratio = payload.kelly_ratio;
-          if (pendingKellyFactors != null) retryPatch.kelly_factors = pendingKellyFactors;
-        } else {
+        if (kellyRatioColumnAvailable) retryPatch.kelly_ratio = payload.kelly_ratio;
+        else {
           cachedKellyRatio = payload.kelly_ratio;
           persistKellyRatioFallback(payload.kelly_ratio);
-          if (pendingKellyFactors != null) applyKellyFactors(pendingKellyFactors.tier, pendingKellyFactors.n);
-          else applyKellyFactorsFromDenominator(kellyDenominatorFromRatio(payload.kelly_ratio));
         }
       }
       if (payload.default_timeframe != null) {
@@ -1117,8 +1009,6 @@ async function saveAppSettings(patch = {}) {
   if (payload.kelly_ratio != null) {
     cachedKellyRatio = payload.kelly_ratio;
     persistKellyRatioFallback(payload.kelly_ratio);
-    if (pendingKellyFactors != null) applyKellyFactors(pendingKellyFactors.tier, pendingKellyFactors.n);
-    else applyKellyFactorsFromDenominator(kellyDenominatorFromRatio(payload.kelly_ratio));
   }
   if (payload.default_timeframe != null) {
     applyDefaultTimeframeLocal(payload.default_timeframe, { syncFront: !editingStrategyId });
@@ -1130,86 +1020,6 @@ async function saveAppSettings(patch = {}) {
     applyChaseTierLocal(payload.chase_tiers);
   }
   return getAppSettingsSnapshot();
-}
-
-function setConfigSaveBusy(btn, busy) {
-  if (!btn) return;
-  btn.disabled = Boolean(busy);
-  btn.setAttribute('aria-busy', busy ? 'true' : 'false');
-  btn.classList.toggle('is-loading', Boolean(busy));
-  btn.textContent = busy ? '保存中' : '保存';
-}
-
-async function runConfigSave(btn, task) {
-  setConfigSaveBusy(btn, true);
-  const started = Date.now();
-  try {
-    await task();
-  } finally {
-    const wait = Math.max(0, 320 - (Date.now() - started));
-    if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
-    setConfigSaveBusy(btn, false);
-  }
-}
-
-async function handleUnitCostSave() {
-  const input = document.getElementById('unit-cost-input');
-  const btn = document.getElementById('unit-cost-save');
-  if (btn?.disabled) return;
-  const inputValue = normalizeUnitCost(getUnitCostInputValue());
-  if (inputValue == null) {
-    input?.focus();
-    showToast('请输入有效的可用本金（须为非负数字）');
-    return;
-  }
-  try {
-    await runConfigSave(btn, async () => {
-      await saveAppSettings({ unit_cost: inputValue });
-      restoreUnitCostInput();
-      showToast('可用本金已保存');
-      if (currentPage === 'admin') renderAdminListItems();
-    });
-  } catch (err) {
-    showToast(String(err?.message || '保存失败').slice(0, 80));
-  }
-}
-
-function getKellyTierInputValue() {
-  const el = document.getElementById('kelly-tier-input');
-  return String(el?.value ?? '').trim();
-}
-
-function getKellyNInputValue() {
-  const el = document.getElementById('kelly-n-input');
-  return String(el?.value ?? '').trim();
-}
-
-async function handleKellyRatioSave() {
-  const tierInput = document.getElementById('kelly-tier-input');
-  const nInput = document.getElementById('kelly-n-input');
-  const btn = document.getElementById('kelly-ratio-save');
-  if (btn?.disabled) return;
-  const factors = normalizeKellyFactors(getKellyTierInputValue(), getKellyNInputValue());
-  const kelly = factors != null ? kellyRatioFromDenominator(factors.denom) : null;
-  if (factors == null || kelly == null) {
-    const tierOk = normalizeKellyFactorPart(getKellyTierInputValue()) != null;
-    (tierOk ? nInput : tierInput)?.focus();
-    showToast(`分母=档位×个数，须为 ${KELLY_DENOM_MIN}–${KELLY_DENOM_MAX} 的整数`);
-    return;
-  }
-  try {
-    await runConfigSave(btn, async () => {
-      await saveAppSettings({
-        kelly_ratio: kelly,
-        kelly_factors: { tier: factors.tier, n: factors.n },
-      });
-      restoreKellyRatioInput();
-      showToast(`凯利系数已保存为 1/(${factors.tier}×${factors.n})=1/${factors.denom}`);
-      if (currentPage === 'admin') renderAdminListItems();
-    });
-  } catch (err) {
-    showToast(String(err?.message || '保存失败').slice(0, 80));
-  }
 }
 
 function hasAdminTierCostBudget(openCostTotal = null, fixedTierOpenCost = null) {
@@ -2719,10 +2529,11 @@ async function enterAuthenticatedApp() {
   syncDeveloperModeUI();
   syncDefaultTimeframeUI();
   syncChaseTierUI();
+  syncUnitCostUI();
   try {
     await fetchAppSettings();
   } catch {
-    cachedUnitCostInput = ADMIN_TOTAL_CAPITAL_FALLBACK;
+    cachedUnitCostInput = UNIT_COST_DEFAULT;
     loadCachedKellyRatioFallback();
     restoreConfigForm();
   }
@@ -7592,41 +7403,30 @@ const btnTabAdmin = document.getElementById('btn-tab-admin');
 if (btnTabAdmin) btnTabAdmin.addEventListener('click', () => setPage('admin'));
 const btnTabStats = document.getElementById('btn-tab-stats');
 if (btnTabStats) btnTabStats.addEventListener('click', () => setPage('stats'));
-const btnUnitCostSave = document.getElementById('unit-cost-save');
-if (btnUnitCostSave) btnUnitCostSave.addEventListener('click', () => {
-  handleUnitCostSave().catch(() => {});
+document.querySelectorAll('[data-unit-cost]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const next = btn.getAttribute('data-unit-cost');
+    setUnitCost(next)
+      .then((changed) => {
+        if (changed) showToast(`单位本金已设为 ${normalizeUnitCost(next)}`);
+      })
+      .catch(() => {});
+  });
 });
-const unitCostInput = document.getElementById('unit-cost-input');
-if (unitCostInput) {
-  unitCostInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleUnitCostSave().catch(() => {});
-    }
+function bindMultiplierStep(id, delta) {
+  const btn = document.getElementById(id);
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    stepMultiplier(delta)
+      .then((changed) => {
+        if (changed) showToast(`倍数已设为 ${getMultiplier()}`);
+      })
+      .catch(() => {});
   });
 }
-const btnKellyRatioSave = document.getElementById('kelly-ratio-save');
-if (btnKellyRatioSave) btnKellyRatioSave.addEventListener('click', () => {
-  handleKellyRatioSave().catch(() => {});
-});
-const kellyTierInput = document.getElementById('kelly-tier-input');
-if (kellyTierInput) {
-  kellyTierInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleKellyRatioSave().catch(() => {});
-    }
-  });
-}
-const kellyNInput = document.getElementById('kelly-n-input');
-if (kellyNInput) {
-  kellyNInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleKellyRatioSave().catch(() => {});
-    }
-  });
-}
+bindMultiplierStep('multiplier-dec', -1);
+bindMultiplierStep('multiplier-inc', 1);
+syncMultiplierUI();
 const developerModeToggle = document.getElementById('developer-mode-toggle');
 if (developerModeToggle) {
   developerModeToggle.addEventListener('click', () => {

@@ -113,21 +113,23 @@
       <h2 class="stats-page__title">配置菜单</h2>
       <div class="config-list">
         <div class="config-row">
-          <span class="config-row__label" id="unit-cost-label">可用本金</span>
+          <span class="config-row__label" id="unit-cost-label">单位本金</span>
           <span class="config-row__control">
-            <input id="unit-cost-input" class="config-row__input" type="text" inputmode="decimal" autocomplete="off" placeholder="本金" aria-labelledby="unit-cost-label" />
-            <button id="unit-cost-save" type="button" class="config-row__save">保存</button>
+            <div class="timeframe-switch config-timeframe-switch" role="tablist" aria-labelledby="unit-cost-label">
+              <button type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-unit-cost="30">30</button>
+              <button type="button" class="timeframe-switch__btn" role="tab" aria-selected="false" data-unit-cost="50">50</button>
+              <button type="button" class="timeframe-switch__btn is-active" role="tab" aria-selected="true" data-unit-cost="100">100</button>
+            </div>
           </span>
         </div>
         <div class="config-row">
-          <span class="config-row__label" id="kelly-denom-label">凯利系数</span>
-          <span class="config-row__control config-row__control--kelly">
-            <span class="config-kelly" aria-hidden="true">1 / (</span>
-            <input id="kelly-tier-input" class="config-row__input config-row__input--kelly" type="text" inputmode="numeric" autocomplete="off" value="5" aria-label="档位" title="档位（可编辑）" />
-            <span class="config-kelly" aria-hidden="true">×</span>
-            <input id="kelly-n-input" class="config-row__input config-row__input--kelly" type="text" inputmode="numeric" autocomplete="off" value="3" aria-label="个数" title="个数（可编辑）" />
-            <span class="config-kelly" aria-hidden="true">)</span>
-            <button id="kelly-ratio-save" type="button" class="config-row__save">保存</button>
+          <span class="config-row__label" id="multiplier-label">倍数</span>
+          <span class="config-row__control">
+            <div class="config-stepper" role="group" aria-labelledby="multiplier-label">
+              <button id="multiplier-dec" type="button" class="config-stepper__btn" aria-label="减少倍数">−</button>
+              <span id="multiplier-value" class="config-stepper__value" aria-live="polite">1</span>
+              <button id="multiplier-inc" type="button" class="config-stepper__btn" aria-label="增加倍数">+</button>
+            </div>
           </span>
         </div>
         <div class="config-row">
