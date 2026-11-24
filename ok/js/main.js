@@ -705,12 +705,21 @@ function getMultiplier() {
   return normalizeKellyRatio(cachedKellyRatio) ?? KELLY_RATIO_DEFAULT;
 }
 
-function getAdminTierFixedOpenCost() {
-  return getTotalCapital() * getMultiplier();
+/** name 以 2 结尾：后台单据本金翻倍 */
+function shouldDoubleCapitalByName(rowOrName) {
+  const name = typeof rowOrName === 'string' || rowOrName == null
+    ? String(rowOrName ?? '').trim()
+    : String(rowOrName?.strategyName ?? '').trim();
+  return name.endsWith('2');
 }
 
-function getAssistDisplayTierOpenCost(_row) {
-  return getAdminTierFixedOpenCost();
+function getAdminTierFixedOpenCost(rowOrName = null) {
+  const base = getTotalCapital() * getMultiplier();
+  return shouldDoubleCapitalByName(rowOrName) ? base * 2 : base;
+}
+
+function getAssistDisplayTierOpenCost(row) {
+  return getAdminTierFixedOpenCost(row);
 }
 
 function persistDeveloperModeFallback(enabled) {
@@ -1142,7 +1151,8 @@ function inferReverseFromConcessions(entryPrice, stopLoss, concessions, decimalP
 function buildUnifiedConcessionsForRow(row) {
   const entryPrice = toNumber(row?.entryPrice);
   const stopLoss = toNumber(row?.stopLossPrice);
-  if (entryPrice == null || stopLoss == null || !(getAdminTierFixedOpenCost() > 0)) return null;
+  const tierOpenCost = getAdminTierFixedOpenCost(row);
+  if (entryPrice == null || stopLoss == null || !(tierOpenCost > 0)) return null;
 
   const decimalPlaces = getPriceDecimalPlacesFromValues(
     row?.entryPrice,
@@ -1159,7 +1169,7 @@ function buildUnifiedConcessionsForRow(row) {
     decimalPlaces,
     getConcessionRatesForRow(row),
     reverse,
-    { fixedTierOpenCost: getAdminTierFixedOpenCost() },
+    { fixedTierOpenCost: tierOpenCost },
   );
 }
 
@@ -1279,13 +1289,14 @@ function getAdminStrategyTypeInfo(row) {
 function buildAdminDisplayConcessions(row) {
   const savedConcessions = buildAdminConcessionsForRow(row);
   const stopLoss = toNumber(row?.stopLossPrice);
+  const options = { fixedTierOpenCost: getAdminTierFixedOpenCost(row) };
   if (isCurrentTrendConcessionSet(savedConcessions, row?.timeframe)) {
-    return applyAdminFixedTierQuantities(savedConcessions, stopLoss);
+    return applyAdminFixedTierQuantities(savedConcessions, stopLoss, options);
   }
   const rebuilt = buildUnifiedConcessionsForRow(row);
   if (rebuilt) return rebuilt;
   if (hasConcessions(savedConcessions) && !isChaseStrategyRow(row)) {
-    return applyAdminFixedTierQuantities(savedConcessions, stopLoss);
+    return applyAdminFixedTierQuantities(savedConcessions, stopLoss, options);
   }
   return buildTrendAdminConcessions(row);
 }
@@ -1303,7 +1314,8 @@ function buildAdminAssistConcessionsForDisplay(row) {
 function buildTrendAdminConcessions(row) {
   const entryPrice = toNumber(row?.entryPrice);
   const stopLoss = toNumber(row?.stopLossPrice);
-  if (entryPrice == null || stopLoss == null || !(getAdminTierFixedOpenCost() > 0)) return [];
+  const tierOpenCost = getAdminTierFixedOpenCost(row);
+  if (entryPrice == null || stopLoss == null || !(tierOpenCost > 0)) return [];
 
   const decimalPlaces = getAdminPriceDecimalPlacesFromRow(row);
   const savedConcessions = buildAdminConcessionsForRow(row);
@@ -1315,7 +1327,7 @@ function buildTrendAdminConcessions(row) {
     decimalPlaces,
     getConcessionRatesForRow(row),
     reverse,
-    { fixedTierOpenCost: getAdminTierFixedOpenCost() },
+    { fixedTierOpenCost: tierOpenCost },
   );
 }
 
@@ -1380,6 +1392,7 @@ function buildLinkedTierAssistDisplay(row) {
     };
   }
   const tierAssistRates = getTierAssistRates();
+  const tierOpenCost = getAdminTierFixedOpenCost(row);
   const concessionItems = buildConcessionItems(
     entryPrice,
     stopLoss,
@@ -1387,10 +1400,12 @@ function buildLinkedTierAssistDisplay(row) {
     decimalPlaces,
     tierAssistRates,
     false,
-    { fixedTierOpenCost: getAdminTierFixedOpenCost() },
+    { fixedTierOpenCost: tierOpenCost },
   );
   const allowedRates = getConfiguredDisplayRates(tierAssistRates);
-  const concessions = applyAdminFixedTierQuantities(concessionItems, stopLoss).filter((item) => (
+  const concessions = applyAdminFixedTierQuantities(concessionItems, stopLoss, {
+    fixedTierOpenCost: tierOpenCost,
+  }).filter((item) => (
     allowedRates.some((rate) => Math.abs(Number(item.rate) - rate) < 1e-9)
   ));
   return {
@@ -3911,6 +3926,7 @@ function buildTierAssistRecord({
 }) {
   const name = String(parentRow?.strategyName ?? '').trim() || 'test';
   const openCostTotal = getOpenCostTotal();
+  const tierOpenCost = getAdminTierFixedOpenCost(name);
   const concessionItems = buildConcessionItems(
     entryPrice,
     stopLoss,
@@ -3918,7 +3934,7 @@ function buildTierAssistRecord({
     decimalPlaces,
     TIER_ASSIST_RATES,
     false,
-    { fixedTierOpenCost: getAdminTierFixedOpenCost() },
+    { fixedTierOpenCost: tierOpenCost },
   );
   if (!concessionItems.length) return null;
   const primaryItem = concessionItems[0];
@@ -3945,12 +3961,12 @@ function buildTierAssistRecord({
     quantity: primaryItem.quantity,
     takeProfitPrice: tpLabel,
     stopLossPrice: stopLabel,
-    openCost: getAdminTierFixedOpenCost(),
+    openCost: tierOpenCost,
     openCostMultiplier: OPEN_COST_MULTIPLIER_DEFAULT,
     openCostTotal,
     tierCount: TIER_ASSIST_RATES.length,
     tradeMode: TRADE_MODE_NORMAL,
-    grade: getStrategyGradeFromOpenCost(getAdminTierFixedOpenCost(), openCostTotal, TIER_ASSIST_RATES.length),
+    grade: getStrategyGradeFromOpenCost(tierOpenCost, openCostTotal, TIER_ASSIST_RATES.length),
     priceAdjustmentRate: 0,
     priceAdjustment: '0',
     concessions: concessionItems,
@@ -5769,7 +5785,9 @@ function buildAdminListItemHtml(row) {
     const saved = hasConcessions(row?.concessions) ? row.concessions : [];
     const stopLoss = toNumber(row?.stopLossPrice);
     const allowedRates = getConfiguredDisplayRates(getTierAssistRates());
-    concessions = applyAdminFixedTierQuantities(saved, stopLoss).filter((item) => (
+    concessions = applyAdminFixedTierQuantities(saved, stopLoss, {
+      fixedTierOpenCost: getAdminTierFixedOpenCost(row),
+    }).filter((item) => (
       allowedRates.some((rate) => Math.abs(Number(item.rate) - rate) < 1e-9)
     ));
     takeProfitLargeLabel = formatAdminPriceFromValue(row?.takeProfitPrice, priceDecimalPlaces) || '—';
