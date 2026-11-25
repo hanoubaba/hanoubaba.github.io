@@ -513,8 +513,8 @@ const OPEN_COST_TOTAL_PREMIUM_LEVELS = [500, 1000];
 const TAKE_PROFIT_R_MULTIPLE = 1;
 const BEST_TAKE_PROFIT_R = 4.5;
 const STRATEGY_DURATION_PERIODS = 9;
-/** 追模式（15m）：结束时间 = 开始 + 20 个时间维度周期 */
-const STRATEGY_DURATION_PERIODS_15M = 20;
+/** 追模式（15m）：结束时间 = 开始 + 40 个时间维度周期（10 小时） */
+const STRATEGY_DURATION_PERIODS_15M = 40;
 const ASSIST_DURATION_PERIODS = 3;
 const ASSIST_TAKE_PROFIT_MULTIPLE = 2;
 /** 反趋势：挂单档位 = 原策略 1/2/3/5 倍止盈价，止损 = 10 倍止盈价；另展示 10R–100R 价格（无数量） */
@@ -4987,7 +4987,7 @@ function getOutcomeStatusInfo(outcomeStatus) {
 function getStrategyEndAt(row) {
   const startAt = getStrategyStartAt(row);
   const unitMin = Number(row?.timeframeMinutes) || getTimeframeMinutes(row?.timeframe);
-  // 追模式（15m）：展示/筛选统一按开始 + 20 个时间维度周期（兼容旧单 expires_at 仍为 +9）
+  // 追模式（15m）：展示/筛选统一按开始 + 40 个时间维度周期（10 小时；兼容旧单 expires_at）
   if (isChaseStrategyRow(row) && startAt && Number.isFinite(unitMin) && unitMin > 0) {
     return new Date(startAt.getTime() + unitMin * STRATEGY_DURATION_PERIODS_15M * 60 * 1000);
   }
