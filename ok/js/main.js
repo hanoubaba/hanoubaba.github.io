@@ -196,9 +196,8 @@ function getCurrentTimeSlot(stepMinutes) {
   return formatStartSlotValue(floorDateToStep(new Date(), stepMinutes));
 }
 
-const START_TIME_SLOT_COUNT = 9;
-/** 开始时间不含尚未到来的时间段 */
-const START_TIME_FUTURE_SLOT_COUNT = 0;
+/** 开始时间可选范围：当前格往前 10 小时；不含未来时间段 */
+const START_TIME_LOOKBACK_HOURS = 10;
 const BUILTIN_DEFAULT_TIMEFRAME = '4h';
 const DEFAULT_TIMEFRAME_OPTIONS = ['15m', '1h', '4h', '8h', '1d'];
 const DEFAULT_TIMEFRAME_STORAGE_KEY = 'ok_default_timeframe';
@@ -468,8 +467,8 @@ const CONCESSION_RATES_BASIC = [
 /** 追模式趋势力：小=-20%，大=20%；配置菜单多选，选项与档位一对一 */
 const CHASE_TIER_DEFS = [
   // 震荡档：可用资金为一半；止盈止损与趋势档一致（同 takeProfitR / 同止损价）
-  { id: 'm20', rate: -0.2, takeProfitR: 2.5, capitalFactor: 0.5, label: '-20%(震荡)' },
-  { id: 'p20', rate: 0.2, takeProfitR: 2.5, capitalFactor: 1, label: '20%(趋势)' },
+  { id: 'm20', rate: -0.2, takeProfitR: 2.5, capitalFactor: 0.5, label: '-20%' },
+  { id: 'p20', rate: 0.2, takeProfitR: 2.5, capitalFactor: 1, label: '+20%' },
 ];
 const CHASE_TIER_DEFAULT_IDS = ['m20'];
 const CHASE_TIERS_STORAGE_KEY = 'ok_chase_tiers';
@@ -477,6 +476,8 @@ const CHASE_TIERS_STORAGE_KEY = 'ok_chase_tiers';
 const CHASE_TAKE_PROFIT_SMALL_R = 1.5;
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
 const REF_TAKE_PROFIT_R = 3;
+/** 止损复制：相对核心点位与止损点位差值再让出 2% 空间，防止恶意止损 */
+const STOP_LOSS_COPY_CUSHION_RATE = 0.02;
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
 const DEFAULT_TIER_COUNT = 3;
 const TRADE_MODE_NORMAL = 'normal';
@@ -2774,8 +2775,10 @@ function getTimeSlotsByMode(mode) {
   const stepMinutes = getTimeframeMinutes(normalizedMode);
   const now = new Date();
   const currentSlot = floorDateToStep(now, stepMinutes);
-  // 历史格 + 当前已开始的格；开始时间晚于现在的不进入选项
-  for (let i = START_TIME_SLOT_COUNT - 1; i >= -START_TIME_FUTURE_SLOT_COUNT; i -= 1) {
+  const lookbackMs = START_TIME_LOOKBACK_HOURS * 60 * 60 * 1000;
+  const maxPastSteps = Math.max(0, Math.floor(lookbackMs / (stepMinutes * 60 * 1000)));
+  // 当前格往前 10 小时内的历史格；未来时间段不进入选项
+  for (let i = maxPastSteps; i >= 0; i -= 1) {
     const at = new Date(currentSlot.getTime() - i * stepMinutes * 60 * 1000);
     if (at.getTime() > now.getTime()) continue;
     slots.push({
@@ -2807,11 +2810,10 @@ function resolveStartTimeSelection(mode, prevValue) {
     if (match) return match.value;
   }
 
-  // 默认仍选当前时间格，不自动跳到「下一个」未来格
+  // 默认仍选当前时间格，不选未来格
   const currentValue = getCurrentTimeSlot(stepMinutes);
   if (slots.some((slot) => slot.value === currentValue)) return currentValue;
-  const currentIndex = Math.max(0, slots.length - 1 - START_TIME_FUTURE_SLOT_COUNT);
-  return slots[currentIndex].value;
+  return slots[slots.length - 1].value;
 }
 
 function getStartTimeFieldEls(scope = getFrontFormScope()) {
@@ -3488,9 +3490,14 @@ function buildAdminBestTakeProfitLabel(entryPrice, stopLoss, decimalPlaces = 0) 
   return formatTrimmedFixedDecimals(normalized, decimals);
 }
 
-function renderAdminTpSlBlock(modClass, label, value, ariaLabel, { copyable = true, current = false } = {}) {
+function renderAdminTpSlBlock(modClass, label, value, ariaLabel, {
+  copyable = true,
+  current = false,
+  copyText = null,
+} = {}) {
   const text = String(value ?? '').trim() || '—';
-  const canCopy = copyable && Boolean(text && text !== '—');
+  const copyValue = String(copyText ?? text).trim() || text;
+  const canCopy = copyable && Boolean(copyValue && copyValue !== '—');
   const className = [
     'admin-item__tp-sl-item',
     modClass,
@@ -3499,9 +3506,24 @@ function renderAdminTpSlBlock(modClass, label, value, ariaLabel, { copyable = tr
   ].filter(Boolean).join(' ');
   const tag = canCopy ? 'button' : 'span';
   const copyAttrs = canCopy
-    ? ` type="button" data-copy-text="${escapeHtml(text)}" title="点击复制" aria-label="复制${escapeHtml(label)} ${escapeHtml(text)}"`
+    ? ` type="button" data-copy-text="${escapeHtml(copyValue)}" title="点击复制" aria-label="复制${escapeHtml(label)} ${escapeHtml(copyValue)}"`
     : ` aria-label="${escapeHtml(ariaLabel)}"`;
   return `<${tag} class="${className}"${copyAttrs}><span class="admin-item__tp-sl-label">${escapeHtml(label)}</span><span class="admin-item__tp-sl-value">${escapeHtml(text)}</span></${tag}>`;
+}
+
+/** 止损复制价：沿远离核心点位方向，再让出差值的 2% 空间 */
+function buildStopLossCopyLabel(entryPrice, stopLoss, decimalPlaces = 0) {
+  const entry = toNumber(entryPrice);
+  const stop = toNumber(stopLoss);
+  if (entry == null || stop == null || entry === stop) {
+    return formatAdminPriceFromValue(stopLoss, decimalPlaces) || '—';
+  }
+  const stopDiff = Math.abs(entry - stop);
+  const awayFromEntry = stop > entry ? 1 : -1;
+  const cushioned = clampPriceAtZero(stop + awayFromEntry * STOP_LOSS_COPY_CUSHION_RATE * stopDiff);
+  if (cushioned == null) return formatAdminPriceFromValue(stopLoss, decimalPlaces) || '—';
+  const decimals = Math.max(0, Math.min(20, Math.floor(Number(decimalPlaces) || 0)));
+  return formatTrimmedFixedDecimals(cushioned, decimals);
 }
 
 function renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLossLabel, {
@@ -3509,10 +3531,12 @@ function renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabe
   takeProfitSmallTitle = '止盈小',
   /** 追模式旧布局：止盈大在左、止盈在中（已由三档布局替代） */
   takeProfitLargeOnLeft = false,
+  stopLossCopyLabel = null,
 } = {}) {
   const tpSmallRaw = String(takeProfitSmallLabel ?? '').trim() || '—';
   const tpLargeRaw = String(takeProfitLargeLabel ?? '').trim() || '—';
   const slRaw = String(stopLossLabel ?? '').trim() || '—';
+  const slCopyRaw = String(stopLossCopyLabel ?? slRaw).trim() || slRaw;
   const smallTitle = String(takeProfitSmallTitle ?? '').trim() || '止盈小';
 
   let leftBlock;
@@ -3533,7 +3557,9 @@ function renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabe
     '<div class="admin-item__tp-sl" aria-label="止盈止损">',
     leftBlock,
     centerBlock,
-    renderAdminTpSlBlock('admin-item__tp-sl-item--sl', '止损', slRaw, '止损价格'),
+    renderAdminTpSlBlock('admin-item__tp-sl-item--sl', '止损', slRaw, '止损价格', {
+      copyText: slCopyRaw,
+    }),
     '</div>',
   ].join('');
 }
@@ -5862,7 +5888,17 @@ function buildAdminListItemHtml(row) {
     }),
     showCounterTrend
       ? ''
-      : renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLabel),
+      : renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLabel, {
+        stopLossCopyLabel: buildStopLossCopyLabel(
+          isAssistLikeStrategy
+            ? (row?.inputStopLoss ?? row?.entryPrice)
+            : row?.entryPrice,
+          isAssistLikeStrategy
+            ? (row?.inputPrice ?? row?.stopLossPrice)
+            : row?.stopLossPrice,
+          priceDecimalPlaces,
+        ),
+      }),
   ].join('');
   const baseStartAt = getStrategyStartAt(row);
   const baseEndAt = getStrategyEndAt(row);
