@@ -359,18 +359,26 @@ function getVisibleChaseTierDefs() {
 }
 
 function getChaseTakeProfitR() {
-  return Number(getVisibleChaseTierDefs()[0]?.takeProfitR) || 0.8;
+  return Number(getVisibleChaseTierDefs()[0]?.takeProfitR) || 2.5;
 }
 
-/** 追模式：按趋势力多选结果展示档位，每个选项对应一个档位 */
+function getChaseTierCapitalFactorByRate(rate) {
+  const matched = CHASE_TIER_DEFS.find((tier) => Math.abs(Number(tier.rate) - Number(rate)) < 1e-9);
+  const factor = Number(matched?.capitalFactor);
+  return Number.isFinite(factor) && factor > 0 ? factor : 1;
+}
+
+/** 追模式：按趋势力多选结果展示档位；震荡档 capitalFactor=0.5 */
 function getChaseConcessionRates() {
-  const tiers = getVisibleChaseTierDefs();
-  const share = 1 / tiers.length;
-  return tiers.map((tier) => ({
-    rate: Number(tier.rate),
-    display: true,
-    costShare: share,
-  }));
+  return getVisibleChaseTierDefs().map((tier) => {
+    const capitalFactor = Number(tier.capitalFactor);
+    return {
+      rate: Number(tier.rate),
+      display: true,
+      costShare: Number.isFinite(capitalFactor) && capitalFactor > 0 ? capitalFactor : 1,
+      capitalFactor: Number.isFinite(capitalFactor) && capitalFactor > 0 ? capitalFactor : 1,
+    };
+  });
 }
 
 function persistChaseTierFallback(ids) {
@@ -459,8 +467,9 @@ const CONCESSION_RATES_BASIC = [
 ];
 /** 追模式趋势力：小=-20%，大=20%；配置菜单多选，选项与档位一对一 */
 const CHASE_TIER_DEFS = [
-  { id: 'm20', rate: -0.2, takeProfitR: 0.8, label: '-20%(震荡)' },
-  { id: 'p20', rate: 0.2, takeProfitR: 2.5, label: '20%(趋势)' },
+  // 震荡档：可用资金为一半；止盈止损与趋势档一致（同 takeProfitR / 同止损价）
+  { id: 'm20', rate: -0.2, takeProfitR: 2.5, capitalFactor: 0.5, label: '-20%(震荡)' },
+  { id: 'p20', rate: 0.2, takeProfitR: 2.5, capitalFactor: 1, label: '20%(趋势)' },
 ];
 const CHASE_TIER_DEFAULT_IDS = ['m20'];
 const CHASE_TIERS_STORAGE_KEY = 'ok_chase_tiers';
@@ -1041,6 +1050,7 @@ function hasAdminTierCostBudget(openCostTotal = null, fixedTierOpenCost = null) 
 function applyAdminFixedTierQuantities(concessions, stopLoss, {
   isAssist: _isAssist = false,
   fixedTierOpenCost = null,
+  chaseCapitalFactors = false,
 } = {}) {
   if (!hasConcessions(concessions)) return [];
   const stop = toNumber(stopLoss);
@@ -1049,7 +1059,10 @@ function applyAdminFixedTierQuantities(concessions, stopLoss, {
   const rawQtys = concessions.map((item) => {
     const price = toNumber(item.price);
     if (price == null || price === stop) return null;
-    const qty = calcQuantityByRisk(tierCost, price, stop);
+    const cost = chaseCapitalFactors
+      ? tierCost * getChaseTierCapitalFactorByRate(item.rate)
+      : tierCost;
+    const qty = calcQuantityByRisk(cost, price, stop);
     return qty != null && qty > 0 ? qty : null;
   });
   return applyDatasetQuantityFormat(concessions.map((item) => ({ ...item })), rawQtys);
@@ -1289,7 +1302,10 @@ function getAdminStrategyTypeInfo(row) {
 function buildAdminDisplayConcessions(row) {
   const savedConcessions = buildAdminConcessionsForRow(row);
   const stopLoss = toNumber(row?.stopLossPrice);
-  const options = { fixedTierOpenCost: getAdminTierFixedOpenCost(row) };
+  const options = {
+    fixedTierOpenCost: getAdminTierFixedOpenCost(row),
+    chaseCapitalFactors: isChaseStrategyRow(row),
+  };
   if (isCurrentTrendConcessionSet(savedConcessions, row?.timeframe)) {
     return applyAdminFixedTierQuantities(savedConcessions, stopLoss, options);
   }
@@ -3708,10 +3724,12 @@ function sortConcessionItemsQuantityAsc(items) {
 function normalizeConcessionRateConfig(rateConfig) {
   if (rateConfig && typeof rateConfig === 'object') {
     const costShare = Number(rateConfig.costShare);
+    const capitalFactor = Number(rateConfig.capitalFactor);
     return {
       rate: Number(rateConfig.rate),
       display: rateConfig.display === true,
       costShare: Number.isFinite(costShare) && costShare > 0 ? costShare : null,
+      capitalFactor: Number.isFinite(capitalFactor) && capitalFactor > 0 ? capitalFactor : null,
       reuseMinTierCost: rateConfig.reuseMinTierCost === true,
     };
   }
@@ -3719,6 +3737,7 @@ function normalizeConcessionRateConfig(rateConfig) {
     rate: Number(rateConfig),
     display: false,
     costShare: null,
+    capitalFactor: null,
     reuseMinTierCost: false,
   };
 }
@@ -3730,14 +3749,24 @@ function buildConcessionItems(entryPrice, stopLoss, openCostTotal, decimalPlaces
   const items = [];
   const rawQtys = [];
   for (const rateConfig of rates) {
-    const { rate, display, costShare, reuseMinTierCost } = normalizeConcessionRateConfig(rateConfig);
+    const { rate, display, costShare, capitalFactor, reuseMinTierCost } = normalizeConcessionRateConfig(rateConfig);
     const price = calcConcessionalEntryPrice(entryPrice, stopLoss, rate, decimalPlaces, reverse);
     const share = reuseMinTierCost
       ? minFundedShare
       : (costShare != null ? costShare : (fundedCount > 0 ? 1 / fundedCount : null));
-    const tierOpenCost = share != null && share > 0
+    let tierOpenCost = share != null && share > 0
       ? resolveTierOpenCost(openCostTotal, share, fixedTierOpenCost)
       : null;
+    // 固定每档本金时，再按档位 capitalFactor 缩放（震荡档 0.5）
+    if (
+      tierOpenCost != null
+      && Number.isFinite(Number(fixedTierOpenCost))
+      && Number(fixedTierOpenCost) > 0
+      && capitalFactor != null
+      && capitalFactor !== 1
+    ) {
+      tierOpenCost *= capitalFactor;
+    }
     const qty = price == null ? null : calcQuantityByRisk(tierOpenCost, price, stopLoss);
     if (price == null || qty == null) continue;
     const item = {
