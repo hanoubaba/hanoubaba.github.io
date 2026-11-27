@@ -473,6 +473,8 @@ const CHASE_TIER_DEFS = [
 ];
 const CHASE_TIER_DEFAULT_IDS = ['m20'];
 const CHASE_TIERS_STORAGE_KEY = 'ok_chase_tiers';
+/** 追模式止盈小：1.5R；止盈大用各档 takeProfitR（当前均为 2.5R） */
+const CHASE_TAKE_PROFIT_SMALL_R = 1.5;
 /** 普通止盈小：盈利 = 3 × 单位本金（即 3R）对应价格 */
 const REF_TAKE_PROFIT_R = 3;
 const LEGACY_TIER_COUNTS = new Set([5, 6, 7]);
@@ -3436,7 +3438,7 @@ function normalizeReferenceTakeProfitPrice(price) {
   return clampPriceAtZero(price);
 }
 
-/** 止盈：普通「止盈小」3R；追模式按挡位展示 0R/0.8R/1R/1.2R/2.5R */
+/** 止盈：普通「止盈小」3R；追模式止盈小 1.5R、止盈大按档位 takeProfitR（2.5R） */
 function buildReferenceTakeProfitLabel(entryPrice, stopLoss, decimalPlaces, { chase = false } = {}) {
   const entry = toNumber(entryPrice);
   const stop = toNumber(stopLoss);
@@ -3500,58 +3502,6 @@ function renderAdminTpSlBlock(modClass, label, value, ariaLabel, { copyable = tr
     ? ` type="button" data-copy-text="${escapeHtml(text)}" title="点击复制" aria-label="复制${escapeHtml(label)} ${escapeHtml(text)}"`
     : ` aria-label="${escapeHtml(ariaLabel)}"`;
   return `<${tag} class="${className}"${copyAttrs}><span class="admin-item__tp-sl-label">${escapeHtml(label)}</span><span class="admin-item__tp-sl-value">${escapeHtml(text)}</span></${tag}>`;
-}
-
-/** 追模式：沿用原「让利档 + 止盈止损」两行布局；按所选趋势力档位展示，数量从小到大 */
-function renderAdminChaseTiersHtml(row, concessions, stopLabel, priceDecimalPlaces = 0) {
-  const items = getDisplayConcessionItems(concessions);
-  const tierEntries = getVisibleChaseTierDefs().map((tier) => {
-    const targetRate = Number(tier.rate);
-    const tierItems = items.filter((it) => Math.abs(Number(it.rate) - targetRate) < 1e-9);
-    const qty = toNumber(String(tierItems[0]?.quantity ?? '').replace(/,/g, ''));
-    return { tier, tierItems, qty };
-  }).sort((a, b) => {
-    if (a.qty != null && b.qty != null && Math.abs(a.qty - b.qty) > 1e-12) return a.qty - b.qty;
-    if (a.qty != null && b.qty == null) return -1;
-    if (a.qty == null && b.qty != null) return 1;
-    return Number(a.tier.rate) - Number(b.tier.rate);
-  });
-  const blocks = tierEntries.map(({ tier, tierItems }, index) => {
-    const rateHeader = String(tier.label ?? formatConcessionPercent(tier.rate)).trim() || '—';
-    // 挡位数值放到原「让利」表头位置；行内不再重复显示百分比
-    const labeledItems = tierItems.map((item) => ({ ...item, rateLabel: '' }));
-    const takeProfitLabel = buildAdminChaseTakeProfitLabel(
-      row?.entryPrice,
-      row?.stopLossPrice,
-      tier.takeProfitR,
-      priceDecimalPlaces,
-    );
-    const isTopTier = index === 0;
-    return [
-      `<div class="admin-item__chase-copy" data-chase-tier="${escapeHtml(tier.id)}" data-chase-rate="${escapeHtml(String(tier.rate))}">`,
-      renderAdminConcessionsHtml(labeledItems, stopLabel, {
-        priceDecimalPlaces,
-        hideStopColumn: true,
-        selectableStrategyId: '',
-        groupBestPeers: false,
-        rateHeaderLabel: rateHeader,
-        // 仅顶部档位展示「价格」「数量」列名
-        priceHeaderLabel: isTopTier ? '价格' : '',
-        qtyHeaderLabel: isTopTier ? '数量' : '',
-      }),
-      // 与原先追模式一致：止盈 | 止损（不显示止盈大）
-      renderAdminTakeProfitStopHtml(takeProfitLabel, '', stopLabel, {
-        hideTakeProfitLarge: true,
-        takeProfitSmallTitle: '止盈',
-      }),
-      '</div>',
-    ].join('');
-  });
-  return [
-    '<div class="admin-item__chase-copies" aria-label="趋势力档位">',
-    ...blocks,
-    '</div>',
-  ].join('');
 }
 
 function renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLossLabel, {
@@ -3666,6 +3616,11 @@ function formatConcessionPercent(rate) {
 
 function getTrendConcessionLabel(rate) {
   const matched = CONCESSION_RATES.find((item) => Math.abs(Number(item.rate) - Number(rate)) < 1e-9);
+  return matched?.label || formatConcessionPercent(rate);
+}
+
+function getChaseConcessionLabel(rate) {
+  const matched = CHASE_TIER_DEFS.find((item) => Math.abs(Number(item.rate) - Number(rate)) < 1e-9);
   return matched?.label || formatConcessionPercent(rate);
 }
 
@@ -5833,21 +5788,37 @@ function buildAdminListItemHtml(row) {
     stopLabel = formatAdminPriceFromValue(row?.inputPrice ?? row?.stopLossPrice, priceDecimalPlaces) || '—';
   } else {
     concessions = buildAdminDisplayConcessions(row);
-    // 止盈：普通 3R（止盈小）+ 4.5R（止盈大）；追模式多挡止盈见下方 chase 布局
-    takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
-      row?.entryPrice,
-      row?.stopLossPrice,
-      priceDecimalPlaces,
-      { chase: false },
-    );
-    takeProfitLargeLabel = buildAdminBestTakeProfitLabel(
-      row?.entryPrice,
-      row?.stopLossPrice,
-      priceDecimalPlaces,
-    );
     stopLabel = formatAdminPriceFromValue(row?.stopLossPrice, priceDecimalPlaces) || '—';
+    if (isChaseStrategyRow(row)) {
+      // 追模式与 4h 同布局：止盈小 1.5R + 止盈大 2.5R
+      takeProfitSmallLabel = buildAdminChaseTakeProfitLabel(
+        row?.entryPrice,
+        row?.stopLossPrice,
+        CHASE_TAKE_PROFIT_SMALL_R,
+        priceDecimalPlaces,
+      );
+      takeProfitLargeLabel = buildAdminChaseTakeProfitLabel(
+        row?.entryPrice,
+        row?.stopLossPrice,
+        getChaseTakeProfitR(),
+        priceDecimalPlaces,
+      );
+    } else {
+      // 普通：止盈小 3R + 止盈大 4.5R
+      takeProfitSmallLabel = buildAdminReferenceTakeProfitLabel(
+        row?.entryPrice,
+        row?.stopLossPrice,
+        priceDecimalPlaces,
+        { chase: false },
+      );
+      takeProfitLargeLabel = buildAdminBestTakeProfitLabel(
+        row?.entryPrice,
+        row?.stopLossPrice,
+        priceDecimalPlaces,
+      );
+    }
   }
-  const isChaseTrendTp = Boolean(
+  const isChaseTrend = Boolean(
     isChaseStrategyRow(row)
     && strategyType.type === 'trend'
     && !showTierAssistView
@@ -5863,32 +5834,36 @@ function buildAdminListItemHtml(row) {
         : `<span class="admin-item__side admin-item__side--${sideMod}" aria-label="${sideLabel}">${sideLabel}</span>`
     )
     : '';
-  const tableBodyHtml = isChaseTrendTp
-    ? renderAdminChaseTiersHtml(row, concessions, stopLabel, priceDecimalPlaces)
-    : [
-      renderAdminConcessionsHtml(concessions, stopLabel, {
-        priceDecimalPlaces,
-        assistLabels: isAssistLikeStrategy,
-        hideStopColumn: true,
-        selectableStrategyId: '',
-        isCurrentItem: (item) => isAdminConcessionCurrentItem(item, row),
-        // 趋势力预测：倍数由高到低；趋势立项/趋势辅助 5 档：数量小的在上方
-        reverseOrder: showCounterTrend,
-        ...(showCounterTrend
-          ? {
-            formatRate: formatCounterTrendRate,
-            rateHeaderLabel: '倍数',
-            qtyHeaderLabel: '',
-            sideActionsMode: true,
-            sideActionsStrategyId: rawId,
-            actionsHeaderHtml: renderCounterTrendFoldLinkHtml(rawId),
-          }
-          : {}),
-      }),
-      showCounterTrend
-        ? ''
-        : renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLabel),
-    ].join('');
+  const tableBodyHtml = [
+    renderAdminConcessionsHtml(concessions, stopLabel, {
+      priceDecimalPlaces,
+      assistLabels: isAssistLikeStrategy,
+      hideStopColumn: true,
+      selectableStrategyId: '',
+      isCurrentItem: (item) => isAdminConcessionCurrentItem(item, row),
+      // 趋势力预测：倍数由高到低；趋势立项/趋势辅助 5 档：数量小的在上方
+      reverseOrder: showCounterTrend,
+      ...(isChaseTrend
+        ? {
+          formatRate: getChaseConcessionLabel,
+          sortByRateAsc: true,
+        }
+        : {}),
+      ...(showCounterTrend
+        ? {
+          formatRate: formatCounterTrendRate,
+          rateHeaderLabel: '倍数',
+          qtyHeaderLabel: '',
+          sideActionsMode: true,
+          sideActionsStrategyId: rawId,
+          actionsHeaderHtml: renderCounterTrendFoldLinkHtml(rawId),
+        }
+        : {}),
+    }),
+    showCounterTrend
+      ? ''
+      : renderAdminTakeProfitStopHtml(takeProfitSmallLabel, takeProfitLargeLabel, stopLabel),
+  ].join('');
   const baseStartAt = getStrategyStartAt(row);
   const baseEndAt = getStrategyEndAt(row);
   const counterTimeRange = showCounterTrend ? getCounterTrendTimeRange(row) : null;
